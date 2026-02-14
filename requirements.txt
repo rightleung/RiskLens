@@ -1,0 +1,10 @@
+# Credit Analyst Toolkit — Dependencies
+numpy
+pandas
+matplotlib
+pandas_datareader
+yfinance
+akshare
+openpyxl
+python-dateutil
+streamlit
