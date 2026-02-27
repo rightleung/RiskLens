@@ -16,7 +16,7 @@ This layer handles the physical retrieval of financial datasets from external AP
 
 ### 3. The Analytics & Surveillance Engines
 - **`ratio_analyzer.py`**: A pure mathematical engine that processes raw ingested arrays into 30+ sophisticated credit ratios (Current Ratio, FCF/Debt, Operating Margin).
-- **Altman Z-Score Model**: The finalized ratios are fed into the Z-Score engine to generate the final probabilistic assessment (Safe, Grey, Distress).
+- **Altman Z-Score Model (`zscore.py`)**: The finalized ratios are fed into the Z-Score engine to generate the final probabilistic assessment (Safe, Grey, Distress). This is the sole scoring model in 1.0.
 - **`covenant_monitor.py`**: A specialized module that evaluates the calculated ratios against strict predefined constraints (e.g., Debt/EBITDA < 3.5x). Crucially, the system fails conservatively—if a required metric is missing (`null`), it triggers a technical breach alert rather than defaulting to a pass.
 
 ### 4. The Frontend Client (React 19 + Vite)

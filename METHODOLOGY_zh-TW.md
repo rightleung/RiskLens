@@ -8,6 +8,8 @@
 
 RiskLens 高度依賴 **Altman Z-Score** 作為公眾公司的核心演算法引擎。Z-Score 是一種多元公式，它將企業財務健康的五個不同維度綜合成為一個單一的預測分數。
 
+**1.0 範圍說明：** 目前 API 的評分模型僅使用 Altman Z-Score。`src/credit_risk_assessment.py` 為歷史/實驗性框架，未接入 FastAPI 服務。
+
 ### Z-Score 計算公式
 `Z = 1.2(X1) + 1.4(X2) + 3.3(X3) + 0.6(X4) + 1.0(X5)`
 
