@@ -1,0 +1,480 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+
+  /* ═══ Default (no theme / fallback) ═══ */
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 240 5.9% 10%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 240 10% 3.9%;
+    --radius: 0.5rem;
+
+    /* Brand / theme accent — Celadon default */
+    --theme-300: 170 20% 72%;
+    --theme-400: 170 22% 58%;
+    --theme-500: 170 24% 44%;
+    --theme-600: 170 26% 34%;
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+  }
+}
+
+/*
+ * ═══════════════════════════════════════════════════
+ * IMMERSIVE THEME SYSTEM
+ * Each theme overrides background, card, border, etc.
+ * Both light (default) and dark variants.
+ * ═══════════════════════════════════════════════════
+ */
+
+/* ──── Celadon 青瓷 ──── */
+html.theme-celadon {
+  /* Light */
+  --background: 170 22% 68%;
+  --foreground: 170 30% 8%;
+  --card: 170 15% 93%;
+  --card-foreground: 170 25% 10%;
+  --popover: 170 12% 95%;
+  --popover-foreground: 170 25% 10%;
+  --primary: 170 28% 22%;
+  --primary-foreground: 170 10% 96%;
+  --secondary: 170 12% 85%;
+  --secondary-foreground: 170 25% 15%;
+  --muted: 170 10% 82%;
+  --muted-foreground: 170 12% 38%;
+  --accent: 170 14% 86%;
+  --accent-foreground: 170 25% 12%;
+  --border: 170 14% 76%;
+  --input: 170 14% 78%;
+  --ring: 170 24% 44%;
+  --theme-300: 170 20% 72%;
+  --theme-400: 170 22% 58%;
+  --theme-500: 170 24% 44%;
+  --theme-600: 170 26% 34%;
+}
+
+html.theme-celadon.dark {
+  --background: 168 18% 8%;
+  --foreground: 170 10% 94%;
+  --card: 168 14% 12%;
+  --card-foreground: 170 8% 92%;
+  --popover: 168 14% 11%;
+  --popover-foreground: 170 8% 92%;
+  --primary: 170 10% 92%;
+  --primary-foreground: 168 20% 10%;
+  --secondary: 168 12% 16%;
+  --secondary-foreground: 170 8% 88%;
+  --muted: 168 10% 16%;
+  --muted-foreground: 170 8% 58%;
+  --accent: 168 12% 18%;
+  --accent-foreground: 170 8% 90%;
+  --border: 168 12% 18%;
+  --input: 168 12% 18%;
+  --ring: 170 22% 50%;
+  --theme-300: 170 22% 68%;
+  --theme-400: 170 24% 55%;
+  --theme-500: 170 26% 44%;
+  --theme-600: 170 28% 34%;
+}
+
+/* ──── Cinnabar 朱砂 ──── */
+html.theme-cinnabar {
+  --background: 8 28% 72%;
+  --foreground: 8 35% 8%;
+  --card: 8 14% 94%;
+  --card-foreground: 8 28% 10%;
+  --popover: 8 12% 96%;
+  --popover-foreground: 8 28% 10%;
+  --primary: 8 32% 24%;
+  --primary-foreground: 8 10% 96%;
+  --secondary: 8 12% 86%;
+  --secondary-foreground: 8 28% 15%;
+  --muted: 8 10% 83%;
+  --muted-foreground: 8 15% 40%;
+  --accent: 8 14% 87%;
+  --accent-foreground: 8 28% 12%;
+  --border: 8 16% 78%;
+  --input: 8 16% 78%;
+  --ring: 8 40% 48%;
+  --theme-300: 8 38% 68%;
+  --theme-400: 8 42% 55%;
+  --theme-500: 8 44% 44%;
+  --theme-600: 8 46% 34%;
+}
+
+html.theme-cinnabar.dark {
+  --background: 6 20% 8%;
+  --foreground: 8 10% 94%;
+  --card: 6 16% 12%;
+  --card-foreground: 8 8% 92%;
+  --popover: 6 16% 11%;
+  --popover-foreground: 8 8% 92%;
+  --primary: 8 10% 92%;
+  --primary-foreground: 6 22% 10%;
+  --secondary: 6 14% 16%;
+  --secondary-foreground: 8 8% 88%;
+  --muted: 6 12% 16%;
+  --muted-foreground: 8 10% 58%;
+  --accent: 6 14% 18%;
+  --accent-foreground: 8 8% 90%;
+  --border: 6 14% 18%;
+  --input: 6 14% 18%;
+  --ring: 8 42% 50%;
+  --theme-300: 8 40% 65%;
+  --theme-400: 8 44% 52%;
+  --theme-500: 8 46% 42%;
+  --theme-600: 8 46% 32%;
+}
+
+/* ──── Black Jade 墨玉 ──── */
+html.theme-blackjade {
+  --background: 140 16% 64%;
+  --foreground: 140 28% 8%;
+  --card: 140 10% 93%;
+  --card-foreground: 140 22% 10%;
+  --popover: 140 8% 95%;
+  --popover-foreground: 140 22% 10%;
+  --primary: 140 24% 20%;
+  --primary-foreground: 140 8% 96%;
+  --secondary: 140 10% 84%;
+  --secondary-foreground: 140 22% 15%;
+  --muted: 140 8% 80%;
+  --muted-foreground: 140 10% 38%;
+  --accent: 140 10% 85%;
+  --accent-foreground: 140 22% 12%;
+  --border: 140 12% 74%;
+  --input: 140 12% 76%;
+  --ring: 140 20% 36%;
+  --theme-300: 140 16% 56%;
+  --theme-400: 140 18% 44%;
+  --theme-500: 140 20% 34%;
+  --theme-600: 140 22% 24%;
+}
+
+html.theme-blackjade.dark {
+  --background: 138 16% 7%;
+  --foreground: 140 8% 92%;
+  --card: 138 12% 11%;
+  --card-foreground: 140 6% 90%;
+  --popover: 138 12% 10%;
+  --popover-foreground: 140 6% 90%;
+  --primary: 140 8% 90%;
+  --primary-foreground: 138 18% 9%;
+  --secondary: 138 10% 14%;
+  --secondary-foreground: 140 6% 86%;
+  --muted: 138 8% 14%;
+  --muted-foreground: 140 6% 55%;
+  --accent: 138 10% 16%;
+  --accent-foreground: 140 6% 88%;
+  --border: 138 10% 16%;
+  --input: 138 10% 16%;
+  --ring: 140 18% 42%;
+  --theme-300: 140 18% 52%;
+  --theme-400: 140 20% 42%;
+  --theme-500: 140 22% 32%;
+  --theme-600: 140 24% 22%;
+}
+
+/* ──── Navy Blue 藏蓝 ──── */
+html.theme-navyblue {
+  --background: 224 26% 70%;
+  --foreground: 224 32% 8%;
+  --card: 224 14% 94%;
+  --card-foreground: 224 26% 10%;
+  --popover: 224 12% 96%;
+  --popover-foreground: 224 26% 10%;
+  --primary: 224 30% 22%;
+  --primary-foreground: 224 10% 96%;
+  --secondary: 224 12% 86%;
+  --secondary-foreground: 224 26% 15%;
+  --muted: 224 10% 82%;
+  --muted-foreground: 224 14% 40%;
+  --accent: 224 14% 87%;
+  --accent-foreground: 224 26% 12%;
+  --border: 224 16% 76%;
+  --input: 224 16% 78%;
+  --ring: 224 36% 42%;
+  --theme-300: 224 30% 64%;
+  --theme-400: 224 34% 50%;
+  --theme-500: 224 36% 40%;
+  --theme-600: 224 38% 30%;
+}
+
+html.theme-navyblue.dark {
+  --background: 222 24% 8%;
+  --foreground: 224 10% 94%;
+  --card: 222 20% 12%;
+  --card-foreground: 224 8% 92%;
+  --popover: 222 20% 11%;
+  --popover-foreground: 224 8% 92%;
+  --primary: 224 10% 92%;
+  --primary-foreground: 222 26% 10%;
+  --secondary: 222 16% 16%;
+  --secondary-foreground: 224 8% 88%;
+  --muted: 222 14% 16%;
+  --muted-foreground: 224 10% 58%;
+  --accent: 222 16% 18%;
+  --accent-foreground: 224 8% 90%;
+  --border: 222 16% 18%;
+  --input: 222 16% 18%;
+  --ring: 224 36% 50%;
+  --theme-300: 224 32% 60%;
+  --theme-400: 224 36% 48%;
+  --theme-500: 224 38% 38%;
+  --theme-600: 224 40% 28%;
+}
+
+/* ──── Amber 琥珀 ──── */
+html.theme-amber {
+  --background: 38 32% 72%;
+  --foreground: 38 35% 8%;
+  --card: 38 16% 94%;
+  --card-foreground: 38 28% 10%;
+  --popover: 38 14% 96%;
+  --popover-foreground: 38 28% 10%;
+  --primary: 38 32% 24%;
+  --primary-foreground: 38 12% 96%;
+  --secondary: 38 14% 86%;
+  --secondary-foreground: 38 28% 15%;
+  --muted: 38 12% 83%;
+  --muted-foreground: 38 16% 40%;
+  --accent: 38 16% 87%;
+  --accent-foreground: 38 28% 12%;
+  --border: 38 18% 78%;
+  --input: 38 18% 78%;
+  --ring: 38 52% 46%;
+  --theme-300: 38 48% 65%;
+  --theme-400: 38 52% 52%;
+  --theme-500: 38 56% 42%;
+  --theme-600: 38 58% 32%;
+}
+
+html.theme-amber.dark {
+  --background: 36 22% 8%;
+  --foreground: 38 10% 94%;
+  --card: 36 18% 12%;
+  --card-foreground: 38 8% 92%;
+  --popover: 36 18% 11%;
+  --popover-foreground: 38 8% 92%;
+  --primary: 38 10% 92%;
+  --primary-foreground: 36 24% 10%;
+  --secondary: 36 14% 16%;
+  --secondary-foreground: 38 8% 88%;
+  --muted: 36 12% 16%;
+  --muted-foreground: 38 10% 58%;
+  --accent: 36 14% 18%;
+  --accent-foreground: 38 8% 90%;
+  --border: 36 14% 18%;
+  --input: 36 14% 18%;
+  --ring: 38 52% 50%;
+  --theme-300: 38 50% 62%;
+  --theme-400: 38 54% 50%;
+  --theme-500: 38 56% 40%;
+  --theme-600: 38 58% 30%;
+}
+
+/* ──── Carmine 胭脂 ──── */
+html.theme-carmine {
+  --background: 348 24% 72%;
+  --foreground: 348 30% 8%;
+  --card: 348 12% 94%;
+  --card-foreground: 348 24% 10%;
+  --popover: 348 10% 96%;
+  --popover-foreground: 348 24% 10%;
+  --primary: 348 28% 24%;
+  --primary-foreground: 348 10% 96%;
+  --secondary: 348 12% 86%;
+  --secondary-foreground: 348 24% 15%;
+  --muted: 348 10% 83%;
+  --muted-foreground: 348 14% 40%;
+  --accent: 348 14% 87%;
+  --accent-foreground: 348 24% 12%;
+  --border: 348 16% 78%;
+  --input: 348 16% 78%;
+  --ring: 348 38% 46%;
+  --theme-300: 348 34% 67%;
+  --theme-400: 348 38% 54%;
+  --theme-500: 348 40% 44%;
+  --theme-600: 348 42% 34%;
+}
+
+html.theme-carmine.dark {
+  --background: 346 20% 8%;
+  --foreground: 348 8% 94%;
+  --card: 346 16% 12%;
+  --card-foreground: 348 6% 92%;
+  --popover: 346 16% 11%;
+  --popover-foreground: 348 6% 92%;
+  --primary: 348 8% 92%;
+  --primary-foreground: 346 22% 10%;
+  --secondary: 346 12% 16%;
+  --secondary-foreground: 348 6% 88%;
+  --muted: 346 10% 16%;
+  --muted-foreground: 348 8% 58%;
+  --accent: 346 12% 18%;
+  --accent-foreground: 348 6% 90%;
+  --border: 346 12% 18%;
+  --input: 346 12% 18%;
+  --ring: 348 38% 50%;
+  --theme-300: 348 36% 64%;
+  --theme-400: 348 40% 52%;
+  --theme-500: 348 42% 42%;
+  --theme-600: 348 44% 32%;
+}
+
+/* ──── Clear Sky 晴空 ──── */
+html.theme-clearsky {
+  --background: 216 32% 72%;
+  --foreground: 216 36% 8%;
+  --card: 216 16% 94%;
+  --card-foreground: 216 30% 10%;
+  --popover: 216 14% 96%;
+  --popover-foreground: 216 30% 10%;
+  --primary: 216 34% 24%;
+  --primary-foreground: 216 12% 96%;
+  --secondary: 216 14% 86%;
+  --secondary-foreground: 216 30% 15%;
+  --muted: 216 12% 83%;
+  --muted-foreground: 216 16% 40%;
+  --accent: 216 16% 87%;
+  --accent-foreground: 216 30% 12%;
+  --border: 216 18% 78%;
+  --input: 216 18% 78%;
+  --ring: 216 60% 50%;
+  --theme-300: 216 56% 68%;
+  --theme-400: 216 60% 56%;
+  --theme-500: 216 64% 46%;
+  --theme-600: 216 66% 36%;
+}
+
+html.theme-clearsky.dark {
+  --background: 214 26% 8%;
+  --foreground: 216 10% 94%;
+  --card: 214 22% 12%;
+  --card-foreground: 216 8% 92%;
+  --popover: 214 22% 11%;
+  --popover-foreground: 216 8% 92%;
+  --primary: 216 10% 92%;
+  --primary-foreground: 214 28% 10%;
+  --secondary: 214 18% 16%;
+  --secondary-foreground: 216 8% 88%;
+  --muted: 214 14% 16%;
+  --muted-foreground: 216 10% 58%;
+  --accent: 214 18% 18%;
+  --accent-foreground: 216 8% 90%;
+  --border: 214 18% 18%;
+  --input: 214 18% 18%;
+  --ring: 216 60% 50%;
+  --theme-300: 216 58% 65%;
+  --theme-400: 216 62% 54%;
+  --theme-500: 216 64% 44%;
+  --theme-600: 216 66% 34%;
+}
+
+/* ═══ Base styles ═══ */
+@layer base {
+  html {
+    font-size: 16px;
+  }
+
+  @media (min-width: 1920px) {
+    html {
+      font-size: 18px;
+    }
+  }
+
+  @media (min-width: 2560px) {
+    html {
+      font-size: 22px;
+    }
+  }
+
+  @media (min-width: 3840px) {
+    html {
+      font-size: 26px;
+    }
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground tracking-wide font-sans leading-relaxed;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    transition: background-color 0.4s ease, color 0.3s ease;
+  }
+}
+
+/* ═══ Glass-morphism ═══ */
+.glass-panel {
+  @apply bg-card/60 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/30;
+}
+
+.glass-header {
+  @apply sticky top-0 z-50 bg-background/80 backdrop-blur-md border-b border-white/10;
+}
+
+/* ═══ Rating badges ═══ */
+.rating-S {
+  @apply text-emerald-400 font-bold;
+}
+
+.rating-G {
+  @apply text-amber-500 font-bold;
+}
+
+.rating-D {
+  @apply text-rose-500 font-bold;
+}
+
+/* ═══ Background decorative spheres ═══ */
+.bg-gradient-sphere {
+  @apply fixed rounded-full blur-[100px] -z-10 opacity-30 pointer-events-none;
+}
+
+.bg-sphere-1 {
+  @apply w-[40vw] h-[40vw] max-w-[600px] max-h-[600px] bg-brand-600/20 top-[-10%] left-[-10%];
+}
+
+.bg-sphere-2 {
+  @apply w-[50vw] h-[50vw] max-w-[800px] max-h-[800px] bg-rose-900/10 bottom-[-20%] right-[-10%];
+}

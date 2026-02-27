@@ -1,125 +1,59 @@
-## Architecture Overview
+# RiskLens Architecture Overview
 
-A modular, production-ready credit risk assessment framework with comprehensive error handling, full type annotations, and testable components. The architecture separates concerns into distinct layers: data models, validation, business logic, and assessment engine.
+RiskLens is built on a modern, decoupled architecture designed to handle institutional credit risk analysis. The system is split into a high-performance Python analytics backend and a responsive React frontend, connected via a RESTful JSON API.
 
-## Components
+## System Architecture
 
-| Component | Responsibility | Inputs | Outputs |
-|-----------|---------------|--------|---------|
-| **Custom Exceptions** | Centralized error handling with specific exception types | Validation failures, calculation errors, configuration errors | Rich error messages with context |
-| **Configuration Manager** | Manage thresholds, weights, and industry mappings | config.yaml, environment variables | Validated configuration object |
-| **Data Models (Pydantic)** | Validate input/output data structures | JSON/dict data, user inputs | Validated Pydantic models |
-| **Financial Ratio Validator** | Validate financial ratio calculations | Raw financial data | Validated ratios, validation warnings |
-| **Risk Scoring Engine** | Calculate risk scores from risk factors | RiskFactors object, weights | Risk scores (0-100) |
-| **Rating Mapper** | Map risk scores to credit ratings | Risk scores, ratio context | CreditRating enum value |
-| **Outlook Analyzer** | Determine rating outlook based on trends | Historical/current ratios, trends | RiskDirection enum value |
-| **Peer Comparison Engine** | Compare companies against peer groups | Assessment, peer ratios | Comparison DataFrame |
-| **Assessment Orchestrator** | Coordinate full credit assessment workflow | Company data, ratios, config | Complete CreditRiskAssessment |
-| **Test Fixtures Factory** | Generate realistic test data | Test scenarios | Mock financial data, assessments |
+### 1. The Backend Gateway (FastAPI)
+The backend is built with **FastAPI**, providing high-throughput asynchronous execution, automatic OpenAPI documentation, and strict data validation.
+- **`api.py` (The Orchestrator)**: Exposes the `POST /api/v1/assess` endpoint. It receives an array of ticker symbols and orchestrates the data fetching and translation processes.
+- **Concurrent Execution**: To dramatically reduce response latency, multi-language semantic matching (Google Translate) is executed dynamically using Python's `concurrent.futures.ThreadPoolExecutor`, allowing English, Simplified Chinese, Traditional Chinese, and Japanese names to be fetched in parallel.
 
-## Data Flow
+### 2. The Data Ingestion Layer (`data_fetcher.py`)
+This layer handles the physical retrieval of financial datasets from external APIs. It implements a robust fallback methodology:
+- **AKShare (China A-Shares & HK)**: Primary pipeline for onshore Chinese equities (e.g., `600673.SS`). Directly queries Mainland APIs (`stock_financial_report_sina`, `stock_individual_info_em`) handling complex Chinese GAAP taxonomy and converting irregular reporting periods (Q1, H1, Q3) into annualized standard formats.
+- **yFinance (Global/US)**: Serves as the primary engine for US/European markets and acts as a safety fallback if onshore APIs throttle connections.
 
-### Assessment Flow (Step-by-step)
+### 3. The Analytics & Surveillance Engines
+- **`ratio_analyzer.py`**: A pure mathematical engine that processes raw ingested arrays into 30+ sophisticated credit ratios (Current Ratio, FCF/Debt, Operating Margin).
+- **Altman Z-Score Model**: The finalized ratios are fed into the Z-Score engine to generate the final probabilistic assessment (Safe, Grey, Distress).
+- **`covenant_monitor.py`**: A specialized module that evaluates the calculated ratios against strict predefined constraints (e.g., Debt/EBITDA < 3.5x). Crucially, the system fails conservatively—if a required metric is missing (`null`), it triggers a technical breach alert rather than defaulting to a pass.
 
-1. **Input Validation**
-   - User provides: `company_name`, `ratios`, `industry`, `fiscal_year`, `additional_factors`
-   - Configuration Manager loads thresholds and weights
-   - Data Models validate input types and constraints
-   - Financial Ratio Validator checks ratio reasonableness
+### 4. The Frontend Client (React 19 + Vite)
+- **State Management**: Built as a Single Page Application (SPA) utilizing functional React Hooks. Contains centralized state logic for dark mode (`useTheme`), active company datasets, and responsive financial modals.
+- **UI/UX**: Styled extensively with `Tailwind CSS`, utilizing glassmorphism utilities (`glass-panel`, `glass-header`) to establish a premium, institutional aesthetics.
+- **Localization (i18n)**: Dictated by `translations.ts`, which maps over 650 localized terms. The UI dynamically re-renders the entire interface—from overarching layouts down to specific financial row items—based on the user's active language selection (`zh-CN`, `zh-TW`, `en`, `ja`).
 
-2. **Risk Factor Assessment**
-   - For each financial ratio (interest_coverage, debt_to_ebitda, etc.):
-     - Compare against threshold bands
-     - Assign risk score (1-5 scale)
-   - Apply industry risk adjustment
-   - Incorporate additional qualitative factors
+## Data Flow Diagram
 
-3. **Score Calculation**
-   - Calculate weighted average: `financial_risk * 0.6 + business_risk * 0.4`
-   - Scale to 0-100 range
-   - Apply confidence adjustments based on data completeness
+```mermaid
+graph TD
+    A[Client Request (React)] -->|POST /api/v1/assess| B(FastAPI Router)
+    
+    B --> C{Ticker Type?}
+    C -->|A-Share/HK| D[AKShare Ingestion]
+    C -->|US/Global Data| E[yFinance Ingestion]
+    
+    D --> F[Data Normalization]
+    E --> F
+    
+    F --> G[Ratio Analyzer]
+    G --> H[Altman Z-Score Engine]
+    H --> I[Implied Rating Mapping]
+    
+    B --> J[Concurrent Translator]
+    J -->|ThreadPoolExecutor| K[Google Translate API]
+    K -->|Multi-lang dict| L[Response Aggregator]
+    
+    I --> L
+    L -->|JSON Payload| A
+```
 
-4. **Rating Determination**
-   - Pass risk_score through threshold mapper
-   - Generate rating with modifiers (e.g., "AAA-", "BB+")
-   - Validate rating alignment with key metrics
-
-5. **Outlook Generation**
-   - Analyze trend indicators from multiple periods
-   - Determine direction: IMPROVING, STABLE, DETERIORATING, VOLATILE
-   - Generate supporting evidence list
-
-6. **Strengths/Weaknesses Identification**
-   - Compare each metric against threshold bands
-   - Populate strengths (positive factors), weaknesses (negative factors)
-   - Generate watch items for borderline metrics
-
-7. **Assessment Completion**
-   - Assemble all components into CreditRiskAssessment object
-   - Store assessment in history
-   - Return to user
-
-### Error Handling Flow
-
-1. Input validation → `ValidationError` with field details
-2. Configuration missing → `ConfigurationError`
-3. Calculation overflow → `CalculationError`
-4. Missing required data → `InsufficientDataError`
-5. Invalid state → `AssessmentStateError`
-
-## Key Decisions
+## Key Architectural Decisions
 
 | Decision | Rationale |
 |----------|-----------|
-| **Use Pydantic for data validation** | Provides automatic validation, serialization, and type coercion. Reduces boilerplate and catches errors early. |
-| **Custom exception hierarchy** | Enables precise error handling at different levels. Users can catch specific exceptions or use base classes for broad handling. |
-| **Configuration object pattern** | Centralizes thresholds/weights for easy tuning without code changes. Enables A/B testing and regulatory adjustments. |
-| **Plugin architecture for thresholds** | Allows industry-specific or client-specific threshold sets. Supports customization without modifying core logic. |
-| **Separation of scoring and rating** | Makes it easy to swap rating methodologies. Financial scoring is reusable across different rating schemes. |
-| **Comprehensive validation layer** | Catches data quality issues before calculations. Provides actionable error messages for analysts. |
-| **Factory pattern for test fixtures** | Ensures consistent, realistic test data generation. Makes test maintenance easier as data structures evolve. |
-| **Immutable data models** | Prevents accidental state changes. Makes code easier to reason about and test. |
-| **Historical assessment tracking** | Enables trend analysis over time. Supports audit requirements and regulatory compliance. |
-| **Type-safe ratio calculations** | Full type hints enable static analysis. Catches type-related bugs early in development. |
-
-## Proposed File Structure
-
-```
-credit_risk_assessment/
-├── __init__.py
-├── exceptions.py           # Custom exception hierarchy
-├── config.py               # Configuration management
-├── models.py              # Pydantic data models
-├── validators.py           # Input/data validators
-├── scoring.py             # Risk scoring engine
-├── rating.py              # Rating mapping logic
-├── outlook.py             # Outlook determination
-├── peer_comparison.py     # Peer analysis
-├── assessor.py            # Main orchestrator
-└── tests/
-    ├── __init__.py
-    ├── conftest.py        # Pytest fixtures
-    ├── test_models.py     # Data model tests
-    ├── test_validators.py  # Validation tests
-    ├── test_scoring.py    # Scoring tests
-    ├── test_rating.py     # Rating tests
-    ├── test_outlook.py    # Outlook tests
-    ├── test_assessor.py   # Integration tests
-    └── test_e2e.py        # End-to-end scenarios
-```
-
-## Test Coverage Strategy
-
-1. **Unit Tests** - Each component tested in isolation with mocked dependencies
-2. **Integration Tests** - Test component interactions
-3. **Edge Cases** - Boundary conditions, missing data, extreme values
-4. **Error Handling** - Verify proper exceptions for invalid inputs
-5. **Regression Tests** - Ensure existing behavior is preserved
-6. **Property-Based Tests** - Generate random valid inputs to find edge cases
-
-## API Compatibility
-
-- Maintain `CreditRiskAssessor.assess_credit()` signature
-- Preserve `CreditRiskAssessment` and `RiskFactors` interfaces
-- Add optional parameters with sensible defaults
-- Deprecate internal methods with warnings if needed
+| **Asynchronous FastAPI + Pydantic** | Provides high-throughput concurrency and automatic type coercion for incoming requests, guaranteeing data structures before the analysis engine runs. |
+| **Bilingual Taxonomy Matching** | Essential for accurately mapping Chinese GAAP terms from AKShare into standardized global structures (IFRS/US GAAP) for valid peer comparisons. |
+| **Separation of Assessment and Covenants** | Post-lending surveillance (Covenants) operates independently from probability of default scoring (Z-Score), allowing different thresholds per borrower. |
+| **Real-time Semantic Translation** | Using `ThreadPoolExecutor` ensures company names are correctly rendered in JS/ZH markets without delaying the massive ingestion payload. |
