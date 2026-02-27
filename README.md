@@ -74,6 +74,19 @@ uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```
 *API Swagger / OpenAPI Interface available at: `http://localhost:8000/docs`*
 
+### 3. Post-Migration (Linux to macOS)
+```bash
+# 1) Recreate Python environment to avoid cross-platform binaries
+rm -rf .venv
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+
+# 2) Reinstall frontend dependencies
+cd web
+npm ci
+```
+
 ---
 
 ## 👨‍💻 Maintainer
