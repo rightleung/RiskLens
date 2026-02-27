@@ -43,20 +43,20 @@ def get_financial_data(ticker: str) -> Optional[Dict]:
 
 
 def get_a_stock_data(ticker: str) -> Optional[Dict]:
-    """获取A股数据"""
+    """获取A股数据 (via AKShare Sina Finance API)"""
     try:
-        # 股票基本信息
+        import akshare as ak
+
+        # RA-003: Replaced deprecated ak.stock_balance_sheet/profit_statement/cashflow_statement
+        # with the current Sina Finance report API used by data_fetcher._fetch_a_share_akshare().
         stock_info = ak.stock_individual_info_em(symbol=ticker)
         company_name = _extract_company_name(stock_info)
-        
-        # 财务报表
-        # 资产负债表
-        balance_sheet = ak.stock_balance_sheet(symbol=ticker, indicator="合并报表")
-        # 利润表
-        income_stmt = ak.stock_profit_statement(symbol=ticker, indicator="合并报表")
-        # 现金流量表
-        cashflow = ak.stock_cashflow_statement(symbol=ticker, indicator="合并报表")
-        
+
+        # Current Sina Finance API (matches data_fetcher.py usage)
+        income_stmt = ak.stock_financial_report_sina(stock=ticker, symbol='利润表')
+        balance_sheet = ak.stock_financial_report_sina(stock=ticker, symbol='资产负债表')
+        cashflow = ak.stock_financial_report_sina(stock=ticker, symbol='现金流量表')
+
         return {
             'ticker': ticker,
             'company_name': company_name,

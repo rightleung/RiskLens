@@ -1,7 +1,8 @@
 """
-Credit Analyst Toolkit — Credit Risk Assessment
-================================================
-Framework for assessing credit risk and generating risk ratings.
+Credit Analyst Toolkit — Credit Risk Assessment (Legacy)
+========================================================
+Legacy framework for assessing credit risk and generating risk ratings.
+This module is not used by the current FastAPI API (which uses Altman Z-Score).
 
 Features:
 - Custom exception hierarchy for precise error handling
@@ -307,10 +308,10 @@ class RiskFactors:
         """Calculate total weighted risk score.
         
         Weights:
-            Financial: 40%
-            Business: 25%
+            Financial:  40%
+            Business:   25%
             Management: 20%
-            ESG: 15%
+            ESG:        15%
         
         Returns:
             Weighted risk score (0-100 scale)
@@ -505,11 +506,11 @@ class RiskFactorsValidator:
     
     # Valid ranges for key metrics
     VALID_RANGES: Dict[str, Tuple[float, float]] = {
-        'interest_coverage': (-1000.0, 1000.0),
-        'debt_to_ebitda': (-100.0, 100.0),
-        'fcf_to_debt': (-10.0, 10.0),
-        'current_ratio': (0.0, 100.0),
-        'net_margin': (-100.0, 100.0),
+        'interest_coverage': (-100000.0, 100000.0),
+        'debt_to_ebitda': (-100000.0, 100000.0),
+        'fcf_to_debt': (-1000.0, 1000.0),
+        'current_ratio': (0.0, 1000.0),
+        'net_margin': (-1000.0, 1000.0),
     }
     
     @classmethod
@@ -824,7 +825,7 @@ def score_interest_coverage(ic: float) -> int:
         ValueError: If coverage is negative
     """
     if ic < 0:
-        raise ValueError(f"Interest coverage cannot be negative: {ic}")
+        raise ValueError("Interest coverage cannot be negative")
     
     if ic >= 8:
         return 1
@@ -850,8 +851,9 @@ def score_debt_to_ebitda(d_e: float) -> int:
     Raises:
         ValueError: If ratio is negative
     """
+    # Negative D/E means negative EBITDA — highest risk, not an error
     if d_e < 0:
-        raise ValueError(f"Debt/EBITDA cannot be negative: {d_e}")
+        return 5
     
     if d_e <= 2:
         return 1
@@ -899,7 +901,7 @@ def score_current_ratio(cr: float) -> int:
         ValueError: If ratio is negative
     """
     if cr < 0:
-        raise ValueError(f"Current ratio cannot be negative: {cr}")
+        raise ValueError("Current ratio cannot be negative")
     
     if cr >= 2:
         return 1
@@ -1067,7 +1069,7 @@ class CreditRiskAssessor:
         'insurance': 3,
         'healthcare': 2,      # Stable demand
         'pharmaceuticals': 2,
-        'retail': 4,          # Competitive, cyclical
+        'retail': 5,          # Competitive, cyclical
         'consumer': 4,
         'industrial': 3,       # Cyclical
         'energy': 5,          # Commodity price risk
@@ -1080,6 +1082,7 @@ class CreditRiskAssessor:
     def __init__(self) -> None:
         """Initialize the CreditRiskAssessor."""
         self.assessments: List[CreditRiskAssessment] = []
+        self._MAX_ASSESSMENTS = 1000  # Prevent memory leak
     
     def assess_credit(
         self,
@@ -1222,9 +1225,16 @@ class CreditRiskAssessor:
         
         financial_risk = risk_factors.average_financial_risk()
         business_risk = risk_factors.average_business_risk()
+        management_risk = risk_factors.average_management_risk()
+        esg_risk = risk_factors.average_esg_risk()
         
-        # Weighted score (financial 85%, business 15%)
-        risk_score = (financial_risk * 0.85 + business_risk * 0.15) * 20  # Scale to 0-100
+        # Weighted score: Financial 40%, Business 25%, Management 20%, ESG 15%
+        risk_score = (
+            financial_risk * 0.40
+            + business_risk * 0.25
+            + management_risk * 0.20
+            + esg_risk * 0.15
+        ) * 20  # Scale to 0-100
         
         # --- Generate Rating ---
         
@@ -1240,25 +1250,25 @@ class CreditRiskAssessor:
         weaknesses = []
         watch_items = []
         
-        if ic and ic > 5:
+        if ic is not None and ic > 5:
             strengths.append(f"Strong interest coverage ({ic:.1f}x)")
-        elif ic and ic < 2:
+        elif ic is not None and ic < 2:
             weaknesses.append(f"Weak interest coverage ({ic:.1f}x)")
             watch_items.append("Interest coverage deterioration")
         
-        if d_e and d_e < 3:
+        if d_e is not None and d_e < 3:
             strengths.append(f"Low leverage (Debt/EBITDA: {d_e:.1f})")
-        elif d_e and d_e > 5:
+        elif d_e is not None and d_e > 5:
             weaknesses.append(f"High leverage (Debt/EBITDA: {d_e:.1f})")
         
-        if fcf_d and fcf_d > 0.2:
+        if fcf_d is not None and fcf_d > 0.2:
             strengths.append(f"Strong free cash flow ({fcf_d*100:.1f}% of debt)")
-        elif fcf_d and fcf_d < 0:
+        elif fcf_d is not None and fcf_d < 0:
             weaknesses.append("Negative free cash flow")
         
-        if cr and cr > 1.5:
+        if cr is not None and cr > 1.5:
             strengths.append(f"Good liquidity (Current Ratio: {cr:.2f})")
-        elif cr and cr < 1:
+        elif cr is not None and cr < 1:
             weaknesses.append(f"Weak liquidity (Current Ratio: {cr:.2f})")
         
         # --- Create Assessment ---
@@ -1282,6 +1292,9 @@ class CreditRiskAssessor:
         )
         
         self.assessments.append(assessment)
+        # Evict oldest entries to prevent memory leak in long-running servers
+        if len(self.assessments) > self._MAX_ASSESSMENTS:
+            self.assessments = self.assessments[-self._MAX_ASSESSMENTS:]
         return assessment
     
     def _score_to_rating(self, risk_score: float) -> str:

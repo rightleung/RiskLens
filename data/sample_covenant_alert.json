@@ -1,0 +1,38 @@
+{
+    "ticker": "000002.SZ",
+    "company_name": "China Vanke Co., Ltd.",
+    "report_date": "2025-02-25",
+    "period": "FY2024 (Latest Available)",
+    "overall_status": "CRITICAL BREACH",
+    "alerts_triggered": 2,
+    "covenant_details": [
+        {
+            "covenant_name": "Maximum Net Debt / EBITDA",
+            "metric_key": "debt_to_ebitda",
+            "threshold": 3.5,
+            "actual_value": 7.42,
+            "status": "BREACHED",
+            "severity": "HIGH",
+            "notes": "Significant deterioration in earnings relative to gross debt levels."
+        },
+        {
+            "covenant_name": "Minimum Interest Coverage Ratio",
+            "metric_key": "interest_coverage",
+            "threshold": 2.5,
+            "actual_value": 1.15,
+            "status": "BREACHED",
+            "severity": "MEDIUM",
+            "notes": "Reduced EBIT buffer against fixed interest charges."
+        },
+        {
+            "covenant_name": "Minimum Current Ratio",
+            "metric_key": "current_ratio",
+            "threshold": 1.1,
+            "actual_value": 1.18,
+            "status": "COMPLIANT",
+            "severity": "LOW",
+            "notes": "Maintains adequate short-term liquidity, though margin is tightening."
+        }
+    ],
+    "monitoring_action_required": "Immediate credit review and potential waiver negotiation with borrower management."
+}

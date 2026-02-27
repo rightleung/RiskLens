@@ -7,4 +7,9 @@ yfinance
 akshare
 openpyxl
 python-dateutil
-streamlit
+
+fastapi
+uvicorn
+pydantic
+requests
+opencc

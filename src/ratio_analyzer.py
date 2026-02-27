@@ -355,7 +355,7 @@ class CreditRatioAnalysis:
         scores = []
         
         # Interest Coverage (most important for credit)
-        if self.interest_coverage:
+        if self.interest_coverage is not None:
             if self.interest_coverage > 5:
                 scores.append(3)
             elif self.interest_coverage > 3:
@@ -366,7 +366,7 @@ class CreditRatioAnalysis:
                 scores.append(0)
         
         # Debt/EBITDA
-        if self.debt_to_ebitda:
+        if self.debt_to_ebitda is not None:
             if self.debt_to_ebitda < 2:
                 scores.append(3)
             elif self.debt_to_ebitda < 3.5:
@@ -377,7 +377,7 @@ class CreditRatioAnalysis:
                 scores.append(0)
         
         # Current Ratio
-        if self.current_ratio:
+        if self.current_ratio is not None:
             if self.current_ratio > 1.5:
                 scores.append(2)
             elif self.current_ratio > 1.0:
@@ -386,7 +386,7 @@ class CreditRatioAnalysis:
                 scores.append(0)
         
         # FCF/Revenue
-        if self.fcf_to_revenue:
+        if self.fcf_to_revenue is not None:
             if self.fcf_to_revenue > 0.1:
                 scores.append(2)
             elif self.fcf_to_revenue > 0:
@@ -464,23 +464,23 @@ class RiskFactorsValidator:
     
     # Valid ranges for ratios
     VALID_RANGES: Dict[str, Tuple[float, float]] = {
-        'current_ratio': (0.0, 100.0),
-        'quick_ratio': (0.0, 100.0),
-        'cash_ratio': (0.0, 100.0),
-        'debt_to_equity': (-10.0, 100.0),
-        'debt_to_assets': (-1.0, 10.0),
-        'financial_leverage': (0.0, 100.0),
-        'interest_coverage': (-1000.0, 1000.0),
-        'debt_to_ebitda': (-100.0, 100.0),
-        'gross_margin': (-100.0, 100.0),
-        'operating_margin': (-100.0, 100.0),
-        'net_margin': (-100.0, 100.0),
-        'roa': (-100.0, 100.0),
-        'roe': (-100.0, 100.0),
-        'roic': (-100.0, 100.0),
-        'asset_turnover': (-10.0, 10.0),
-        'fcf_to_debt': (-10.0, 10.0),
-        'fcf_to_revenue': (-10.0, 10.0),
+        'current_ratio': (0.0, 1000.0),
+        'quick_ratio': (0.0, 1000.0),
+        'cash_ratio': (0.0, 1000.0),
+        'debt_to_equity': (-1000.0, 1000.0),
+        'debt_to_assets': (-100.0, 100.0),
+        'financial_leverage': (-1000.0, 1000.0),
+        'interest_coverage': (-100000.0, 100000.0),
+        'debt_to_ebitda': (-100000.0, 100000.0),
+        'gross_margin': (-1000.0, 1000.0),
+        'operating_margin': (-1000.0, 1000.0),
+        'net_margin': (-1000.0, 1000.0),
+        'roa': (-1000.0, 1000.0),
+        'roe': (-1000.0, 1000.0),
+        'roic': (-1000.0, 1000.0),
+        'asset_turnover': (-100.0, 100.0),
+        'fcf_to_debt': (-1000.0, 1000.0),
+        'fcf_to_revenue': (-1000.0, 1000.0),
     }
     
     @classmethod
@@ -624,13 +624,15 @@ class RiskFactorsValidator:
             )
         
         if required_columns:
-            missing = [col for col in required_columns if col not in df.columns]
+            # Accept required keys in either columns or index
+            available_keys = set(df.columns) | set(df.index)
+            missing = [col for col in required_columns if col not in available_keys]
             if missing:
                 raise ValidationError(
                     field_name="data",
                     value=list(df.columns),
-                    expected_type=f"DataFrame with columns {required_columns}",
-                    reason=f"Missing required columns: {missing}"
+                    expected_type=f"DataFrame with columns/index {required_columns}",
+                    reason=f"Missing required keys: {missing}"
                 )
         
         return df
@@ -689,7 +691,10 @@ class RatioAnalyzer:
         if numerator is None or denominator is None:
             return default
         
-        if np.isnan(denominator) or denominator == 0:
+        if np.isnan(numerator) or np.isnan(denominator) or denominator == 0:
+            return default
+        
+        if np.isinf(numerator) or np.isinf(denominator):
             return default
         
         try:
@@ -720,7 +725,26 @@ class RatioAnalyzer:
                 value = df.loc[key]
                 if isinstance(value, pd.Series):
                     value = value.iloc[0] if len(value) > 0 else None
-                return float(value) if value is not None else None
+                if value is None:
+                    return None
+                try:
+                    if np.isnan(value) or np.isinf(value):
+                        return None
+                except TypeError:
+                    pass
+                return float(value)
+            if key in df.columns:
+                value = df[key]
+                if isinstance(value, pd.Series):
+                    value = value.iloc[0] if len(value) > 0 else None
+                if value is None:
+                    return None
+                try:
+                    if np.isnan(value) or np.isinf(value):
+                        return None
+                except TypeError:
+                    pass
+                return float(value)
             return None
         except (KeyError, ValueError, TypeError):
             return None
@@ -748,7 +772,10 @@ class RatioAnalyzer:
         
         # Quick Ratio = (Current Assets - Inventory) / Current Liabilities
         inv = self._get_value(bs_data, 'inventory')
-        quick_assets = self._safe_divide(ca, 1) - self._safe_divide(inv, 1) if ca else None
+        if ca is not None:
+            quick_assets = ca - (inv if inv is not None else 0)
+        else:
+            quick_assets = None
         ratios['quick_ratio'] = self._safe_divide(quick_assets, cl)
         
         # Cash Ratio = Cash / Current Liabilities
@@ -778,7 +805,13 @@ class RatioAnalyzer:
         # Debt to Equity = Total Debt / Total Equity
         debt = self._get_value(bs_data, 'total_debt')
         equity = self._get_value(bs_data, 'total_equity')
-        ratios['debt_to_equity'] = self._safe_divide(debt, equity)
+        
+        # OR-001: Negative equity makes D/E misleading (shows falsely low leverage).
+        # Return None so the UI can display N/A instead of a negative ratio.
+        if equity is not None and equity < 0:
+            ratios['debt_to_equity'] = None  # Insolvent: equity is negative
+        else:
+            ratios['debt_to_equity'] = self._safe_divide(debt, equity)
         
         # Debt to Assets = Total Debt / Total Assets
         assets = self._get_value(bs_data, 'total_assets')
@@ -792,11 +825,34 @@ class RatioAnalyzer:
             RiskFactorsValidator.validate_dataframe(is_data)
             ebit = self._get_value(is_data, 'operating_income')
             interest = self._get_value(is_data, 'interest_expense')
-            ratios['interest_coverage'] = self._safe_divide(ebit, interest)
+            # Normalize sign: yFinance may report interest_expense as negative
+            if interest is not None:
+                interest = abs(interest)
             
-            # EBITDA estimate (approximate)
-            ebitda = ebit  # Would add back depreciation if available
-            ratios['debt_to_ebitda'] = self._safe_divide(debt, ebitda)
+            # OR-001: If EBIT ≤ 0 (operating loss), interest coverage is N/A.
+            # A company that cannot cover interest from operations is already
+            # in distress; returning 0 would understate that.
+            if ebit is not None and ebit <= 0:
+                ratios['interest_coverage'] = None  # Mark as N/A for negative/zero EBIT
+            else:
+                ratios['interest_coverage'] = self._safe_divide(ebit, interest)
+            
+            # EBITDA: prefer direct value, fallback to EBIT + D&A
+            ebitda_direct = self._get_value(is_data, 'ebitda')
+            da = self._get_value(is_data, 'reconciled_depreciation')
+            if ebitda_direct is not None:
+                ebitda = ebitda_direct
+            elif ebit is not None and da is not None:
+                ebitda = ebit + abs(da)
+            else:
+                ebitda = ebit  # Last resort fallback
+            
+            # OR-001: If EBITDA ≤ 0, debt_to_ebitda is not meaningful
+            # (a negative value would imply 'safe' leverage which is wrong).
+            if ebitda is not None and ebitda <= 0:
+                ratios['debt_to_ebitda'] = None  # Mark as N/A for loss-making
+            else:
+                ratios['debt_to_ebitda'] = self._safe_divide(debt, ebitda)
             ratios['ebitda'] = ebitda
         
         ratios['total_debt'] = debt
@@ -830,20 +886,33 @@ class RatioAnalyzer:
             operating_income = self._get_value(is_data, 'operating_income')
             net_income = self._get_value(is_data, 'net_income')
             
-            ratios['gross_margin'] = self._safe_divide(gross_profit, revenue) * 100 if revenue else None
-            ratios['operating_margin'] = self._safe_divide(operating_income, revenue) * 100 if revenue else None
-            ratios['net_margin'] = self._safe_divide(net_income, revenue) * 100 if revenue else None
+            # Fallback for gross_profit if missing
+            if gross_profit is None and revenue is not None:
+                cost = self._get_value(is_data, 'cost_of_revenue')
+                if cost is not None:
+                    gross_profit = revenue - cost
+
+            gm = self._safe_divide(gross_profit, revenue)
+            ratios['gross_margin'] = gm * 100 if gm is not None else None
+            
+            om = self._safe_divide(operating_income, revenue)
+            ratios['operating_margin'] = om * 100 if om is not None else None
+            
+            nm = self._safe_divide(net_income, revenue)
+            ratios['net_margin'] = nm * 100 if nm is not None else None
             
             ratios['revenue'] = revenue
         
         # Return on Assets = Net Income / Total Assets
-        net_income = self._get_value(is_data, 'net_income') if is_data else None
+        net_income = self._get_value(is_data, 'net_income') if is_data is not None else None
         assets = self._get_value(bs_data, 'total_assets')
-        ratios['roa'] = self._safe_divide(net_income, assets) * 100 if assets else None
+        roa_val = self._safe_divide(net_income, assets)
+        ratios['roa'] = roa_val * 100 if roa_val is not None else None
         
         # Return on Equity = Net Income / Total Equity
         equity = self._get_value(bs_data, 'total_equity')
-        ratios['roe'] = self._safe_divide(net_income, equity) * 100 if equity else None
+        roe_val = self._safe_divide(net_income, equity)
+        ratios['roe'] = roe_val * 100 if roe_val is not None else None
         
         return ratios
     
@@ -909,7 +978,7 @@ class RatioAnalyzer:
         
         ocf = self._get_value(cf_data, 'operating_cf')
         fcf = self._get_value(cf_data, 'free_cf')
-        debt = self._get_value(bs_data, 'total_debt') if bs_data else None
+        debt = self._get_value(bs_data, 'total_debt') if bs_data is not None else None
         revenue = self._get_value(cf_data, 'revenue')  # Some CF statements include revenue
         
         # FCF to Debt = Free Cash Flow / Total Debt
@@ -967,7 +1036,11 @@ class RatioAnalyzer:
         leverage = self.calculate_leverage_ratios(bs_data, is_data)
         profitability = self.calculate_profitability_ratios(bs_data, is_data)
         efficiency = self.calculate_efficiency_ratios(bs_data, is_data)
-        cash_flow = self.calculate_cash_flow_ratios(cf_data, bs_data)
+        cash_flow = (
+            self.calculate_cash_flow_ratios(cf_data, bs_data)
+            if cf_data is not None and not cf_data.empty
+            else {}
+        )
         
         # Merge all ratios into the analysis object
         for category in [liquidity, leverage, profitability, efficiency, cash_flow]:
