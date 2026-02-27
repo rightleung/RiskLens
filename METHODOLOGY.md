@@ -8,6 +8,8 @@ This document outlines the quantitative framework used by RiskLens to generate i
 
 RiskLens relies heavily on the **Altman Z-Score** as its core algorithmic engine for public companies. The Z-Score is a multivariate formula that synthesizes five distinct dimensions of a firm's financial health into a single predictive score.
 
+**1.0 Scope Note:** The live API pipeline uses Altman Z-Score as the sole scoring model. The legacy scoring framework in `src/credit_risk_assessment.py` is not invoked by the FastAPI service.
+
 ### The Z-Score Formula
 `Z = 1.2(X1) + 1.4(X2) + 3.3(X3) + 0.6(X4) + 1.0(X5)`
 
