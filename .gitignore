@@ -1,0 +1,36 @@
+# OS / Editor
+.DS_Store
+.idea/
+.vscode/
+
+# Python caches / tooling
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+.venv_fetcher/
+venv/
+env/
+
+# Test / coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+
+# Build / packaging artifacts
+build/
+dist/
+*.egg-info/
+
+# Logs and local runtime files
+*.log
+
+# Node artifacts (frontend)
+node_modules/
+web/node_modules/
+
