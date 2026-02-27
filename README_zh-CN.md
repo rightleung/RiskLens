@@ -74,6 +74,19 @@ uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```
 *API Swagger / OpenAPI 接口文档访问地址：`http://localhost:8000/docs`*
 
+### 3. 从 Linux 迁移到 macOS 后建议
+```bash
+# 1) 删除旧环境并重建（避免跨平台二进制残留）
+rm -rf .venv
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+
+# 2) 前端依赖重装
+cd web
+npm ci
+```
+
 ---
 
 ## 👨‍💻 作者
