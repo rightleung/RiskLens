@@ -36,6 +36,11 @@ interface AssessmentResponse {
   suggestions?: Record<string, Array<{ symbol: string; name: string }>>;
 }
 
+interface SymbolSearchResult {
+  symbol: string;
+  name: string;
+}
+
 // Format "Q3 '25 (U)" → "25Q3", "FY24" → "FY24"
 function formatPeriodLabel(label: string): string {
   // Quarterly: e.g. "Q3 '25 (U)" → "25Q3"
@@ -66,7 +71,77 @@ function getYahooUrl(ticker: string) {
 type Language = 'en' | 'zh-CN' | 'zh-TW' | 'ja';
 type ColorMode = 'system' | 'light' | 'dark';
 
+function localizeErrorMessage(message: string, lang: Language): string {
+  const text = {
+    en: {
+      noDataTicker: (ticker: string) => `No financial data available for ticker '${ticker}'`,
+      noData: 'No financial data available',
+      timeout: (seconds: string) => `Timed out after ${seconds}s`,
+      networkTicker: (ticker: string) => `Network error when fetching '${ticker}'. Check your internet connection.`,
+      invalidTicker: (ticker: string) => `Ticker '${ticker}' not found in data source`,
+      rateLimit: (ticker: string) => `Rate limit exceeded for '${ticker}'. Please wait a moment and try again.`,
+      emptyResponse: 'Received empty response from server',
+      network: 'Network error',
+      requestFailed: (code: string) => `Request failed (${code})`,
+    },
+    'zh-CN': {
+      noDataTicker: (ticker: string) => `未找到代码 '${ticker}' 的财务数据`,
+      noData: '未找到财务数据',
+      timeout: (seconds: string) => `请求超时（>${seconds}s）`,
+      networkTicker: (ticker: string) => `获取 '${ticker}' 时发生网络错误，请检查网络连接`,
+      invalidTicker: (ticker: string) => `数据源中未找到代码 '${ticker}'`,
+      rateLimit: (ticker: string) => `数据源限流：'${ticker}'，请稍后重试`,
+      emptyResponse: '服务器返回空响应',
+      network: '网络错误',
+      requestFailed: (code: string) => `请求失败（${code}）`,
+    },
+    'zh-TW': {
+      noDataTicker: (ticker: string) => `找不到代碼 '${ticker}' 的財務資料`,
+      noData: '找不到財務資料',
+      timeout: (seconds: string) => `請求逾時（>${seconds}s）`,
+      networkTicker: (ticker: string) => `取得 '${ticker}' 時發生網路錯誤，請檢查連線`,
+      invalidTicker: (ticker: string) => `資料來源中找不到代碼 '${ticker}'`,
+      rateLimit: (ticker: string) => `資料來源限流：'${ticker}'，請稍後再試`,
+      emptyResponse: '伺服器回傳空回應',
+      network: '網路錯誤',
+      requestFailed: (code: string) => `請求失敗（${code}）`,
+    },
+    ja: {
+      noDataTicker: (ticker: string) => `ティッカー '${ticker}' の財務データが見つかりません`,
+      noData: '財務データが見つかりません',
+      timeout: (seconds: string) => `タイムアウトしました（>${seconds}s）`,
+      networkTicker: (ticker: string) => `'${ticker}' の取得中にネットワークエラーが発生しました。接続を確認してください。`,
+      invalidTicker: (ticker: string) => `データソースでティッカー '${ticker}' が見つかりません`,
+      rateLimit: (ticker: string) => `'${ticker}' はレート制限中です。しばらくしてから再試行してください。`,
+      emptyResponse: 'サーバーから空のレスポンスが返されました',
+      network: 'ネットワークエラー',
+      requestFailed: (code: string) => `リクエスト失敗（${code}）`,
+    },
+  }[lang];
+
+  let localized = message;
+  localized = localized.replace(/No financial data available for ticker ['’]([^'’]+)['’]/gi, (_m, ticker) => text.noDataTicker(ticker));
+  localized = localized.replace(/\bNo financial data available\b/gi, text.noData);
+  localized = localized.replace(/Timed out after (\d+)s/gi, (_m, seconds) => text.timeout(seconds));
+  localized = localized.replace(
+    /Network error when fetching ['’]([^'’]+)['’]\. Check your internet connection\./gi,
+    (_m, ticker) => text.networkTicker(ticker)
+  );
+  localized = localized.replace(/Ticker ['’]([^'’]+)['’] not found in data source/gi, (_m, ticker) => text.invalidTicker(ticker));
+  localized = localized.replace(
+    /Rate limit exceeded for ['’]([^'’]+)['’]\. Please wait a moment and try again\./gi,
+    (_m, ticker) => text.rateLimit(ticker)
+  );
+  localized = localized.replace(/Received empty response from server/gi, text.emptyResponse);
+  localized = localized.replace(/^Network error$/gi, text.network);
+  localized = localized.replace(/Request failed \((\d+)\)/gi, (_m, code) => text.requestFailed(code));
+  return localized;
+}
+
 const COLOR_MODE_STORAGE_KEY = 'risklens-color-mode';
+const LANGUAGE_STORAGE_KEY = 'risklens-language';
+const NUMBER_FORMAT_STORAGE_KEY = 'risklens-number-format';
+const THEME_STORAGE_KEY = 'risklens-theme';
 
 const getInitialColorMode = (): ColorMode => {
   if (typeof window === 'undefined') return 'system';
@@ -77,11 +152,38 @@ const getInitialColorMode = (): ColorMode => {
   return 'system';
 };
 
+const getInitialLanguage = (): Language => {
+  if (typeof window === 'undefined') return 'en';
+  const savedLang = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+  if (savedLang === 'en' || savedLang === 'zh-CN' || savedLang === 'zh-TW' || savedLang === 'ja') {
+    return savedLang;
+  }
+  return 'en';
+};
+
+const getInitialNumberFormat = (): 'compact' | 'full' => {
+  if (typeof window === 'undefined') return 'compact';
+  const savedFormat = window.localStorage.getItem(NUMBER_FORMAT_STORAGE_KEY);
+  if (savedFormat === 'compact' || savedFormat === 'full') {
+    return savedFormat;
+  }
+  return 'compact';
+};
+
+const getInitialTheme = (): string => {
+  if (typeof window === 'undefined') return 'monochrome';
+  const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (savedTheme && THEMES.some((theme) => theme.id === savedTheme)) {
+    return savedTheme;
+  }
+  return 'monochrome';
+};
+
 const translations = {
   en: {
     title: 'Institutional Credit Risk',
-    subtitle: 'Enter a ticker or comma-separated list to synthesize risk.',
-    placeholder: 'e.g. AAPL, MSFT, 0700.HK, 000002',
+    subtitle: 'Enter a ticker or comma-separated list to synthesize risk',
+    placeholder: 'e.g. AAPL, 0700.HK, 000002',
     synthesize: 'Synthesize',
     synthesizing: 'Synthesizing',
     failed: 'Assessment Failed',
@@ -129,12 +231,22 @@ const translations = {
     finComparisonTab: 'Fin Comparison',
     periodGuideTitle: 'How to Use Period Views',
     periodGuideBody: 'Click an FY chip to open that year’s financial statements. Export Excel to review cross-year comparisons.',
-    periodButtonTitle: 'Open financial statements for this period'
+    periodButtonTitle: 'Open financial statements for this period',
+    companyFinder: 'Company Search',
+    finderTitle: 'Search Companies',
+    finderHint: 'Search by company name or ticker, select one or more, and insert into the ticker input.',
+    finderSearchPlaceholder: 'e.g. Microsoft, Tencent, 0700.HK',
+    finderSearchBtn: 'Search',
+    finderNoResults: 'No matching equities.',
+    finderUnavailable: 'Symbol search is temporarily unavailable. Please check your network/proxy settings and retry.',
+    finderSelected: 'Selected',
+    finderAddSelected: 'Add Selected',
+    close: 'Close',
   },
   'zh-CN': {
     title: '机构信用风险评估',
-    subtitle: '输入股票代码或以逗号分隔的代码列表以综合评估风险。',
-    placeholder: '例如：AAPL, MSFT, 0700.HK, 000002',
+    subtitle: '输入股票代码或以逗号分隔的代码列表以综合评估风险',
+    placeholder: '例如：AAPL, 0700.HK, 000002',
     synthesize: '综合分析',
     synthesizing: '分析中',
     failed: '评估失败',
@@ -182,12 +294,22 @@ const translations = {
     finComparisonTab: '财报横向对比',
     periodGuideTitle: '期间查看说明',
     periodGuideBody: '点击 FY 年份按钮可查看对应期间的财务报表；导出 Excel 可查看跨年份对比。',
-    periodButtonTitle: '打开该期间财务报表'
+    periodButtonTitle: '打开该期间财务报表',
+    companyFinder: '搜索公司',
+    finderTitle: '搜索公司',
+    finderHint: '按公司名或代码搜索，勾选后可直接写入代码输入框。',
+    finderSearchPlaceholder: '例如：Microsoft、腾讯、0700.HK',
+    finderSearchBtn: '搜索',
+    finderNoResults: '未找到可用股票结果。',
+    finderUnavailable: '公司搜索服务暂时不可用，请检查网络/代理后重试。',
+    finderSelected: '已选择',
+    finderAddSelected: '加入输入框',
+    close: '关闭',
   },
   'zh-TW': {
     title: '機構信用風險評估',
-    subtitle: '輸入股票代碼或以逗號分隔的代碼列表以綜合評估風險。',
-    placeholder: '例如：AAPL, MSFT, 0700.HK, 000002',
+    subtitle: '輸入股票代碼或以逗號分隔的代碼列表以綜合評估風險',
+    placeholder: '例如：AAPL, 0700.HK, 000002',
     synthesize: '綜合分析',
     synthesizing: '分析中',
     failed: '評估失敗',
@@ -235,12 +357,22 @@ const translations = {
     finComparisonTab: '財報橫向對比',
     periodGuideTitle: '期間檢視說明',
     periodGuideBody: '點擊 FY 年份按鈕可查看對應期間的財務報表；匯出 Excel 可查看跨年份對比。',
-    periodButtonTitle: '開啟該期間財務報表'
+    periodButtonTitle: '開啟該期間財務報表',
+    companyFinder: '搜尋公司',
+    finderTitle: '搜尋公司',
+    finderHint: '可用公司名稱或代碼搜尋，勾選後可直接寫入代碼輸入框。',
+    finderSearchPlaceholder: '例如：Microsoft、騰訊、0700.HK',
+    finderSearchBtn: '搜尋',
+    finderNoResults: '找不到可用股票結果。',
+    finderUnavailable: '公司搜尋服務暫時不可用，請檢查網路/代理後再試。',
+    finderSelected: '已選擇',
+    finderAddSelected: '加入輸入框',
+    close: '關閉',
   },
   ja: {
     title: '機関的信用リスク評価',
-    subtitle: 'ティッカーまたはカンマ区切りのリストを入力してリスクを総合評価します。',
-    placeholder: '例: AAPL, MSFT, 0700.HK, 000002',
+    subtitle: 'ティッカーまたはカンマ区切りのリストを入力してリスクを総合評価します',
+    placeholder: '例: AAPL, 0700.HK, 000002',
     synthesize: '分析する',
     synthesizing: '分析中',
     failed: '評価失敗',
@@ -288,7 +420,17 @@ const translations = {
     finComparisonTab: '財務諸表比較',
     periodGuideTitle: '期間表示の使い方',
     periodGuideBody: 'FY ボタンをクリックすると当該期間の財務諸表を表示します。Excel をエクスポートすると期間比較を確認できます。',
-    periodButtonTitle: 'この期間の財務諸表を開く'
+    periodButtonTitle: 'この期間の財務諸表を開く',
+    companyFinder: '企業を検索',
+    finderTitle: '企業を検索',
+    finderHint: '会社名またはティッカーで検索し、選択した銘柄を入力欄へ追加します。',
+    finderSearchPlaceholder: '例: Microsoft, Tencent, 0700.HK',
+    finderSearchBtn: '検索',
+    finderNoResults: '一致する株式が見つかりません。',
+    finderUnavailable: '銘柄検索サービスは現在利用できません。ネットワーク/プロキシ設定を確認して再試行してください。',
+    finderSelected: '選択済み',
+    finderAddSelected: '入力欄に追加',
+    close: '閉じる',
   }
 };
 
@@ -310,6 +452,208 @@ const getStatementTabs = (t: ReturnType<typeof getT>) => [
   { key: 'balance', label: t('balanceSheet') },
   { key: 'cash', label: t('cashFlow') },
 ] as const;
+
+type StatementTabKey = 'income' | 'balance' | 'cash';
+type AccountingStandard = 'usgaap' | 'ifrs' | 'cas';
+
+const STATEMENT_TABS_ORDER: StatementTabKey[] = ['income', 'balance', 'cash'];
+const STATEMENT_TAB_INDEX: Record<StatementTabKey, number> = {
+  income: 0,
+  balance: 1,
+  cash: 2,
+};
+
+const normalizeStatementText = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[_/&(),.-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const detectAccountingStandard = (ticker: string): AccountingStandard => {
+  const normalized = ticker.trim().toUpperCase();
+  if (/^\d{6}(?:\.(SH|SZ|BJ))?$/.test(normalized)) return 'cas';
+  if (/\.(HK)$/.test(normalized)) return 'ifrs';
+  return 'usgaap';
+};
+
+type StatementLineRule = {
+  id: string;
+  patterns: RegExp[];
+};
+
+const INCOME_ORDER_RULES: StatementLineRule[] = [
+  { id: 'revenue', patterns: [/\btotal revenue\b/, /\boperating revenue\b/, /\brevenue\b/, /\bsales\b/] },
+  { id: 'cost_of_revenue', patterns: [/\bcost of revenue\b/, /\bcost of goods\b/, /\breconciled cost of revenue\b/] },
+  { id: 'gross_profit', patterns: [/\bgross profit\b/] },
+  { id: 'operating_expense', patterns: [/\boperating expense\b/, /\bselling general admin\b/, /\br d\b/, /\bresearch development\b/] },
+  { id: 'operating_income', patterns: [/\boperating income\b/, /\bebit\b/] },
+  { id: 'interest_income', patterns: [/\binterest income\b/] },
+  { id: 'interest_expense', patterns: [/\binterest expense\b/] },
+  { id: 'other_income_expense', patterns: [/\bother income expense\b/, /\bnon operating\b/] },
+  { id: 'income_before_tax', patterns: [/\bincome before tax\b/, /\bpretax income\b/, /\bpre tax income\b/] },
+  { id: 'income_tax', patterns: [/\bincome tax\b/, /\btax provision\b/] },
+  { id: 'net_income', patterns: [/\bnet income\b/, /\bnet earnings\b/, /\bcontinuing ops\b/, /\bincome available to common\b/] },
+  { id: 'diluted_eps', patterns: [/\bdiluted eps\b/, /\beps diluted\b/] },
+  { id: 'basic_eps', patterns: [/\bbasic eps\b/, /\beps basic\b/] },
+  { id: 'diluted_shares', patterns: [/\bdiluted average shares\b/, /\bdiluted shares\b/] },
+  { id: 'basic_shares', patterns: [/\bbasic average shares\b/, /\bbasic shares\b/] },
+  { id: 'ebitda', patterns: [/\bebitda\b/, /\bnormalized ebitda\b/] },
+  { id: 'depreciation_amortization', patterns: [/\bdepreciation\b/, /\bamortization\b/, /\bdepletion\b/] },
+];
+
+const BALANCE_USGAAP_ORDER_RULES: StatementLineRule[] = [
+  { id: 'cash', patterns: [/\bcash and cash equivalents\b/, /^cash$/, /\bcash equivalents\b/] },
+  { id: 'short_term_investments', patterns: [/\bshort term investment\b/, /\bmarketable securities\b/] },
+  { id: 'receivables', patterns: [/\baccounts receivable\b/, /\bother receivables\b/, /\breceivable\b/] },
+  { id: 'inventory', patterns: [/\binventory\b/] },
+  { id: 'other_current_assets', patterns: [/\bother current assets\b/] },
+  { id: 'total_current_assets', patterns: [/\btotal current assets\b/] },
+  { id: 'property_plant_equipment', patterns: [/\bproperty plant equipment\b/, /\bpp e\b/, /\bgross pp e\b/] },
+  { id: 'goodwill', patterns: [/\bgoodwill\b/] },
+  { id: 'intangibles', patterns: [/\bintangible assets\b/] },
+  { id: 'long_term_investments', patterns: [/\blong term investment\b/, /\binvestment in financial assets\b/] },
+  { id: 'other_non_current_assets', patterns: [/\bother non current assets\b/, /\bnon current deferred\b/] },
+  { id: 'total_assets', patterns: [/\btotal assets\b/] },
+  { id: 'accounts_payable', patterns: [/\baccounts payable\b/, /\bpayables\b/] },
+  { id: 'accrued_expenses', patterns: [/\baccrued expense\b/] },
+  { id: 'current_debt', patterns: [/\bcurrent debt\b/, /\bshort term debt\b/, /\bcurrent debt capital lease\b/] },
+  { id: 'other_current_liabilities', patterns: [/\bother current liabilities\b/, /\bcurrent deferred liabilities\b/] },
+  { id: 'total_current_liabilities', patterns: [/\btotal current liabilities\b/] },
+  { id: 'long_term_debt', patterns: [/\blong term debt\b/, /\blong term debt capital lease\b/] },
+  { id: 'lease_obligations', patterns: [/\blease obligation\b/] },
+  { id: 'other_non_current_liabilities', patterns: [/\bother non current liabilities\b/, /\bnon current deferred liabilities\b/] },
+  { id: 'total_liabilities', patterns: [/\btotal liabilities\b/] },
+  { id: 'common_stock', patterns: [/\bcommon stock\b/, /\bshare capital\b/] },
+  { id: 'retained_earnings', patterns: [/\bretained earnings\b/] },
+  { id: 'other_equity', patterns: [/\baccumulated other comprehensive\b/, /\bother equity\b/] },
+  { id: 'total_equity', patterns: [/\btotal equity\b/, /\bstockholders equity\b/, /\bshareholders equity\b/] },
+  { id: 'total_liabilities_equity', patterns: [/\btotal liabilities and equity\b/, /\btotal liabilities and stockholders equity\b/] },
+];
+
+const BALANCE_IFRS_ORDER_RULES: StatementLineRule[] = [
+  { id: 'property_plant_equipment', patterns: [/\bproperty plant equipment\b/, /\bpp e\b/, /\bgross pp e\b/] },
+  { id: 'intangibles', patterns: [/\bintangible assets\b/] },
+  { id: 'goodwill', patterns: [/\bgoodwill\b/] },
+  { id: 'long_term_investments', patterns: [/\blong term investment\b/, /\binvestment in financial assets\b/] },
+  { id: 'other_non_current_assets', patterns: [/\bother non current assets\b/, /\bnon current deferred\b/] },
+  { id: 'total_non_current_assets', patterns: [/\btotal non current assets\b/] },
+  { id: 'cash', patterns: [/\bcash and cash equivalents\b/, /^cash$/, /\bcash equivalents\b/] },
+  { id: 'short_term_investments', patterns: [/\bshort term investment\b/, /\bmarketable securities\b/] },
+  { id: 'receivables', patterns: [/\baccounts receivable\b/, /\bother receivables\b/, /\breceivable\b/] },
+  { id: 'inventory', patterns: [/\binventory\b/] },
+  { id: 'other_current_assets', patterns: [/\bother current assets\b/] },
+  { id: 'total_current_assets', patterns: [/\btotal current assets\b/] },
+  { id: 'total_assets', patterns: [/\btotal assets\b/] },
+  { id: 'long_term_debt', patterns: [/\blong term debt\b/, /\blong term debt capital lease\b/] },
+  { id: 'lease_obligations', patterns: [/\blease obligation\b/] },
+  { id: 'other_non_current_liabilities', patterns: [/\bother non current liabilities\b/, /\bnon current deferred liabilities\b/] },
+  { id: 'total_non_current_liabilities', patterns: [/\btotal non current liabilities\b/] },
+  { id: 'accounts_payable', patterns: [/\baccounts payable\b/, /\bpayables\b/] },
+  { id: 'accrued_expenses', patterns: [/\baccrued expense\b/] },
+  { id: 'current_debt', patterns: [/\bcurrent debt\b/, /\bshort term debt\b/, /\bcurrent debt capital lease\b/] },
+  { id: 'other_current_liabilities', patterns: [/\bother current liabilities\b/, /\bcurrent deferred liabilities\b/] },
+  { id: 'total_current_liabilities', patterns: [/\btotal current liabilities\b/] },
+  { id: 'total_liabilities', patterns: [/\btotal liabilities\b/] },
+  { id: 'common_stock', patterns: [/\bcommon stock\b/, /\bshare capital\b/] },
+  { id: 'retained_earnings', patterns: [/\bretained earnings\b/] },
+  { id: 'other_equity', patterns: [/\baccumulated other comprehensive\b/, /\bother equity\b/] },
+  { id: 'total_equity', patterns: [/\btotal equity\b/, /\bstockholders equity\b/, /\bshareholders equity\b/] },
+  { id: 'total_liabilities_equity', patterns: [/\btotal liabilities and equity\b/, /\btotal liabilities and stockholders equity\b/] },
+];
+
+const CASH_ORDER_RULES: StatementLineRule[] = [
+  { id: 'operating_cash_flow', patterns: [/\boperating cash flow\b/, /\bcf from continuing operating activities\b/] },
+  { id: 'net_income', patterns: [/\bnet income\b/, /\bcontinuing ops\b/] },
+  { id: 'depreciation_amortization', patterns: [/\bdepreciation\b/, /\bamortization\b/, /\bdepletion\b/] },
+  { id: 'working_capital', patterns: [/\bchange in working capital\b/] },
+  { id: 'receivables', patterns: [/\bchange in receivables\b/, /\bchanges in account receivables\b/] },
+  { id: 'payables', patterns: [/\bchange in payables\b/, /\bchange in account payable\b/, /\bchange in payables accrued expense\b/] },
+  { id: 'inventory', patterns: [/\bchange in inventory\b/] },
+  { id: 'other_operating', patterns: [/\bother operating\b/] },
+  { id: 'investing_cash_flow', patterns: [/\binvesting cash flow\b/, /\bcf from continuing investing activities\b/] },
+  { id: 'capital_expenditure', patterns: [/\bcapital expenditure\b/, /\bcapex\b/, /\bpurchase of ppe\b/] },
+  { id: 'investment_purchase_sale', patterns: [/\bnet investment purchase\b/, /\bpurchase of investment\b/, /\bsale of investment\b/] },
+  { id: 'acquisition_disposal', patterns: [/\bacquisition\b/, /\bdisposal\b/] },
+  { id: 'financing_cash_flow', patterns: [/\bfinancing cash flow\b/, /\bcf from continuing financing activities\b/] },
+  { id: 'debt_issuance', patterns: [/\bissuance of debt\b/, /\blt debt issuance\b/, /\blong term debt issuance\b/, /\bshort term debt issuance\b/] },
+  { id: 'debt_repayment', patterns: [/\brepayment of debt\b/, /\bdebt repayment\b/] },
+  { id: 'stock_issuance', patterns: [/\bstock issuance\b/, /\bcommon stock issuance\b/] },
+  { id: 'stock_repurchase', patterns: [/\brepurchase of capital stock\b/, /\bcommon stock payments\b/, /\bpurchase of common stock\b/] },
+  { id: 'dividends_paid', patterns: [/\bcash dividends paid\b/, /\bcommon stock dividend paid\b/, /\bdividend paid\b/] },
+  { id: 'other_financing', patterns: [/\bother financing\b/] },
+  { id: 'free_cash_flow', patterns: [/\bfree cash flow\b/] },
+  { id: 'beginning_cash', patterns: [/\bbeginning cash position\b/, /\bcash at beginning of period\b/] },
+  { id: 'end_cash', patterns: [/\bend cash position\b/, /\bcash at end of period\b/] },
+  { id: 'changes_in_cash', patterns: [/\bchanges in cash\b/, /\bnet change in cash\b/] },
+];
+
+const STATEMENT_ORDER_RULES: Record<AccountingStandard, Record<StatementTabKey, StatementLineRule[]>> = {
+  usgaap: {
+    income: INCOME_ORDER_RULES,
+    balance: BALANCE_USGAAP_ORDER_RULES,
+    cash: CASH_ORDER_RULES,
+  },
+  ifrs: {
+    income: INCOME_ORDER_RULES,
+    balance: BALANCE_IFRS_ORDER_RULES,
+    cash: CASH_ORDER_RULES,
+  },
+  cas: {
+    income: INCOME_ORDER_RULES,
+    balance: BALANCE_IFRS_ORDER_RULES,
+    cash: CASH_ORDER_RULES,
+  },
+};
+
+const getLineItemOrderRank = (tab: StatementTabKey, standard: AccountingStandard, key: string): number => {
+  const normalized = normalizeStatementText(`${key} ${prettifyKey(key, 'en')}`);
+  const rules = STATEMENT_ORDER_RULES[standard][tab];
+  const idx = rules.findIndex((rule) => rule.patterns.some((pattern) => pattern.test(normalized)));
+  return idx >= 0 ? idx : rules.length + 1000;
+};
+
+const getStatementValueForKey = (history: any, key: string): number | string => {
+  if (!history?.statements) return '--';
+  for (const tab of STATEMENT_TABS_ORDER) {
+    if (history.statements[tab] && history.statements[tab][key] !== undefined) {
+      return history.statements[tab][key];
+    }
+  }
+  return '--';
+};
+
+const getOrderedStatementKeys = (histories: any[], standardOrList: AccountingStandard | AccountingStandard[]): string[] => {
+  const keyMeta = new Map<string, { tab: StatementTabKey; firstSeen: number }>();
+  const standards = Array.isArray(standardOrList) ? standardOrList : [standardOrList];
+  let firstSeen = 0;
+
+  histories.forEach((history) => {
+    if (!history?.statements) return;
+    STATEMENT_TABS_ORDER.forEach((tab) => {
+      const tabData = history.statements[tab];
+      if (!tabData) return;
+      Object.keys(tabData).forEach((key) => {
+        if (!keyMeta.has(key)) {
+          keyMeta.set(key, { tab, firstSeen });
+          firstSeen += 1;
+        }
+      });
+    });
+  });
+
+  return Array.from(keyMeta.entries())
+    .sort(([keyA, metaA], [keyB, metaB]) => {
+      const tabDiff = STATEMENT_TAB_INDEX[metaA.tab] - STATEMENT_TAB_INDEX[metaB.tab];
+      if (tabDiff !== 0) return tabDiff;
+      const rankA = Math.min(...standards.map((standard) => getLineItemOrderRank(metaA.tab, standard, keyA)));
+      const rankB = Math.min(...standards.map((standard) => getLineItemOrderRank(metaB.tab, standard, keyB)));
+      const rankDiff = rankA - rankB;
+      if (rankDiff !== 0) return rankDiff;
+      return metaA.firstSeen - metaB.firstSeen;
+    })
+    .map(([key]) => key);
+};
 
 export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, lang: Language) => {
   const wb = new ExcelJS.Workbook();
@@ -839,6 +1183,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     });
 
     const ws2 = wb.addWorksheet(t('excelStatementsSheet'), { properties: { tabColor: { argb: 'FF9BBB59' } } });
+    const singleStandard = detectAccountingStandard(res.ticker);
 
     const finHeaderRow = [t('itemCol'), ...res.history.map((h: any) => formatPeriodLabel(h.fiscal_year))];
     if (hasYoY) {
@@ -851,54 +1196,23 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     const finHeaderRowRef = addRowWithFormat(ws2, finHeaderRow);
     applyPeriodHeaderBands(ws2, finHeaderRowRef.number, res.history.length, 1, 2);
 
-    const allKeys = new Set<string>();
-    res.history.forEach((h: any) => {
-      if (h.statements) {
-        Object.keys(h.statements).forEach(tab => {
-          Object.keys(h.statements[tab]).forEach(k => allKeys.add(k));
-        });
-      }
-    });
+    const orderedStatementKeys = getOrderedStatementKeys(res.history, singleStandard);
 
-    Array.from(allKeys).forEach(k => {
+    orderedStatementKeys.forEach(k => {
       const rowData: (any)[] = [prettifyKey(k, lang)];
       const rLabel = ws2.rowCount + 1;
 
       res.history.forEach((h: any) => {
-        let val: any = '--';
-        if (h.statements) {
-          for (const tab of ['income', 'balance', 'cash']) {
-            if (h.statements[tab] && h.statements[tab][k] !== undefined) {
-              val = h.statements[tab][k];
-              break;
-            }
-          }
-        }
-        rowData.push(val);
+        rowData.push(getStatementValueForKey(h, k));
       });
 
       if (hasYoY) {
         rowData.push(''); // Spacer
         yoyMap.forEach(cmp => {
-          let v1: number | null = null;
-          let v2: number | null = null;
-
-          if (cmp.p1.statements) {
-            for (const tab of ['income', 'balance', 'cash']) {
-              if (cmp.p1.statements[tab] && cmp.p1.statements[tab][k] !== undefined) {
-                v1 = cmp.p1.statements[tab][k];
-                break;
-              }
-            }
-          }
-          if (cmp.p2.statements) {
-            for (const tab of ['income', 'balance', 'cash']) {
-              if (cmp.p2.statements[tab] && cmp.p2.statements[tab][k] !== undefined) {
-                v2 = cmp.p2.statements[tab][k];
-                break;
-              }
-            }
-          }
+          const rawV1 = getStatementValueForKey(cmp.p1, k);
+          const rawV2 = getStatementValueForKey(cmp.p2, k);
+          const v1 = typeof rawV1 === 'number' ? rawV1 : null;
+          const v2 = typeof rawV2 === 'number' ? rawV2 : null;
 
           if (v1 !== null && v2 !== null && v1 !== undefined && v2 !== undefined) {
             const col1 = baseColMap[cmp.p1.fiscal_year];
@@ -1103,19 +1417,10 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     }
   });
   const wsFinCompHeader2 = addRowWithFormat(wsFinComp, compHeader2);
+  const portfolioStandards = Array.from(new Set(results.map((res) => detectAccountingStandard(res.ticker))));
+  const orderedCompKeys = getOrderedStatementKeys(results.flatMap((res) => res.history), portfolioStandards);
 
-  const allCompKeys = new Set<string>();
-  results.forEach(res => {
-    res.history.forEach((h: any) => {
-      if (h.statements) {
-        Object.keys(h.statements).forEach(tab => {
-          Object.keys(h.statements[tab]).forEach(k => allCompKeys.add(k));
-        });
-      }
-    });
-  });
-
-  Array.from(allCompKeys).forEach(k => {
+  orderedCompKeys.forEach(k => {
     const rowData: (any)[] = [prettifyKey(k, lang)];
     const rLabel = wsFinComp.rowCount + 1;
 
@@ -1124,33 +1429,17 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
       const baseExcelCol = getColName(periodStartColIdx);
 
       const h0 = results[0].history.find((x: any) => x.fiscal_year === p);
-      let val0: any = '--';
-      if (h0 && h0.statements) {
-        for (const tab of ['income', 'balance', 'cash']) {
-          if (h0.statements[tab] && h0.statements[tab][k] !== undefined) {
-            val0 = h0.statements[tab][k];
-            break;
-          }
-        }
-      }
+      const val0 = getStatementValueForKey(h0, k);
       rowData.push(val0);
 
       for (let i = 1; i < results.length; i++) {
         const currentExcelCol = getColName(periodStartColIdx + 1 + (i - 1) * 3);
 
         const hi = results[i].history.find((x: any) => x.fiscal_year === p);
-        let vali: any = '--';
-        if (hi && hi.statements) {
-          for (const tab of ['income', 'balance', 'cash']) {
-            if (hi.statements[tab] && hi.statements[tab][k] !== undefined) {
-              vali = hi.statements[tab][k];
-              break;
-            }
-          }
-        }
+        const vali = getStatementValueForKey(hi, k);
         rowData.push(vali);
 
-        if (val0 !== '--' && vali !== '--' && val0 !== null && vali !== null && val0 !== undefined && vali !== undefined) {
+        if (typeof val0 === 'number' && typeof vali === 'number') {
           rowData.push({ t: 'n', z: '#,##0.00', f: `${currentExcelCol}${rLabel}-${baseExcelCol}${rLabel}` });
           rowData.push({ t: 'n', z: '0.00%', f: `IFERROR((${currentExcelCol}${rLabel}-${baseExcelCol}${rLabel})/ABS(${baseExcelCol}${rLabel}), "-")` });
         } else {
@@ -1176,15 +1465,8 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     const maxBaseLength = Math.max(1, 31 - companySheetSuffix.length - 1);
     const shortName = (res.company_name_localized?.[lang] || res.company_name).substring(0, maxBaseLength);
     const ws = wb.addWorksheet(`${shortName} ${companySheetSuffix}`, { properties: { tabColor: { argb: statementTabColor } } });
-
-    const allKeys = new Set<string>();
-    res.history.forEach((h: any) => {
-      if (h.statements) {
-        Object.keys(h.statements).forEach(tab => {
-          Object.keys(h.statements[tab]).forEach(k => allKeys.add(k));
-        });
-      }
-    });
+    const companyStandard = detectAccountingStandard(res.ticker);
+    const orderedCompanyKeys = getOrderedStatementKeys(res.history, companyStandard);
 
     const annuals = res.history.filter((h: any) => !h.is_quarterly);
     let hasYoY = false;
@@ -1224,45 +1506,21 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
       baseColMap[h.fiscal_year] = getColName(i + 1);
     });
 
-    Array.from(allKeys).forEach(k => {
+    orderedCompanyKeys.forEach(k => {
       const rowData: (any)[] = [prettifyKey(k, lang)];
       const rLabel = ws.rowCount + 1;
 
       res.history.forEach((h: any) => {
-        let val: any = '--';
-        if (h.statements) {
-          for (const tab of ['income', 'balance', 'cash']) {
-            if (h.statements[tab] && h.statements[tab][k] !== undefined) {
-              val = h.statements[tab][k];
-              break;
-            }
-          }
-        }
-        rowData.push(val);
+        rowData.push(getStatementValueForKey(h, k));
       });
 
       if (hasYoY) {
         rowData.push('');
         yoyMap.forEach(cmp => {
-          let v1: number | null = null;
-          let v2: number | null = null;
-
-          if (cmp.p1.statements) {
-            for (const tab of ['income', 'balance', 'cash']) {
-              if (cmp.p1.statements[tab] && cmp.p1.statements[tab][k] !== undefined) {
-                v1 = cmp.p1.statements[tab][k];
-                break;
-              }
-            }
-          }
-          if (cmp.p2.statements) {
-            for (const tab of ['income', 'balance', 'cash']) {
-              if (cmp.p2.statements[tab] && cmp.p2.statements[tab][k] !== undefined) {
-                v2 = cmp.p2.statements[tab][k];
-                break;
-              }
-            }
-          }
+          const rawV1 = getStatementValueForKey(cmp.p1, k);
+          const rawV2 = getStatementValueForKey(cmp.p2, k);
+          const v1 = typeof rawV1 === 'number' ? rawV1 : null;
+          const v2 = typeof rawV2 === 'number' ? rawV2 : null;
 
           if (v1 !== null && v2 !== null && v1 !== undefined && v2 !== undefined) {
             const col1 = baseColMap[cmp.p1.fiscal_year];
@@ -1335,6 +1593,7 @@ function StatementDialog({
   const t = getT(lang);
   const STATEMENT_TABS = getStatementTabs(t);
   const isAShare = /^\d{6}(?:\.[A-Z]{2})?$/.test(ticker);
+  const accountingStandard = useMemo(() => detectAccountingStandard(ticker), [ticker]);
   const statementUiText = {
     lineItem: lang === 'ja' ? '勘定科目' : lang === 'zh-TW' ? '會計科目' : lang === 'zh-CN' ? '会计科目' : 'Line Item',
     period: lang === 'ja' ? '期間' : lang === 'zh-TW' ? '期間' : lang === 'zh-CN' ? '期间' : 'Period',
@@ -1375,19 +1634,12 @@ function StatementDialog({
       order: number;
     };
 
-    const normalize = (text: string) =>
-      text
-        .toLowerCase()
-        .replace(/[_/&(),.-]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-
     const rows: Row[] = entries.map(([key, value], order) => {
       const englishLabel = prettifyKey(key, 'en');
       return {
         key,
         value,
-        normalized: normalize(`${key} ${englishLabel}`),
+        normalized: normalizeStatementText(`${key} ${englishLabel}`),
         order,
       };
     });
@@ -1634,7 +1886,11 @@ function StatementDialog({
       merged.push({ key: row.key, value: row.value, order: row.order, aliases: [] });
     });
 
-    merged.sort((a, b) => a.order - b.order);
+    merged.sort((a, b) => {
+      const rankDiff = getLineItemOrderRank(tab, accountingStandard, a.key) - getLineItemOrderRank(tab, accountingStandard, b.key);
+      if (rankDiff !== 0) return rankDiff;
+      return a.order - b.order;
+    });
 
     const foldedDisplayData: Record<string, number> = {};
     const foldedAliases: Record<string, Array<{ key: string; label: string; value: number }>> = {};
@@ -1644,7 +1900,7 @@ function StatementDialog({
     });
 
     return { foldedDisplayData, foldedAliases };
-  }, [displayData, lang]);
+  }, [displayData, lang, tab, accountingStandard]);
 
   const tableGroups = useMemo(() => {
     if (Object.entries(foldedDisplayData).length === 0) return null;
@@ -1771,21 +2027,21 @@ function StatementDialog({
                         <Fragment key={k}>
                           <tr className="hover:bg-muted/10 transition-colors">
                             <td className="py-2 pl-6 pr-4 text-muted-foreground align-top">
-                              <div className="grid grid-cols-[14px_minmax(0,1fr)] items-start gap-x-2">
+                              <div className="grid grid-cols-[22px_minmax(0,1fr)] items-start gap-x-2">
                                 {aliases.length > 0 ? (
                                   <button
                                     type="button"
                                     onClick={() =>
                                       setExpandedAliases((prev) => ({ ...prev, [expandKey]: !prev[expandKey] }))
                                     }
-                                    className="inline-flex h-4 w-[14px] items-center justify-center rounded text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 mt-0.5"
+                                    className="inline-flex h-6 w-[22px] items-center justify-center rounded text-lg font-bold leading-none text-muted-foreground hover:text-foreground hover:bg-muted/60 mt-0.5"
                                     aria-label={isExpanded ? 'Collapse folded details' : 'Expand folded details'}
                                     title={isExpanded ? 'Collapse folded details' : 'Expand folded details'}
                                   >
                                     {isExpanded ? '▾' : '▸'}
                                   </button>
                                 ) : (
-                                  <span className="inline-flex h-4 w-[14px] mt-0.5" />
+                                  <span className="inline-flex h-6 w-[22px] mt-0.5" />
                                 )}
                                 <div className="min-w-0 flex flex-wrap items-start gap-x-2 gap-y-1">
                                   <MetricTooltip metricKey={k} label={prettifyKey(k, lang)} lang={lang} />
@@ -1833,11 +2089,17 @@ export default function App() {
   const [tickerInput, setTickerInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [data, setData] = useState<AssessmentResponse | null>(null)
-  const [lang, setLang] = useState<Language>('en')
+  const [lang, setLang] = useState<Language>(getInitialLanguage)
   const [colorMode, setColorMode] = useState<ColorMode>(getInitialColorMode)
-  const [numFormat, setNumFormat] = useState<'compact' | 'full'>('compact')
-  const [activeTheme, setActiveTheme] = useState('monochrome')
+  const [numFormat, setNumFormat] = useState<'compact' | 'full'>(getInitialNumberFormat)
+  const [activeTheme, setActiveTheme] = useState(getInitialTheme)
   const [themeMenuOpen, setThemeMenuOpen] = useState(false)
+  const [finderOpen, setFinderOpen] = useState(false)
+  const [finderQuery, setFinderQuery] = useState('')
+  const [finderLoading, setFinderLoading] = useState(false)
+  const [finderError, setFinderError] = useState('')
+  const [finderResults, setFinderResults] = useState<SymbolSearchResult[]>([])
+  const [finderSelected, setFinderSelected] = useState<Record<string, string>>({})
 
   const t = getT(lang)
 
@@ -1850,21 +2112,16 @@ export default function App() {
 
   // Keep selected color theme and follow system light/dark mode.
   useEffect(() => {
-    const html = document.documentElement;
-    if (!THEMES.some((theme) => html.classList.contains(`theme-${theme.id}`))) {
-      html.classList.add('theme-monochrome');
-    }
-
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const applyColorMode = (mode: ColorMode) => {
       const shouldUseDark = mode === 'dark' || (mode === 'system' && mediaQuery.matches);
-      html.classList.toggle('dark', shouldUseDark);
+      document.documentElement.classList.toggle('dark', shouldUseDark);
     };
 
     applyColorMode(colorMode);
     const handleChange = (event: MediaQueryListEvent) => {
       if (colorMode === 'system') {
-        html.classList.toggle('dark', event.matches);
+        document.documentElement.classList.toggle('dark', event.matches);
       }
     };
     mediaQuery.addEventListener('change', handleChange);
@@ -1875,10 +2132,22 @@ export default function App() {
     window.localStorage.setItem(COLOR_MODE_STORAGE_KEY, colorMode);
   }, [colorMode]);
 
-  const changeTheme = (themeId: string) => {
+  useEffect(() => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+  }, [lang]);
+
+  useEffect(() => {
+    window.localStorage.setItem(NUMBER_FORMAT_STORAGE_KEY, numFormat);
+  }, [numFormat]);
+
+  useEffect(() => {
     const html = document.documentElement;
-    THEMES.forEach(t => html.classList.remove(`theme-${t.id}`));
-    html.classList.add(`theme-${themeId}`);
+    THEMES.forEach((theme) => html.classList.remove(`theme-${theme.id}`));
+    html.classList.add(`theme-${activeTheme}`);
+    window.localStorage.setItem(THEME_STORAGE_KEY, activeTheme);
+  }, [activeTheme]);
+
+  const changeTheme = (themeId: string) => {
     setActiveTheme(themeId);
     setThemeMenuOpen(false);
   }
@@ -1891,14 +2160,93 @@ export default function App() {
     setDialogOpen(true);
   }
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!tickerInput.trim()) return
+  const searchCompanyCandidates = async () => {
+    const query = finderQuery.trim()
+    if (!query) {
+      setFinderResults([])
+      setFinderError('')
+      return
+    }
 
+    setFinderLoading(true)
+    setFinderError('')
+    try {
+      const res = await fetch(`/api/v1/symbols/search?q=${encodeURIComponent(query)}&limit=20`)
+      const json = await res.json().catch(() => null)
+      if (!res.ok) {
+        const detail = json?.detail
+        const message = typeof json?.message === 'string'
+          ? json.message
+          : typeof json?.error === 'string'
+            ? json.error
+            : typeof detail?.message === 'string'
+              ? detail.message
+              : typeof detail?.error === 'string'
+                ? detail.error
+            : t('finderUnavailable')
+        setFinderError(message)
+        setFinderResults([])
+        return
+      }
+      const results = Array.isArray(json?.results)
+        ? json.results.filter((item: any) => item?.symbol && item?.name)
+        : []
+      setFinderResults(results)
+    } catch (err) {
+      const fallback = err instanceof Error ? err.message : t('finderUnavailable')
+      setFinderError(fallback || t('finderUnavailable'))
+      setFinderResults([])
+    } finally {
+      setFinderLoading(false)
+    }
+  }
+
+  const toggleFinderSelection = (item: SymbolSearchResult) => {
+    setFinderSelected((prev) => {
+      const next = { ...prev }
+      if (next[item.symbol]) delete next[item.symbol]
+      else next[item.symbol] = item.name
+      return next
+    })
+  }
+
+  const applyFinderSelection = () => {
+    const picked = Object.keys(finderSelected)
+    if (picked.length === 0) return
+    const existing = tickerInput
+      .split(',')
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean)
+    const merged = Array.from(new Set([...existing, ...picked]))
+    setTickerInput(merged.join(', '))
+    setFinderOpen(false)
+  }
+
+  const resetToHome = () => {
+    setTickerInput('')
+    setIsLoading(false)
+    setData(null)
+    setFinderOpen(false)
+    setFinderQuery('')
+    setFinderLoading(false)
+    setFinderError('')
+    setFinderResults([])
+    setFinderSelected({})
+    setDialogOpen(false)
+    setSelectedPeriod(null)
+    setSelectedCompany('')
+    setSelectedTicker('')
+    setSelectedCurrency('USD')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const requestAssessment = async (inputValue: string) => {
+    const normalizedInput = inputValue.trim()
+    if (!normalizedInput) return
     setIsLoading(true)
     setData(null)
 
-    const tickers = tickerInput.split(',').map(t => t.trim()).filter(Boolean)
+    const tickers = normalizedInput.split(',').map(t => t.trim()).filter(Boolean)
 
     try {
       const res = await fetch('/api/v1/assess', {
@@ -1936,21 +2284,27 @@ export default function App() {
                   : [`Request failed (${res.status})`]
 
         setData({
-          errors,
+          errors: errors.map((err: string) => localizeErrorMessage(String(err), lang)),
           suggestions: json?.suggestions || detail?.suggestions
         })
       } else {
         if (json && typeof json === 'object') {
           setData(json)
         } else {
-          setData({ errors: ['Received empty response from server'] })
+          setData({ errors: [localizeErrorMessage('Received empty response from server', lang)] })
         }
       }
     } catch (err) {
-      setData({ errors: [err instanceof Error ? err.message : 'Network error'] })
+      const msg = err instanceof Error ? err.message : 'Network error'
+      setData({ errors: [localizeErrorMessage(msg, lang)] })
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await requestAssessment(tickerInput)
   }
 
   const metricRows = [
@@ -1963,6 +2317,7 @@ export default function App() {
     { key: 'fcf_to_debt', label: t('fcfToDebt'), src: 'ratios', format: '%' },
     { key: 'current_ratio', label: t('currentRatio'), src: 'ratios', format: 'x' },
   ]
+  const selectedFinderCount = Object.keys(finderSelected).length
 
   return (
     <TooltipProvider>
@@ -1970,7 +2325,14 @@ export default function App() {
         <header className="dashboard-header">
           <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
             <div className="flex items-center gap-2 font-semibold text-lg tracking-tight">
-              <span><strong className="font-bold text-brand-600 dark:text-brand-400">RiskLens</strong></span>
+              <button
+                type="button"
+                onClick={resetToHome}
+                className="font-bold text-brand-600 dark:text-brand-400 cursor-pointer"
+                aria-label="Reset to homepage"
+              >
+                RiskLens
+              </button>
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
               <div className="flex bg-muted p-1 rounded-md border border-border hidden sm:flex">
@@ -1992,9 +2354,9 @@ export default function App() {
                 value={lang}
                 onChange={(e) => setLang(e.target.value as Language)}
               >
-                <option value="en" className="bg-background">EN</option>
-                <option value="zh-CN" className="bg-background">简中</option>
-                <option value="zh-TW" className="bg-background">繁中</option>
+                <option value="en" className="bg-background">English</option>
+                <option value="zh-CN" className="bg-background">简体中文</option>
+                <option value="zh-TW" className="bg-background">繁體中文</option>
                 <option value="ja" className="bg-background">日本語</option>
               </select>
               <div className="flex items-center rounded-md border border-input bg-muted/40 p-0.5">
@@ -2080,6 +2442,20 @@ export default function App() {
                       className="pl-9 h-10 text-sm bg-white dark:bg-background border-input placeholder:text-muted-foreground/70 transition-colors focus-visible:ring-brand-500 shadow-sm"
                     />
                   </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-10 px-4 sm:w-48"
+                    onClick={() => {
+                      setFinderOpen(true)
+                      setFinderError('')
+                      setFinderResults([])
+                      setFinderSelected({})
+                      setFinderQuery(tickerInput.split(',')[0]?.trim() ?? '')
+                    }}
+                  >
+                    {t('companyFinder')}
+                  </Button>
                   <Button type="submit" disabled={isLoading} className="h-10 px-6 font-medium shadow-sm">
                     {isLoading ? (
                       <>
@@ -2128,7 +2504,10 @@ export default function App() {
                           key={s.symbol}
                           variant="secondary"
                           size="sm"
-                          onClick={() => setTickerInput(s.symbol)}
+                          onClick={() => {
+                            setTickerInput(s.symbol)
+                            void requestAssessment(s.symbol)
+                          }}
                         >
                           <span className="font-bold mr-1">{s.symbol}</span>
                           <span className="text-muted-foreground">{s.name}</span>
@@ -2227,7 +2606,7 @@ export default function App() {
                               <th key={period.fiscal_year} className="py-2.5 px-4 text-right font-medium min-w-[7rem]">
                                 <button
                                   onClick={() => openStatements(period, localizedName, res.ticker, res.currency ?? 'USD')}
-                                  className="inline-flex items-center justify-center rounded-md border border-border/70 bg-muted/35 px-3 py-1 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                                  className="inline-flex min-w-[4.25rem] items-center justify-center rounded-lg border border-brand-500/35 bg-brand-500/12 px-3 py-1.5 text-sm font-semibold leading-none text-brand-700 shadow-sm transition-all hover:-translate-y-[1px] hover:bg-brand-500/20 hover:text-brand-800 hover:shadow-md dark:border-brand-400/35 dark:bg-brand-400/18 dark:text-brand-200 dark:hover:bg-brand-400/28 dark:hover:text-brand-100"
                                   title={t('periodButtonTitle')}
                                 >
                                   {formatPeriodLabel(period.fiscal_year)}
@@ -2311,6 +2690,89 @@ export default function App() {
             })}
           </div>
         </main>
+
+        <Dialog open={finderOpen} onOpenChange={setFinderOpen}>
+          <DialogContent className="w-[min(780px,94vw)] max-w-[min(780px,94vw)] max-h-[88vh] overflow-y-auto glass-panel border border-white/10 shadow-2xl">
+            <DialogHeader>
+              <DialogTitle className="text-xl">{t('finderTitle')}</DialogTitle>
+              <DialogDescription>{t('finderHint')}</DialogDescription>
+            </DialogHeader>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                void searchCompanyCandidates()
+              }}
+              className="flex flex-col sm:flex-row gap-2"
+            >
+              <Input
+                value={finderQuery}
+                onChange={(e) => setFinderQuery(e.target.value)}
+                placeholder={t('finderSearchPlaceholder')}
+                className="h-10"
+              />
+              <Button type="submit" className="h-10 px-5" disabled={finderLoading}>
+                {finderLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t('synthesizing')}
+                  </>
+                ) : (
+                  t('finderSearchBtn')
+                )}
+              </Button>
+            </form>
+
+            {finderError && (
+              <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-500">
+                {finderError}
+              </div>
+            )}
+
+            <div className="rounded-lg border border-border overflow-hidden">
+              <div className="max-h-72 overflow-y-auto divide-y divide-border/70 bg-background/70">
+                {finderResults.length === 0 ? (
+                  <div className="px-4 py-8 text-sm text-muted-foreground text-center">
+                    {t('finderNoResults')}
+                  </div>
+                ) : (
+                  finderResults.map((item) => (
+                    <label
+                      key={item.symbol}
+                      className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/40"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(finderSelected[item.symbol])}
+                        onChange={() => toggleFinderSelection(item)}
+                        className="h-4 w-4 accent-brand-500"
+                      />
+                      <span className="font-semibold tabular-nums min-w-[84px]">{item.symbol}</span>
+                      <span className="text-sm text-muted-foreground truncate">{item.name}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+              <div className="flex items-center justify-between px-4 py-2 border-t border-border bg-muted/20">
+                <span className="text-xs text-muted-foreground">
+                  {t('finderSelected')}: {selectedFinderCount}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setFinderOpen(false)}>
+                    {t('close')}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={selectedFinderCount === 0}
+                    onClick={applyFinderSelection}
+                  >
+                    {t('finderAddSelected')}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Financial Statement Dialog */}
         <StatementDialog

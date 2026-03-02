@@ -1,5 +1,7 @@
 # RiskLens Credit Rating Methodology
 
+Language: [EN](./METHODOLOGY.md) | [简中](./METHODOLOGY_zh-CN.md) | [繁中](./METHODOLOGY_zh-TW.md) | [日本語](./METHODOLOGY_ja.md)
+
 This document outlines the quantitative framework used by RiskLens to generate internal credit ratings and risk scores. The methodology bridges classic multivariate bankruptcy prediction (the **Altman Z-Score Model**) with modern, continuous post-lending covenant monitoring.
 
 ---

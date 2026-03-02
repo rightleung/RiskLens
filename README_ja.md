@@ -1,165 +1,38 @@
-# RiskLens — 機関投資家向け信用リスクおよびコベナンツ監視プラットフォーム
+# RiskLens（日本語サマリー）
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+言語切替：[English Full](./README.md) | [简中摘要](./README_zh-CN.md) | [繁中摘要](./README_zh-TW.md) | [日本語サマリー](./README_ja.md)
 
-*機関投資家向け信用評価、堅牢な財務諸表の標準化、および継続的な融資後コベナンツ監視のためのエンタープライズグレードのオーケストレーション・フレームワーク。*
+## このページの位置づけ
 
----
+本ページは**日本語の要約版**です。
+完全かつ最新の手順は英語版を基準にしてください：
+- [README.md](./README.md)
 
-## 🏛️ プロジェクトの目的
+## 現在の構成（要約）
 
-法人および機関投資家向けバンキング (CIB) において、企業の借り手の財務情報の自動取り込み、標準化、そしてリアルタイム監視は、運用上の重大なボトルネックとなっています。**RiskLens** は、非構造化された生の財務諸表と、実行可能で監査可能な信用インサイトとの間のギャップを埋めます。
+- デフォルト起動: `./run_app.sh` -> `src/api.py`（Dashboard）
+- 互換起動: `main.py`（旧 API `/api/assess`）
+- 企業検索: 会社名/コード検索 + ticker 入力欄への反映
 
-ストレート・スルー・プロセッシング (STP) パイプラインを実行して、多様な財務データ配列を抽出し、30 以上の基本的な信用リスク比率を標準化し、**Altman Z-Score モデル**を客観的に適用して、信用エクスポージャーを Safe (安全)、Grey (懸念)、Distress (危機) の各トランシェに分類します。
+## クイックスタート
 
-## 🚀 エンタープライズ機能
-
-### 1. 統一されたグローバルデータ標準化 
-- **マルチマーケット解析**: 米国、香港、および**中国本土 (A株)**市場にわたる構造をシームレスに取得して標準化します。
-- **バイリンガルな分類体系**: 組み込みのロジックにより、複雑な中国のオンショアの報告書 (AKShare 経由) を IFRS/US GAAP 準拠の同等物に直接マッピングします。
-- **動的な期間解決**: 累積的なオンショア四半期 (Q1、H1、Q3) や個別のオフショア報告書を含む、極めて不規則な会計年度の境界を処理し、年次化します。
-
-### 2. アルゴリズムによる信用格付け体系 (`POST /api/v1/assess`)
-- **Altman Z-Score エンジン**: 公開社債に適合した、正確な多変量倒産予測モデルを自動化します。
-- **ストレステストの差異化**: 4つの会計期間にわたるインタレスト・カバレッジ (利息補償倍率)、FCF/有利子負債、および有利子負債/EBITDAの軌跡を相互検証することで、強みと弱みをプログラムで分離します。
-- **S&P 予想格付けへの変換**: 即時のポートフォリオのトリアージのために、Z-Score の出力を標準的な S&P 相当の代理店格付け (AAA から D) に投影します。
-
-### 3. 融資後コベナンツ監視 (`POST /api/v1/covenants/check`)
-- **自動化されたコンプライアンス・チェック**: 受信した財務情報を、融資固有のカスタマイズ可能な財務コベナンツ (例: 最低流動性規制、最大レバレッジ比率) に照らして評価します。
-- **保守的なデフォルト・プロトコル**: データが利用できない場合や、異常な NaN 値がある場合、偽陽性の合格とするのではなく、安全にテクニカル違反の警告をトリガーします。
-- **JSON-Schema トリガー**: 構造化された例外ペイロードを介して、下流のコアバンキングシステムやアラート・ダッシュボードとネイティブに統合する機能を備えています。
-
----
-
-## 📊 分析フレームワーク
-
-RiskLens は検証済みの定量的指標にのみ依存しています。主要なスコアリング エージェントは **Altman Z-Score モデル**を利用し、流動性、収益性、経営効率、レバレッジ、お​​よび市場評価を、デフォルト確率という単一の次元に統合します。
-
-> *Z-Score の重み付け、しきい値のマッピング、および 30 以上の基礎となる信用リスク比率 (FCF/有利子負債比率、インタレスト・カバレッジ等) の厳格な数学的内訳については、[METHODOLOGY.md](./METHODOLOGY_ja.md) を参照してください。*
-> *Excel レポートの出力構成、シート命名規則、コベナンツ事前チェックのロジックについては、[REPORT_WORKBOOK_SPEC.md](./REPORT_WORKBOOK_SPEC.md) を参照してください。*
-
----
-
-## 🛠️ 技術スタックとアーキテクチャ
-
-高スループット、並行性、および信頼性を保証するために、厳密な関心の分離に基づいて構築されています。
-
-- **データゲートウェイ**: データ抽出と多言語セマンティック翻訳のための並行 HTTP ストリームを処理する、非同期の `FastAPI` (Python) 実行基盤。
-- **分析エンジン**: 瞬時の時系列財務集計を実現する、高度にベクトル化された `Pandas` および `Numpy` コア。
-- **型安全性**: 分析実行前に妥協のないデータ検証を保証する、エンドツーエンドの `Pydantic` スキーマの強制。
-- **クライアント・インターフェース**: `Vite` 上で動作する超高レスポンスの React 19 SPA。遅延ゼロのトグル状態、動的なデータ視覚化、および強力な国際化機能を備えています。
-- **ローカリゼーション (i18n)**: `en`、`zh-CN`、`zh-TW`、および `ja` を横断する、すぐに使える標準のローカリゼーション。完全に翻訳された財務諸表の分類体系と、企業名に対する AI 支援の国境を越えたセマンティック・マッチングを備えています。
-
----
-
-## 🏁 展開手順
-
-### 1. 提供されたゲートウェイによる実行
 ```bash
-# 完全な API とフロントエンド環境をインスタンス化
 ./run_app.sh
 ```
 
-### 2. 手動による起動
-```bash
-# 依存関係のインストール
-pip install -r requirements.txt
+アクセス先：
+- `http://127.0.0.1:8000/`
+- `http://127.0.0.1:8000/health`
+- `http://127.0.0.1:8000/docs`
 
-# ASGI サーバーの起動
-cd src
-uvicorn api:app --host 0.0.0.0 --port 8000 --reload
-```
-*API Swagger / OpenAPI インターフェイスは以下で利用可能: `http://localhost:8000/docs`*
+## 主要な英語ドキュメント
 
-### 3. フロントエンドのローカル開発（任意）
-```bash
-cd web
-npm install
-npm run dev
-```
-*Vite UI: `http://localhost:5173`*  
-*Vite 開発モードでも、バックエンドは `http://localhost:8000` で起動してください。*
+- アーキテクチャ: [ARCHITECTURE.md](./ARCHITECTURE.md)
+- 手法: [METHODOLOGY.md](./METHODOLOGY.md)
+- Excel 仕様: [REPORT_WORKBOOK_SPEC.md](./REPORT_WORKBOOK_SPEC.md)
 
----
+## 運用ポリシー
 
-## 🔌 API クイック例
-
-### ヘルスチェック
-```bash
-curl http://localhost:8000/health
-```
-
-### 信用リスク評価
-```bash
-curl -X POST http://localhost:8000/api/v1/assess \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tickers": ["AAPL", "MSFT", "0700.HK", "000002.SZ"],
-    "data_source": "yfinance"
-  }'
-```
-
-### コベナンツ監視
-```bash
-curl -X POST http://localhost:8000/api/v1/covenants/check \
-  -H "Content-Type: application/json" \
-  -d '{
-    "ticker": "AAPL",
-    "data_source": "yfinance",
-    "covenants": {
-      "min_current_ratio": 1.2,
-      "max_debt_to_ebitda": 4.0,
-      "min_interest_coverage": 2.0,
-      "min_fcf_to_debt": 0.05
-    }
-  }'
-```
-
----
-
-## ✅ テスト
-
-```bash
-pytest tests -v
-```
-
-主なテスト対象：
-- Altman Z-Score の閾値と格付けマッピング
-- 財務比率計算ロジック
-- コベナンツ違反判定とテクニカル違反のデフォルト動作
-- 信用評価パイプラインの挙動
-
----
-
-## 📁 リポジトリ構成
-
-```text
-RiskLens/
-├── src/                 # FastAPI サービスとリスク計算エンジン
-├── tests/               # Pytest テスト
-├── web/                 # React + Vite フロントエンド
-├── data/                # ローカルデータ成果物
-├── METHODOLOGY_ja.md    # 手法ドキュメント（日本語）
-├── ARCHITECTURE_ja.md   # アーキテクチャ文書（日本語）
-└── REPORT_WORKBOOK_SPEC.md
-```
-
----
-
-## 🧩 トラブルシューティング
-
-- `ModuleNotFoundError` や依存関係の不整合：
-  `.venv` を再作成し、`requirements.txt` を再インストール。
-- A株の社名やローカライズ名が欠落する：
-  オプション依存 `opencc` を導入して再実行。
-- Vite UI から API を呼べない：
-  バックエンドが `127.0.0.1:8000` で起動しているか確認。
-- 期間データが空または欠落する：
-  ティッカー接尾辞（`.HK`、`.SS`、`.SZ`、`.SH`）とデータソース設定を確認。
-
----
-
-## 👨‍💻 作成者
-**Right Leung**
+- 英語ドキュメントを唯一の完全仕様ソースとする。
+- 本ページは要約と導線のみを保持する。
+- 記述が矛盾する場合は英語版を優先する。

@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 import sys
 import os
+import types
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -163,6 +164,36 @@ class TestAssessEndpoint:
             json={"tickers": ["AAPL"], "fiscal_year": 1800, "data_source": "yfinance"}
         )
         assert response.status_code == 422
+
+
+class TestSymbolSearch:
+    """Tests for /api/v1/symbols/search and suggestion filtering."""
+
+    def test_symbol_search_endpoint_returns_results(self, client, monkeypatch):
+        monkeypatch.setattr(
+            api,
+            "_search_tickers",
+            lambda q, limit=5, strict=False: [{"symbol": "MSFT", "name": "Microsoft Corporation"}],
+        )
+        response = client.get("/api/v1/symbols/search", params={"q": "micro", "limit": 20})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 1
+        assert data["results"][0]["symbol"] == "MSFT"
+
+    def test_search_tickers_filters_non_equity_and_duplicates(self, monkeypatch):
+        class FakeSearch:
+            def __init__(self, _query):
+                self.quotes = [
+                    {"symbol": "MSFLX", "shortname": "Morgan Stanley Institutional", "quoteType": "MUTUALFUND"},
+                    {"symbol": "MSFT", "shortname": "Microsoft Corporation", "quoteType": "EQUITY"},
+                    {"symbol": "msft", "shortname": "Microsoft Duplicate", "quoteType": "EQUITY"},
+                    {"symbol": "MSFLX", "shortname": "Same As Query", "quoteType": "EQUITY"},
+                ]
+
+        monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Search=FakeSearch))
+        suggestions = api._search_tickers("MSFLX", limit=5)
+        assert suggestions == [{"symbol": "MSFT", "name": "Microsoft Corporation"}]
 
 
 class TestCovenantEndpoint:

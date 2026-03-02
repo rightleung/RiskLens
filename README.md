@@ -1,134 +1,111 @@
-# RiskLens MVP (FastAPI)
+# RiskLens
 
-这是一个可本地运行的最小可用项目（MVP）：
-- 后端：FastAPI
-- 前端：`templates/ + static/` 原生 HTML/CSS/JS
-- 目标：`GET /` 页面输入 ticker 后，调用 `POST /api/assess` 返回风险评估结果
+Language: [English Full](./README.md) | [简体中文摘要](./README_zh-CN.md) | [繁體中文摘要](./README_zh-TW.md) | [日本語サマリー](./README_ja.md)
 
-## 1. 功能清单
+## 1. Runtime Paths
 
-- `GET /health`：健康检查
-- `GET /docs`：Swagger 文档
-- `GET /`：前端页面
-- `POST /api/assess`：单 ticker 风险评估
-- `POST /api/v1/assess`：兼容多 ticker 批量评估（简化版）
+RiskLens currently exposes two runnable backend paths for different purposes:
 
-## 2. 项目结构
+1. Dashboard path (default)
+- Launcher: `./run_app.sh`
+- Backend entrypoint: `src/api.py` (`uvicorn api:app`)
+- Frontend: `web/` (React + Vite build served by FastAPI static routes)
+- Primary APIs: `/api/v1/assess`, `/api/v1/symbols/search`, `/api/v1/covenants/check`
+
+2. MVP compatibility path (kept for legacy)
+- Backend entrypoint: `main.py`
+- APIs: `/api/assess`, `/api/v1/assess`
+- Mainly used for backward compatibility and `smoke_test.sh` (currently verifies `/api/assess`)
+
+## 2. Feature Scope (Dashboard Path)
+
+- `GET /`: dashboard UI
+- `GET /health`: health endpoint
+- `GET /docs`: OpenAPI docs
+- `POST /api/v1/assess`: single or multi-ticker risk assessment
+- `GET /api/v1/symbols/search`: company/ticker search (equity-focused filtering)
+- `POST /api/v1/covenants/check`: covenant pre-check
+- Company finder in the frontend: search by company name, multi-select, write back to ticker input
+
+## 3. Project Structure
 
 ```text
 RiskLens/
-├── main.py                    # FastAPI 启动入口（uvicorn main:app）
+├── run_app.sh
+├── smoke_test.sh
 ├── src/
-│   ├── data_fetcher.py        # 已有数据获取逻辑（复用）
-│   ├── ratio_analyzer.py      # 已有比率分析逻辑（复用）
-│   ├── zscore.py              # 已有 Z-Score 逻辑（复用）
-│   └── services/
-│       └── assessment_service.py   # 新增服务层（业务编排）
-├── templates/
-│   └── index.html             # 页面模板
-├── static/
-│   ├── css/app.css            # 页面样式
-│   └── js/app.js              # 前端交互脚本
-├── requirements.txt
-├── .env.example
-└── run_app.sh
+│   ├── api.py
+│   ├── data_fetcher.py
+│   ├── ratio_analyzer.py
+│   ├── covenant_monitor.py
+│   └── zscore.py
+├── web/
+│   ├── src/App.tsx
+│   └── dist/
+├── main.py
+└── *.md
 ```
 
-## 3. 安装与启动
+## 4. Quick Start
 
-### 3.1 创建环境并安装依赖
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 3.2 启动服务
-
-```bash
-uvicorn main:app --reload
-```
-
-或一键启动：
+### 4.1 Dashboard Path (recommended)
 
 ```bash
 ./run_app.sh
 ```
 
-## 4. 访问地址
+Open:
+- `http://127.0.0.1:8000/`
+- `http://127.0.0.1:8000/health`
+- `http://127.0.0.1:8000/docs`
 
-- 首页：`http://127.0.0.1:8000/`
-- 健康检查：`http://127.0.0.1:8000/health`
-- API 文档：`http://127.0.0.1:8000/docs`
-
-## 5. API 快速示例
-
-### 5.1 单 ticker 评估
+### 4.2 MVP Compatibility Path (`/api/assess`)
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/assess \
+./.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 18000
+./smoke_test.sh http://127.0.0.1:18000
+```
+
+## 5. API Examples (Dashboard Path)
+
+### 5.1 Risk Assessment
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/assess \
   -H "Content-Type: application/json" \
-  -d '{"ticker":"AAPL","data_source":"yfinance"}'
+  -d '{"tickers":["AAPL","0700.HK"],"data_source":"yfinance"}'
 ```
 
-### 5.2 离线演示（推荐）
-
-当本机网络不可用时使用 `demo`：
+### 5.2 Company Finder Search
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/assess \
+curl "http://127.0.0.1:8000/api/v1/symbols/search?q=apple&limit=20"
+```
+
+### 5.3 Covenant Check
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
   -H "Content-Type: application/json" \
-  -d '{"ticker":"DEMO","data_source":"demo"}'
+  -d '{"ticker":"AAPL","data_source":"yfinance","covenants":{"min_current_ratio":1.2}}'
 ```
 
-## 6. 配置说明
+## 6. Documentation Layers
 
-可选复制模板：
+Keep these three docs because each has a different ownership boundary:
 
-```bash
-cp .env.example .env
-```
+- [ARCHITECTURE.md](./ARCHITECTURE.md): runtime boundaries and component ownership
+- [METHODOLOGY.md](./METHODOLOGY.md): scoring and risk-layer methodology
+- [REPORT_WORKBOOK_SPEC.md](./REPORT_WORKBOOK_SPEC.md): Excel output contract and field rules
 
-当前 MVP 使用的环境变量：
-- `APP_NAME`：应用名称（默认 `RiskLens MVP`）
-- `APP_PORT`：本地端口（默认 `8000`）
-- `ASSESS_TIMEOUT_SECONDS`：单次评估超时时间（秒，默认 `25`）
-- `ENVIRONMENT` / `DEBUG` / `SENTRY_DSN`：预留给现有监控能力
+Responsibilities:
+- README: onboarding and runbook
+- Architecture: system design and deployment/runtime truth
+- Methodology: risk/scoring policy
+- Workbook Spec: reporting contract between frontend and business users
 
-## 7. Smoke 测试（推荐）
+## 7. Documentation Maintenance Policy
 
-服务启动后执行：
-
-```bash
-./smoke_test.sh http://127.0.0.1:8000
-```
-
-会检查：
-- `/health`
-- `/docs`
-- `/`
-- `/api/assess`（demo 闭环 + 参数校验）
-
-## 8. 常见问题（FAQ）
-
-1. 页面提示“请求失败，请稍后重试”
-- 先确认后端是否已启动：访问 `/health`。
-- 再确认前端调用地址是否同源（默认就是同源）。
-
-2. 使用 `AAPL` 等真实 ticker 返回网络错误
-- 说明第三方数据源不可达或被限流。
-- 可先用 `ticker=DEMO` + `data_source=demo` 完成闭环验证。
-
-3. `ModuleNotFoundError`
-- 确认在项目根目录启动。
-- 确认已激活 `.venv` 并安装 `requirements.txt`。
-
-4. `GET /` 打开但没有结果
-- 打开浏览器开发者工具查看请求是否调用 `/api/assess`。
-- 检查返回 JSON 中 `error` 字段。
-
-## 9. 说明
-
-仓库中 `src/api.py` 与 `web/` 仍保留，作为原有实现与后续扩展参考；
-当前 MVP 验收以 `main.py` 入口为准。
+- English files are the only full source-of-truth docs.
+- Other language files are summary/navigation pages.
+- If any wording conflicts, English full docs prevail.
