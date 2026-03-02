@@ -1,59 +1,64 @@
 # RiskLens Architecture Overview
 
-RiskLens is built on a modern, decoupled architecture designed to handle institutional credit risk analysis. The system is split into a high-performance Python analytics backend and a responsive React frontend, connected via a RESTful JSON API.
+Language: [EN](./ARCHITECTURE.md) | [简中](./ARCHITECTURE_zh-CN.md) | [繁中](./ARCHITECTURE_zh-TW.md) | [日本語](./ARCHITECTURE_ja.md)
 
-## System Architecture
+## 1. Runtime Topology
 
-### 1. The Backend Gateway (FastAPI)
-The backend is built with **FastAPI**, providing high-throughput asynchronous execution, automatic OpenAPI documentation, and strict data validation.
-- **`api.py` (The Orchestrator)**: Exposes the `POST /api/v1/assess` endpoint. It receives an array of ticker symbols and orchestrates the data fetching and translation processes.
-- **Concurrent Execution**: To dramatically reduce response latency, multi-language semantic matching (Google Translate) is executed dynamically using Python's `concurrent.futures.ThreadPoolExecutor`, allowing English, Simplified Chinese, Traditional Chinese, and Japanese names to be fetched in parallel.
+RiskLens currently supports two backend entry paths:
 
-### 2. The Data Ingestion Layer (`data_fetcher.py`)
-This layer handles the physical retrieval of financial datasets from external APIs. It implements a robust fallback methodology:
-- **AKShare (China A-Shares & HK)**: Primary pipeline for onshore Chinese equities (e.g., `600673.SS`). Directly queries Mainland APIs (`stock_financial_report_sina`, `stock_individual_info_em`) handling complex Chinese GAAP taxonomy and converting irregular reporting periods (Q1, H1, Q3) into annualized standard formats.
-- **yFinance (Global/US)**: Serves as the primary engine for US/European markets and acts as a safety fallback if onshore APIs throttle connections.
+1. Dashboard path (default)
+- Launcher: `./run_app.sh`
+- Backend: `src/api.py` (`uvicorn api:app`)
+- Frontend: `web/` React app served by FastAPI static routes
+- Primary APIs: `/api/v1/assess`, `/api/v1/symbols/search`, `/api/v1/covenants/check`
 
-### 3. The Analytics & Surveillance Engines
-- **`ratio_analyzer.py`**: A pure mathematical engine that processes raw ingested arrays into 30+ sophisticated credit ratios (Current Ratio, FCF/Debt, Operating Margin).
-- **Altman Z-Score Model (`zscore.py`)**: The finalized ratios are fed into the Z-Score engine to generate the final probabilistic assessment (Safe, Grey, Distress). This is the sole scoring model in 1.0.
-- **`covenant_monitor.py`**: A specialized module that evaluates the calculated ratios against strict predefined constraints (e.g., Debt/EBITDA < 3.5x). Crucially, the system fails conservatively—if a required metric is missing (`null`), it triggers a technical breach alert rather than defaulting to a pass.
+2. MVP compatibility path
+- Backend: `main.py`
+- APIs: `/api/assess`, `/api/v1/assess`
+- Used mainly for legacy smoke checks and backward compatibility
 
-### 4. The Frontend Client (React 19 + Vite)
-- **State Management**: Built as a Single Page Application (SPA) utilizing functional React Hooks. Contains centralized state logic for dark mode (`useTheme`), active company datasets, and responsive financial modals.
-- **UI/UX**: Styled extensively with `Tailwind CSS`, utilizing glassmorphism utilities (`glass-panel`, `glass-header`) to establish a premium, institutional aesthetics.
-- **Localization (i18n)**: Dictated by `translations.ts`, which maps over 650 localized terms. The UI dynamically re-renders the entire interface—from overarching layouts down to specific financial row items—based on the user's active language selection (`zh-CN`, `zh-TW`, `en`, `ja`).
+## 2. Backend Components (`src/`)
 
-## Data Flow Diagram
+- `api.py`: request orchestration, error mapping, API routes, static hosting
+- `data_fetcher.py`: market data retrieval (yfinance/AKShare fallback strategy)
+- `ratio_analyzer.py`: ratio computation layer
+- `zscore.py`: Altman Z-Score computation
+- `covenant_monitor.py`: covenant rule checking with conservative fail policy
+
+## 3. Frontend Components (`web/`)
+
+- React + Vite SPA
+- Main page search supports:
+  - direct ticker input (single or comma-separated)
+  - company finder dialog (calls `/api/v1/symbols/search`, supports multi-select write-back)
+- Statement modal supports synonym folding + standard-order rendering (USGAAP/IFRS/CAS mapping)
+- Excel export logic is implemented in `web/src/App.tsx` (`exportToExcel`)
+
+## 4. API Surface (Dashboard Path)
+
+- `GET /`: dashboard UI
+- `GET /health`: health check
+- `GET /docs`: OpenAPI docs
+- `POST /api/v1/assess`: risk assessment (single/multi ticker)
+- `GET /api/v1/symbols/search`: equity symbol suggestions for company finder
+- `POST /api/v1/covenants/check`: covenant check
+
+## 5. Data Flow
 
 ```mermaid
 graph TD
-    A[Client Request (React)] -->|POST /api/v1/assess| B(FastAPI Router)
-    
-    B --> C{Ticker Type?}
-    C -->|A-Share/HK| D[AKShare Ingestion]
-    C -->|US/Global Data| E[yFinance Ingestion]
-    
-    D --> F[Data Normalization]
-    E --> F
-    
-    F --> G[Ratio Analyzer]
-    G --> H[Altman Z-Score Engine]
-    H --> I[Implied Rating Mapping]
-    
-    B --> J[Concurrent Translator]
-    J -->|ThreadPoolExecutor| K[Google Translate API]
-    K -->|Multi-lang dict| L[Response Aggregator]
-    
-    I --> L
-    L -->|JSON Payload| A
+  A[User Input / Company Finder] --> B[POST /api/v1/assess or GET /api/v1/symbols/search]
+  B --> C[src/api.py]
+  C --> D[data_fetcher.py]
+  D --> E[ratio_analyzer.py]
+  E --> F[zscore.py]
+  E --> G[covenant_monitor.py]
+  F --> H[Assessment Payload]
+  G --> H
+  H --> I[React Dashboard + Excel Export]
 ```
 
-## Key Architectural Decisions
+## 6. Why This Document Exists
 
-| Decision | Rationale |
-|----------|-----------|
-| **Asynchronous FastAPI + Pydantic** | Provides high-throughput concurrency and automatic type coercion for incoming requests, guaranteeing data structures before the analysis engine runs. |
-| **Bilingual Taxonomy Matching** | Essential for accurately mapping Chinese GAAP terms from AKShare into standardized global structures (IFRS/US GAAP) for valid peer comparisons. |
-| **Separation of Assessment and Covenants** | Post-lending surveillance (Covenants) operates independently from probability of default scoring (Z-Score), allowing different thresholds per borrower. |
-| **Real-time Semantic Translation** | Using `ThreadPoolExecutor` ensures company names are correctly rendered in JS/ZH markets without delaying the massive ingestion payload. |
+This document defines *system boundaries and runtime truth*.
+Use it when validating entrypoints, API ownership, and frontend/backend responsibilities.

@@ -12,7 +12,8 @@ Swagger UI:
 
 import math
 import logging
-from fastapi import FastAPI, HTTPException
+from contextlib import contextmanager
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +27,15 @@ import json
 import concurrent.futures
 
 logger = logging.getLogger(__name__)
+
+_PROXY_ENV_KEYS = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+)
 
 # ── Error Monitoring (Sentry) ─────────────────────────────────────────────────
 # Initialize Sentry for error tracking
@@ -594,19 +604,93 @@ async def run_credit_assessment(request: AssessmentRequest):
     }
 
 
-def _search_tickers(query: str, limit: int = 5) -> list:
-    """Search yfinance for similar tickers to suggest."""
+@contextmanager
+def _temporarily_clear_proxy_env(enabled: bool):
+    if not enabled:
+        yield
+        return
+    backup = {k: os.environ.get(k) for k in _PROXY_ENV_KEYS}
     try:
-        import yfinance as yf
-        s = yf.Search(query)
-        quotes = s.quotes if hasattr(s, 'quotes') else []
-        return [
-            {"symbol": q.get("symbol", ""), "name": q.get("shortname", q.get("longname", ""))}
-            for q in quotes[:limit]
-            if q.get("symbol")
-        ]
-    except Exception:
-        return []
+        for k in _PROXY_ENV_KEYS:
+            os.environ.pop(k, None)
+        yield
+    finally:
+        for k, v in backup.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def _search_tickers(query: str, limit: int = 5, strict: bool = False) -> list:
+    """Search yfinance for similar tickers to suggest.
+
+    - strict=False: swallow upstream failures and return [] (used by assess suggestions)
+    - strict=True: raise the last upstream error (used by company finder endpoint)
+    """
+    query_symbol = query.strip().upper()
+    allowed_quote_types = {"EQUITY"}
+    last_error: Optional[Exception] = None
+
+    for clear_proxy in (False, True):
+        try:
+            with _temporarily_clear_proxy_env(clear_proxy):
+                import yfinance as yf
+                s = yf.Search(query)
+                quotes = s.quotes if hasattr(s, 'quotes') else []
+
+                suggestions: list = []
+                seen_symbols: set[str] = set()
+                for q in quotes:
+                    symbol = str(q.get("symbol", "")).strip().upper()
+                    if not symbol or symbol == query_symbol or symbol in seen_symbols:
+                        continue
+                    quote_type = str(q.get("quoteType", "")).strip().upper()
+                    if quote_type not in allowed_quote_types:
+                        continue
+
+                    seen_symbols.add(symbol)
+                    suggestions.append({
+                        "symbol": symbol,
+                        "name": q.get("shortname", q.get("longname", "")),
+                    })
+                    if len(suggestions) >= limit:
+                        break
+
+                return suggestions
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    if strict and last_error is not None:
+        raise last_error
+    return []
+
+
+@app.get("/api/v1/symbols/search", tags=["Credit Assessment"])
+async def search_symbols(
+    q: str = Query(..., min_length=1, description="Ticker/company keyword"),
+    limit: int = Query(20, ge=1, le=50, description="Maximum number of results"),
+):
+    """Search candidate equity tickers for the company finder dialog."""
+    from fastapi.concurrency import run_in_threadpool
+
+    try:
+        results = await run_in_threadpool(_search_tickers, q, limit, True)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "Symbol search upstream unavailable",
+                "message": f"Unable to search symbols right now: {exc}",
+                "query": q,
+            },
+        ) from exc
+    return {
+        "query": q,
+        "count": len(results),
+        "results": results,
+    }
 
 
 @app.post("/api/v1/covenants/check", tags=["Post-Lending Monitoring"])

@@ -1,110 +1,112 @@
-# RiskLens Excel Report Workbook Spec (v1.0)
+# RiskLens Excel Workbook Spec (Current)
 
-This document defines what the Excel export generates and the logic behind each section.
+Language: [EN](./REPORT_WORKBOOK_SPEC.md) | [简中](./REPORT_WORKBOOK_SPEC_zh-CN.md) | [繁中](./REPORT_WORKBOOK_SPEC_zh-TW.md) | [日本語](./REPORT_WORKBOOK_SPEC_ja.md)
 
-## 1) Single-company export (`<TICKER>_Risk_Report.xlsx`)
+This document describes the actual Excel export behavior implemented in `web/src/App.tsx` (`exportToExcel`).
 
-### Sheet naming (unified)
-1. `01_Risk_Report`
-2. `02_KPI_Trends`
-3. `03_Financial_Statements`
+## 1. Single-Company Export
 
-### `01_Risk_Report` content
-- `Executive Summary`
+- Filename: `<TICKER>_Financial_Data.xlsx`
+- Trigger: card-level export button in dashboard
+
+### Sheet Layout (localized names)
+
+1. Risk report sheet (`riskText.sheetName`, purple tab)
+2. KPI trends sheet (`excelKpiSheet`, blue tab)
+3. Financial statements sheet (`excelStatementsSheet`, green tab)
+
+### Risk Report Sheet
+
+For a single company, the sheet contains:
+- merged title row with `Company Name (Ticker)`
+- summary rows:
   - Ticker
-  - Company Name (localized)
   - Latest Period
   - Currency
-  - Data Source
-  - Generated At
   - Altman Z-Score
   - Z-Score Zone
   - Implied Rating
   - Strengths (localized)
   - Watch Items (localized)
-- `Key Metrics`
-  - Interest Coverage
+- covenant pre-check table:
+  - Metric / Actual / Threshold / Status / Signal / Notes
+- data quality rows:
+  - Breach Count
+  - Missing Key Inputs
+  - Missing Items
+
+Rules:
+- missing covenant actual value is exported as numeric `0`
+- missing covenant is treated as `BREACH (DATA MISSING)`
+
+### KPI Trends Sheet
+
+- columns: periods (`FYxx` / `yyQx`) + optional YoY columns for annual pairs
+- metrics include:
+  - EBIT
+  - EBITDA
+  - Total Debt
   - Debt / EBITDA
+  - Interest Coverage
+  - Free Cash Flow
   - FCF / Debt
   - Current Ratio
-  - For each metric:
-    - Actual
-    - Benchmark
-    - Signal (`Strong` / `Neutral` / `Watch`)
-- `Covenant Pre-Check`
-  - Covenant
-  - Actual
-  - Threshold
-  - Status
-  - Notes
-- `Data Quality`
-  - Breach Count
-  - Notes (definition of breach count)
-  - Missing Key Inputs
-  - Missing Items
-- `Methodology & Boundary`
-  - Model scope note (Altman only in v1.0)
-  - Missing input treated as breach (conservative control)
-  - Non-investment-advice disclaimer
 
-### `02_KPI_Trends` content
-- Core KPI trend table across periods
-- YoY columns for annual periods (absolute and % change where available)
+### Financial Statements Sheet
 
-### `03_Financial_Statements` content
-- Raw financial statement items (income / balance / cash)
-- Multi-period comparison
-- YoY columns for annual periods (absolute and % change where available)
+- rows aggregate line items from income/balance/cash statements
+- row order uses standards-first mapping:
+  - US tickers -> USGAAP order
+  - HK tickers -> IFRS order
+  - CN A-share tickers -> CAS order
+- synonymous keys are folded under a primary key (frontend modal behavior), while Excel keeps line-item rows based on ordered key collection
+- optional YoY columns are generated for annual periods where both values exist
 
-## 2) Multi-company export (`RiskLens_MultiCompany_Comparison.xlsx`)
+## 2. Multi-Company Export
 
-### Sheet naming (unified)
-1. `01_Portfolio_Risk_Summary`
-2. `02_Portfolio_KPI_Comparison`
-3. `03_Portfolio_Statement_Comparison`
-4. `04_<TICKER>_Statements` (one per company)
+- Filename: `RiskLens_MultiCompany_Comparison.xlsx`
+- Trigger: top-level "Export All" button when multiple companies are present
 
-### `01_Portfolio_Risk_Summary` content
-- Generated timestamp
-- Per-company summary:
-  - Ticker
-  - Company Name
-  - Latest Period
-  - Z-Score
-  - Implied Rating
-  - Breach Count
-  - Missing Key Inputs
-  - Missing Items
-- Boundary notes and breach-count definition
+### Sheet Layout
 
-### `02_Portfolio_KPI_Comparison` content
-- Cross-company KPI comparison per period
-- Base company vs peers delta and delta %
+1. Risk report sheet (`riskText.sheetName`, purple tab)
+2. Portfolio KPI comparison (`excelPortfolioKpiSheet`, blue tab)
+3. Portfolio statement comparison (`excelPortfolioStatementsSheet`, blue tab)
+4. Per-company statement sheet(s): `<CompanyShortName> <excelCompanySheetSuffix>` (green tab)
 
-### `03_Portfolio_Statement_Comparison` content
-- Cross-company statement line-item comparison per period
-- Base company vs peers delta and delta %
+### Portfolio Risk Sheet
 
-### `04_<TICKER>_Statements` content
-- Company-level statement details
-- Period and YoY views
+- one section per company
+- each section starts with merged, colored title row
+- each section includes summary, covenant pre-check table, and data-quality block
 
-## 3) Logic Definitions
+### Portfolio KPI / Statement Comparison Sheets
 
-### Covenant pre-check rules (default v1.0)
-- Interest Coverage: `>= 3.0`
-- Debt / EBITDA: `<= 4.0`
-- Current Ratio: `>= 1.2`
-- FCF / Debt: `>= 0.05`
+- first selected company is comparison baseline
+- for each period block:
+  - baseline company value
+  - peer company value(s)
+  - delta vs baseline
+  - `%` vs baseline
 
-### Breach Count definition
-`Breach Count = number of covenant checks flagged as BREACH, including DATA MISSING cases.`
+## 3. Formatting Conventions
 
-### Missing item handling
-- Missing key inputs are listed explicitly in report output.
-- Missing covenant metric is treated as breach (`BREACH (DATA MISSING)`).
+- period header color bands are applied per fiscal period block
+- tab colors:
+  - risk: purple
+  - portfolio comparison: blue
+  - statements: green
+- columns are auto-fitted from actual cell text length
+- number formats:
+  - values: `#,##0.00`
+  - percentages: `0.00%`
 
-## 4) Localization behavior
-- Strengths / Watch Items are translated via frontend text translator.
-- Missing Items use localized KPI labels first; fallback to metric-key prettifier.
-- Report labels support `en`, `zh-CN`, `zh-TW`, `ja`.
+## 4. Localization
+
+Workbook labels support:
+- `en`
+- `zh-CN`
+- `zh-TW`
+- `ja`
+
+Localization covers sheet names, risk labels, covenant status text, and translated strengths/watch items.
