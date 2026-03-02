@@ -124,7 +124,7 @@ const translations = {
     excelPortfolioStatementsSheet: 'Portfolio Statement Comparison',
     excelCompanySheetSuffix: 'Statements',
     varVs: 'vs',
-    varPct: 'Var (%)',
+    varPct: '%',
     exportAll: 'Export All',
     finComparisonTab: 'Fin Comparison',
     periodGuideTitle: 'How to Use Period Views',
@@ -177,7 +177,7 @@ const translations = {
     excelPortfolioStatementsSheet: '组合报表对比',
     excelCompanySheetSuffix: '报表',
     varVs: '对比',
-    varPct: '变动比例(%)',
+    varPct: '%',
     exportAll: '全部导出',
     finComparisonTab: '财报横向对比',
     periodGuideTitle: '期间查看说明',
@@ -230,7 +230,7 @@ const translations = {
     excelPortfolioStatementsSheet: '組合報表對比',
     excelCompanySheetSuffix: '報表',
     varVs: '對比',
-    varPct: '變動比例(%)',
+    varPct: '%',
     exportAll: '全部匯出',
     finComparisonTab: '財報橫向對比',
     periodGuideTitle: '期間檢視說明',
@@ -283,7 +283,7 @@ const translations = {
     excelPortfolioStatementsSheet: 'ポートフォリオ財務諸表比較',
     excelCompanySheetSuffix: '財務諸表',
     varVs: '比較',
-    varPct: '増減率(%)',
+    varPct: '%',
     exportAll: 'すべてエクスポート',
     finComparisonTab: '財務諸表比較',
     periodGuideTitle: '期間表示の使い方',
@@ -349,7 +349,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
   const toNumber = (value: unknown): number | null =>
     typeof value === 'number' && Number.isFinite(value) ? value : null;
 
-  const formatActual = (value: number | null) => (value === null ? '--' : value);
+  const formatActual = (value: number | null) => (value === null ? 0 : value);
 
   const riskTextByLang: Record<Language, {
     sheetName: string;
@@ -622,15 +622,35 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     }
   };
 
+  const riskHeaderPalette = ['FF6F42C1', 'FF2E7D32', 'FF1565C0', 'FFAD1457', 'FFEF6C00'];
+
+  const styleMergedRiskTitle = (ws: ExcelJS.Worksheet, rowNumber: number, color: string) => {
+    ws.mergeCells(rowNumber, 1, rowNumber, 7);
+    const cell = ws.getCell(rowNumber, 1);
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color } };
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 12 };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+  };
+
+  const styleRiskSectionRow = (ws: ExcelJS.Worksheet, rowNumber: number, colEnd = 6) => {
+    for (let col = 1; col <= colEnd; col += 1) {
+      const cell = ws.getCell(rowNumber, col);
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+      cell.font = { ...(cell.font || {}), bold: true };
+      cell.alignment = { horizontal: col === 1 ? 'left' : 'center', vertical: 'middle' };
+    }
+  };
+
+  const buildLocalizedAssessmentText = (items: string[] | undefined) => {
+    if (!Array.isArray(items) || items.length === 0) return riskText.none;
+    return items.map((item) => translateAssessmentText(item, lang)).join(' | ');
+  };
+
   const autoFitWorksheet = (ws: ExcelJS.Worksheet, min = 10, max = 44) => {
-    ws.columns.forEach((column, idx) => {
+    ws.columns.forEach((_, idx) => {
       let longest = min;
-      column.eachCell({ includeEmpty: true }, (cell) => {
-        const raw =
-          typeof cell.value === 'object' && cell.value !== null && 'result' in cell.value
-            ? (cell.value as { result?: unknown }).result
-            : cell.value;
-        const text = raw == null ? '' : String(raw);
+      ws.getColumn(idx + 1).eachCell({ includeEmpty: true }, (cell) => {
+        const text = (cell.text ?? '').trim();
         longest = Math.max(longest, text.length + 2);
       });
       ws.getColumn(idx + 1).width = Math.min(max, longest);
@@ -697,24 +717,28 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     const breachCount = covenantRows.filter((row) => row.isBreach).length;
     const missingItems = covenantRows.filter((row) => row.isMissing).map((row) => row.metric);
 
-    addRowWithFormat(wsRisk, [riskText.title, '']);
+    const companyDisplayName = res.company_name_localized?.[lang] || res.company_name;
+    const titleRow = addRowWithFormat(wsRisk, [`${companyDisplayName} (${res.ticker})`]);
+    styleMergedRiskTitle(wsRisk, titleRow.number, riskHeaderPalette[0]);
     addRowWithFormat(wsRisk, [riskText.ticker, res.ticker]);
-    addRowWithFormat(wsRisk, [riskText.companyName, res.company_name_localized?.[lang] || res.company_name]);
     addRowWithFormat(wsRisk, [riskText.latestPeriod, latest ? formatPeriodLabel(latest.fiscal_year) : riskText.na]);
     addRowWithFormat(wsRisk, [riskText.currency, res.currency || riskText.na]);
     addRowWithFormat(wsRisk, [riskText.altman, toNumber(latestAssessment?.risk_score) ?? riskText.na]);
     addRowWithFormat(wsRisk, [riskText.zone, latestAssessment?.overall_rating || riskText.na]);
     addRowWithFormat(wsRisk, [riskText.impliedRating, translateRatingStatus(latestAssessment?.implied_rating || riskText.na, lang)]);
-    addRowWithFormat(wsRisk, [riskText.strengths, Array.isArray(latestAssessment?.strengths) && latestAssessment.strengths.length > 0 ? latestAssessment.strengths.join(' | ') : riskText.none]);
-    addRowWithFormat(wsRisk, [riskText.watchItems, Array.isArray(latestAssessment?.weaknesses) && latestAssessment.weaknesses.length > 0 ? latestAssessment.weaknesses.join(' | ') : riskText.none]);
+    addRowWithFormat(wsRisk, [riskText.strengths, buildLocalizedAssessmentText(latestAssessment?.strengths)]);
+    addRowWithFormat(wsRisk, [riskText.watchItems, buildLocalizedAssessmentText(latestAssessment?.weaknesses)]);
     addRowWithFormat(wsRisk, []);
-    addRowWithFormat(wsRisk, [riskText.covenantPreCheck, '', '', '', '', '']);
-    addRowWithFormat(wsRisk, [riskText.metric, riskText.actual, riskText.threshold, riskText.status, riskText.signal, riskText.notes]);
+    const covenantSectionRow = addRowWithFormat(wsRisk, [riskText.covenantPreCheck, '', '', '', '', '']);
+    styleRiskSectionRow(wsRisk, covenantSectionRow.number, 6);
+    const covenantHeaderRow = addRowWithFormat(wsRisk, [riskText.metric, riskText.actual, riskText.threshold, riskText.status, riskText.signal, riskText.notes]);
+    styleRiskSectionRow(wsRisk, covenantHeaderRow.number, 6);
     covenantRows.forEach((row) => {
       addRowWithFormat(wsRisk, [row.metric, formatActual(row.actual), row.threshold, row.status, row.signal, row.note]);
     });
     addRowWithFormat(wsRisk, []);
-    addRowWithFormat(wsRisk, [riskText.dataQuality, '']);
+    const dataQualitySectionRow = addRowWithFormat(wsRisk, [riskText.dataQuality, '']);
+    styleRiskSectionRow(wsRisk, dataQualitySectionRow.number, 2);
     addRowWithFormat(wsRisk, [riskText.breachCount, breachCount]);
     addRowWithFormat(wsRisk, [riskText.missingKeyInputs, missingItems.length]);
     addRowWithFormat(wsRisk, [riskText.missingItems, missingItems.length > 0 ? missingItems.join(', ') : riskText.none]);
@@ -945,38 +969,54 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     { key: 'current_ratio', label: t('currentRatio'), src: 'ratios' },
   ];
 
-  const wsRiskPortfolio = wb.addWorksheet(riskText.sheetName, { properties: { tabColor: { argb: 'FF8064A2' } } });
-  addRowWithFormat(wsRiskPortfolio, [
-    riskText.ticker,
-    riskText.companyName,
-    riskText.latestPeriod,
-    riskText.altman,
-    riskText.impliedRating,
-    riskText.breachCount,
-    riskText.missingKeyInputs,
-    riskText.missingItems,
-  ]);
-  centerRowRange(wsRiskPortfolio, 1, 1, 8);
+  const riskTabColor = 'FF8064A2';
+  const portfolioTabColor = 'FF4F81BD';
+  const statementTabColor = 'FF9BBB59';
+  const wsRiskPortfolio = wb.addWorksheet(riskText.sheetName, { properties: { tabColor: { argb: riskTabColor } } });
 
-  results.forEach((res) => {
+  results.forEach((res, idx) => {
     const latest = res.history?.[0];
     const covenantRows = buildLocalizedCovenantRows(latest);
     const breachCount = covenantRows.filter((row) => row.isBreach).length;
     const missingItems = covenantRows.filter((row) => row.isMissing).map((row) => row.metric);
+    const latestAssessment = latest?.assessment;
+    const companyDisplayName = res.company_name_localized?.[lang] || res.company_name;
+    const sectionColor = riskHeaderPalette[idx % riskHeaderPalette.length];
 
-    addRowWithFormat(wsRiskPortfolio, [
-      res.ticker,
-      res.company_name_localized?.[lang] || res.company_name,
-      latest ? formatPeriodLabel(latest.fiscal_year) : riskText.na,
-      toNumber(latest?.assessment?.risk_score) ?? riskText.na,
-      translateRatingStatus(latest?.assessment?.implied_rating || riskText.na, lang),
-      breachCount,
-      missingItems.length,
-      missingItems.length > 0 ? missingItems.join(', ') : riskText.none,
-    ]);
+    const titleRow = addRowWithFormat(wsRiskPortfolio, [`${companyDisplayName} (${res.ticker})`]);
+    styleMergedRiskTitle(wsRiskPortfolio, titleRow.number, sectionColor);
+    addRowWithFormat(wsRiskPortfolio, [riskText.ticker, res.ticker]);
+    addRowWithFormat(wsRiskPortfolio, [riskText.latestPeriod, latest ? formatPeriodLabel(latest.fiscal_year) : riskText.na]);
+    addRowWithFormat(wsRiskPortfolio, [riskText.currency, res.currency || riskText.na]);
+    addRowWithFormat(wsRiskPortfolio, [riskText.altman, toNumber(latestAssessment?.risk_score) ?? riskText.na]);
+    addRowWithFormat(wsRiskPortfolio, [riskText.zone, latestAssessment?.overall_rating || riskText.na]);
+    addRowWithFormat(wsRiskPortfolio, [riskText.impliedRating, translateRatingStatus(latestAssessment?.implied_rating || riskText.na, lang)]);
+    addRowWithFormat(
+      wsRiskPortfolio,
+      [riskText.strengths, buildLocalizedAssessmentText(latestAssessment?.strengths)]
+    );
+    addRowWithFormat(
+      wsRiskPortfolio,
+      [riskText.watchItems, buildLocalizedAssessmentText(latestAssessment?.weaknesses)]
+    );
+    addRowWithFormat(wsRiskPortfolio, []);
+    const covenantSectionRow = addRowWithFormat(wsRiskPortfolio, [riskText.covenantPreCheck, '', '', '', '', '']);
+    styleRiskSectionRow(wsRiskPortfolio, covenantSectionRow.number, 6);
+    const covenantHeaderRow = addRowWithFormat(wsRiskPortfolio, [riskText.metric, riskText.actual, riskText.threshold, riskText.status, riskText.signal, riskText.notes]);
+    styleRiskSectionRow(wsRiskPortfolio, covenantHeaderRow.number, 6);
+    covenantRows.forEach((row) => {
+      addRowWithFormat(wsRiskPortfolio, [row.metric, formatActual(row.actual), row.threshold, row.status, row.signal, row.note]);
+    });
+    addRowWithFormat(wsRiskPortfolio, []);
+    const dataQualitySectionRow = addRowWithFormat(wsRiskPortfolio, [riskText.dataQuality, '']);
+    styleRiskSectionRow(wsRiskPortfolio, dataQualitySectionRow.number, 2);
+    addRowWithFormat(wsRiskPortfolio, [riskText.breachCount, breachCount]);
+    addRowWithFormat(wsRiskPortfolio, [riskText.missingKeyInputs, missingItems.length]);
+    addRowWithFormat(wsRiskPortfolio, [riskText.missingItems, missingItems.length > 0 ? missingItems.join(', ') : riskText.none]);
+    addRowWithFormat(wsRiskPortfolio, []);
   });
 
-  const wsMain = wb.addWorksheet(t('excelPortfolioKpiSheet'), { properties: { tabColor: { argb: 'FF4F81BD' } } });
+  const wsMain = wb.addWorksheet(t('excelPortfolioKpiSheet'), { properties: { tabColor: { argb: portfolioTabColor } } });
   const colsPerPeriod = results.length === 1 ? 1 : 1 + (results.length - 1) * 3;
 
   const header1: any[] = [t('itemCol')];
@@ -1042,7 +1082,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
   centerRowRange(wsMain, wsMainHeader2.number, 2, wsMain.columnCount);
 
   // Financial Comparison Sheet
-  const wsFinComp = wb.addWorksheet(t('excelPortfolioStatementsSheet'), { properties: { tabColor: { argb: 'FF8064A2' } } });
+  const wsFinComp = wb.addWorksheet(t('excelPortfolioStatementsSheet'), { properties: { tabColor: { argb: portfolioTabColor } } });
 
   const compHeader1: any[] = [t('itemCol')];
   allPeriodsArr.forEach(p => {
@@ -1135,7 +1175,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     const companySheetSuffix = t('excelCompanySheetSuffix');
     const maxBaseLength = Math.max(1, 31 - companySheetSuffix.length - 1);
     const shortName = (res.company_name_localized?.[lang] || res.company_name).substring(0, maxBaseLength);
-    const ws = wb.addWorksheet(`${shortName} ${companySheetSuffix}`, { properties: { tabColor: { argb: 'FF9BBB59' } } });
+    const ws = wb.addWorksheet(`${shortName} ${companySheetSuffix}`, { properties: { tabColor: { argb: statementTabColor } } });
 
     const allKeys = new Set<string>();
     res.history.forEach((h: any) => {
@@ -1239,6 +1279,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     });
   });
 
+  autoFitWorkbook();
   const buffer = await wb.xlsx.writeBuffer();
   saveAs(new Blob([buffer]), `RiskLens_MultiCompany_Comparison.xlsx`);
 };
@@ -2182,14 +2223,11 @@ export default function App() {
                             {/* ① Empty header — removed "Metric" label */}
                             <th className="py-2.5 pl-6 pr-4 text-left font-medium text-muted-foreground text-xs uppercase tracking-wider min-w-[12rem]" />
                             {/* column headers — only show valid periods */}
-                            {validHistory.map((period, idx) => (
+                            {validHistory.map((period) => (
                               <th key={period.fiscal_year} className="py-2.5 px-4 text-right font-medium min-w-[7rem]">
                                 <button
                                   onClick={() => openStatements(period, localizedName, res.ticker, res.currency ?? 'USD')}
-                                  className={`inline-flex items-center justify-center rounded-md border px-3 py-1 text-[11px] font-semibold tracking-[0.08em] transition-colors ${idx === 0
-                                    ? 'border-transparent bg-foreground/90 text-background shadow-sm'
-                                    : 'border-border/70 bg-muted/35 text-muted-foreground hover:bg-muted/60 hover:text-foreground'
-                                    }`}
+                                  className="inline-flex items-center justify-center rounded-md border border-border/70 bg-muted/35 px-3 py-1 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
                                   title={t('periodButtonTitle')}
                                 >
                                   {formatPeriodLabel(period.fiscal_year)}
