@@ -1,6 +1,6 @@
 # RiskLens
 
-Language: [English Full](./README.md) | [简体中文摘要](./README_zh-CN.md) | [繁體中文摘要](./README_zh-TW.md) | [日本語サマリー](./README_ja.md)
+Language: [English](./README.md) | [简体中文](./README_zh-CN.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md)
 
 ## 1. Runtime Paths
 
@@ -106,6 +106,5 @@ Responsibilities:
 
 ## 7. Documentation Maintenance Policy
 
-- English files are the only full source-of-truth docs.
-- Other language files are summary/navigation pages.
-- If any wording conflicts, English full docs prevail.
+- All four language docs provide full content.
+- If any wording conflicts, English docs prevail.
