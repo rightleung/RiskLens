@@ -118,10 +118,18 @@ const translations = {
     itemCol: 'Item',
     mainInfoTab: 'Main Info',
     financialsTab: 'Financials',
+    excelKpiSheet: 'KPI Trends',
+    excelStatementsSheet: 'Financial Statements',
+    excelPortfolioKpiSheet: 'Portfolio KPI Comparison',
+    excelPortfolioStatementsSheet: 'Portfolio Statement Comparison',
+    excelCompanySheetSuffix: 'Statements',
     varVs: 'vs',
     varPct: 'Var (%)',
     exportAll: 'Export All',
-    finComparisonTab: 'Fin Comparison'
+    finComparisonTab: 'Fin Comparison',
+    periodGuideTitle: 'How to Use Period Views',
+    periodGuideBody: 'Click an FY chip to open that year’s financial statements. Export Excel to review cross-year comparisons.',
+    periodButtonTitle: 'Open financial statements for this period'
   },
   'zh-CN': {
     title: '机构信用风险评估',
@@ -163,10 +171,18 @@ const translations = {
     itemCol: '项目',
     mainInfoTab: '主要信息',
     financialsTab: '财务报表',
+    excelKpiSheet: '关键指标趋势',
+    excelStatementsSheet: '财务报表明细',
+    excelPortfolioKpiSheet: '组合指标对比',
+    excelPortfolioStatementsSheet: '组合报表对比',
+    excelCompanySheetSuffix: '报表',
     varVs: '对比',
     varPct: '变动比例(%)',
     exportAll: '全部导出',
-    finComparisonTab: '财报横向对比'
+    finComparisonTab: '财报横向对比',
+    periodGuideTitle: '期间查看说明',
+    periodGuideBody: '点击 FY 年份按钮可查看对应期间的财务报表；导出 Excel 可查看跨年份对比。',
+    periodButtonTitle: '打开该期间财务报表'
   },
   'zh-TW': {
     title: '機構信用風險評估',
@@ -208,10 +224,18 @@ const translations = {
     itemCol: '項目',
     mainInfoTab: '主要資訊',
     financialsTab: '財務報表',
+    excelKpiSheet: '關鍵指標趨勢',
+    excelStatementsSheet: '財務報表明細',
+    excelPortfolioKpiSheet: '組合指標對比',
+    excelPortfolioStatementsSheet: '組合報表對比',
+    excelCompanySheetSuffix: '報表',
     varVs: '對比',
     varPct: '變動比例(%)',
     exportAll: '全部匯出',
-    finComparisonTab: '財報橫向對比'
+    finComparisonTab: '財報橫向對比',
+    periodGuideTitle: '期間檢視說明',
+    periodGuideBody: '點擊 FY 年份按鈕可查看對應期間的財務報表；匯出 Excel 可查看跨年份對比。',
+    periodButtonTitle: '開啟該期間財務報表'
   },
   ja: {
     title: '機関的信用リスク評価',
@@ -253,10 +277,18 @@ const translations = {
     itemCol: '項目',
     mainInfoTab: '主要情報',
     financialsTab: '財務諸表',
+    excelKpiSheet: 'KPI推移',
+    excelStatementsSheet: '財務諸表明細',
+    excelPortfolioKpiSheet: 'ポートフォリオKPI比較',
+    excelPortfolioStatementsSheet: 'ポートフォリオ財務諸表比較',
+    excelCompanySheetSuffix: '財務諸表',
     varVs: '比較',
     varPct: '増減率(%)',
     exportAll: 'すべてエクスポート',
-    finComparisonTab: '財務諸表比較'
+    finComparisonTab: '財務諸表比較',
+    periodGuideTitle: '期間表示の使い方',
+    periodGuideBody: 'FY ボタンをクリックすると当該期間の財務諸表を表示します。Excel をエクスポートすると期間比較を確認できます。',
+    periodButtonTitle: 'この期間の財務諸表を開く'
   }
 };
 
@@ -319,30 +351,318 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
 
   const formatActual = (value: number | null) => (value === null ? '--' : value);
 
-  const evaluateCovenant = (value: number | null, threshold: number, comparator: 'min' | 'max') => {
+  const riskTextByLang: Record<Language, {
+    sheetName: string;
+    title: string;
+    ticker: string;
+    companyName: string;
+    latestPeriod: string;
+    currency: string;
+    altman: string;
+    zone: string;
+    impliedRating: string;
+    strengths: string;
+    watchItems: string;
+    none: string;
+    na: string;
+    covenantPreCheck: string;
+    metric: string;
+    actual: string;
+    threshold: string;
+    status: string;
+    signal: string;
+    notes: string;
+    dataQuality: string;
+    breachCount: string;
+    missingKeyInputs: string;
+    missingItems: string;
+    statusBreachMissing: string;
+    statusBreach: string;
+    statusPass: string;
+    signalWatch: string;
+    signalStrong: string;
+    signalNeutral: string;
+    noteMissingInput: string;
+    noteBelowMinimum: (threshold: number) => string;
+    noteAboveMaximum: (threshold: number) => string;
+    noteComfortableAbove: string;
+    noteComfortableBelow: string;
+    noteWithinThreshold: string;
+  }> = {
+    en: {
+      sheetName: 'Risk Report',
+      title: 'Risk Report',
+      ticker: 'Ticker',
+      companyName: 'Company Name',
+      latestPeriod: 'Latest Period',
+      currency: 'Currency',
+      altman: 'Altman Z-Score',
+      zone: 'Z-Score Zone',
+      impliedRating: 'Implied Rating',
+      strengths: 'Strengths',
+      watchItems: 'Watch Items',
+      none: 'None',
+      na: 'N/A',
+      covenantPreCheck: 'Covenant Pre-Check',
+      metric: 'Metric',
+      actual: 'Actual',
+      threshold: 'Threshold',
+      status: 'Status',
+      signal: 'Signal',
+      notes: 'Notes',
+      dataQuality: 'Data Quality',
+      breachCount: 'Breach Count',
+      missingKeyInputs: 'Missing Key Inputs',
+      missingItems: 'Missing Items',
+      statusBreachMissing: 'BREACH (DATA MISSING)',
+      statusBreach: 'BREACH',
+      statusPass: 'PASS',
+      signalWatch: 'Watch',
+      signalStrong: 'Strong',
+      signalNeutral: 'Neutral',
+      noteMissingInput: 'Missing input',
+      noteBelowMinimum: (threshold: number) => `Below minimum ${threshold}`,
+      noteAboveMaximum: (threshold: number) => `Above maximum ${threshold}`,
+      noteComfortableAbove: 'Comfortable buffer above threshold',
+      noteComfortableBelow: 'Comfortable buffer below threshold',
+      noteWithinThreshold: 'Within threshold',
+    },
+    'zh-CN': {
+      sheetName: '风险报告',
+      title: '风险报告',
+      ticker: '代码',
+      companyName: '公司名称',
+      latestPeriod: '最新期间',
+      currency: '币种',
+      altman: 'Altman Z-Score',
+      zone: 'Z-Score 分区',
+      impliedRating: '隐含评级',
+      strengths: '优势',
+      watchItems: '关注事项',
+      none: '无',
+      na: 'N/A',
+      covenantPreCheck: '契约预检查',
+      metric: '指标',
+      actual: '实际值',
+      threshold: '阈值',
+      status: '状态',
+      signal: '信号',
+      notes: '备注',
+      dataQuality: '数据质量',
+      breachCount: '违约计数',
+      missingKeyInputs: '关键缺失项数量',
+      missingItems: '缺失项目',
+      statusBreachMissing: '违约（数据缺失）',
+      statusBreach: '违约',
+      statusPass: '通过',
+      signalWatch: '关注',
+      signalStrong: '强',
+      signalNeutral: '中性',
+      noteMissingInput: '关键输入缺失',
+      noteBelowMinimum: (threshold: number) => `低于下限 ${threshold}`,
+      noteAboveMaximum: (threshold: number) => `高于上限 ${threshold}`,
+      noteComfortableAbove: '高于阈值且缓冲充足',
+      noteComfortableBelow: '低于阈值且缓冲充足',
+      noteWithinThreshold: '处于阈值范围内',
+    },
+    'zh-TW': {
+      sheetName: '風險報告',
+      title: '風險報告',
+      ticker: '代碼',
+      companyName: '公司名稱',
+      latestPeriod: '最新期間',
+      currency: '幣別',
+      altman: 'Altman Z-Score',
+      zone: 'Z-Score 分區',
+      impliedRating: '隱含評級',
+      strengths: '優勢',
+      watchItems: '關注事項',
+      none: '無',
+      na: 'N/A',
+      covenantPreCheck: '契約預檢查',
+      metric: '指標',
+      actual: '實際值',
+      threshold: '門檻',
+      status: '狀態',
+      signal: '訊號',
+      notes: '備註',
+      dataQuality: '資料品質',
+      breachCount: '違約計數',
+      missingKeyInputs: '關鍵缺失項數量',
+      missingItems: '缺失項目',
+      statusBreachMissing: '違約（資料缺失）',
+      statusBreach: '違約',
+      statusPass: '通過',
+      signalWatch: '關注',
+      signalStrong: '強',
+      signalNeutral: '中性',
+      noteMissingInput: '關鍵輸入缺失',
+      noteBelowMinimum: (threshold: number) => `低於下限 ${threshold}`,
+      noteAboveMaximum: (threshold: number) => `高於上限 ${threshold}`,
+      noteComfortableAbove: '高於門檻且緩衝充足',
+      noteComfortableBelow: '低於門檻且緩衝充足',
+      noteWithinThreshold: '位於門檻範圍內',
+    },
+    ja: {
+      sheetName: 'リスクレポート',
+      title: 'リスクレポート',
+      ticker: 'ティッカー',
+      companyName: '会社名',
+      latestPeriod: '最新期間',
+      currency: '通貨',
+      altman: 'Altman Z-Score',
+      zone: 'Z-Score 区分',
+      impliedRating: '予想格付け',
+      strengths: '強み',
+      watchItems: '懸念事項',
+      none: 'なし',
+      na: 'N/A',
+      covenantPreCheck: 'コベナンツ事前チェック',
+      metric: '指標',
+      actual: '実績値',
+      threshold: '閾値',
+      status: '判定',
+      signal: 'シグナル',
+      notes: '備考',
+      dataQuality: 'データ品質',
+      breachCount: '違反件数',
+      missingKeyInputs: '主要欠損入力数',
+      missingItems: '欠損項目',
+      statusBreachMissing: '違反（データ欠損）',
+      statusBreach: '違反',
+      statusPass: '適合',
+      signalWatch: '注意',
+      signalStrong: '強い',
+      signalNeutral: '中立',
+      noteMissingInput: '入力データ欠損',
+      noteBelowMinimum: (threshold: number) => `下限 ${threshold} を下回る`,
+      noteAboveMaximum: (threshold: number) => `上限 ${threshold} を上回る`,
+      noteComfortableAbove: '閾値上方の余裕が大きい',
+      noteComfortableBelow: '閾値下方の余裕が大きい',
+      noteWithinThreshold: '閾値範囲内',
+    },
+  };
+
+  const riskText = riskTextByLang[lang];
+
+  type CovenantEval = {
+    status: 'data_missing' | 'breach' | 'pass';
+    signal: 'watch' | 'strong' | 'neutral';
+    note: 'missing_input' | 'below_minimum' | 'above_maximum' | 'comfortable_above' | 'comfortable_below' | 'within_threshold';
+  };
+
+  const evaluateCovenant = (value: number | null, threshold: number, comparator: 'min' | 'max'): CovenantEval => {
     if (value === null) {
       return {
-        status: 'BREACH (DATA MISSING)',
-        signal: 'Watch',
-        note: 'Missing input',
+        status: 'data_missing',
+        signal: 'watch',
+        note: 'missing_input',
       };
     }
     if (comparator === 'min') {
-      if (value < threshold) return { status: 'BREACH', signal: 'Watch', note: `Below minimum ${threshold}` };
-      if (value >= threshold * 1.25) return { status: 'PASS', signal: 'Strong', note: 'Comfortable buffer above threshold' };
-      return { status: 'PASS', signal: 'Neutral', note: 'Within threshold' };
+      if (value < threshold) return { status: 'breach', signal: 'watch', note: 'below_minimum' };
+      if (value >= threshold * 1.25) return { status: 'pass', signal: 'strong', note: 'comfortable_above' };
+      return { status: 'pass', signal: 'neutral', note: 'within_threshold' };
     }
-    if (value > threshold) return { status: 'BREACH', signal: 'Watch', note: `Above maximum ${threshold}` };
-    if (value <= threshold * 0.75) return { status: 'PASS', signal: 'Strong', note: 'Comfortable buffer below threshold' };
-    return { status: 'PASS', signal: 'Neutral', note: 'Within threshold' };
+    if (value > threshold) return { status: 'breach', signal: 'watch', note: 'above_maximum' };
+    if (value <= threshold * 0.75) return { status: 'pass', signal: 'strong', note: 'comfortable_below' };
+    return { status: 'pass', signal: 'neutral', note: 'within_threshold' };
+  };
+
+  const localizeStatus = (status: CovenantEval['status']) => {
+    if (status === 'data_missing') return riskText.statusBreachMissing;
+    if (status === 'breach') return riskText.statusBreach;
+    return riskText.statusPass;
+  };
+
+  const localizeSignal = (signal: CovenantEval['signal']) => {
+    if (signal === 'watch') return riskText.signalWatch;
+    if (signal === 'strong') return riskText.signalStrong;
+    return riskText.signalNeutral;
+  };
+
+  const localizeNote = (note: CovenantEval['note'], threshold: number) => {
+    if (note === 'missing_input') return riskText.noteMissingInput;
+    if (note === 'below_minimum') return riskText.noteBelowMinimum(threshold);
+    if (note === 'above_maximum') return riskText.noteAboveMaximum(threshold);
+    if (note === 'comfortable_above') return riskText.noteComfortableAbove;
+    if (note === 'comfortable_below') return riskText.noteComfortableBelow;
+    return riskText.noteWithinThreshold;
   };
 
   if (results.length === 1) {
     // === SINGLE COMPANY LOGIC ===
     const res = results[0];
     const latest = res.history[0];
+    const latestAssessment = latest?.assessment;
+    const wsRisk = wb.addWorksheet(riskText.sheetName, { properties: { tabColor: { argb: 'FF8064A2' } } });
+    const covenantRows = [
+      {
+        metric: t('interestCoverage'),
+        actual: toNumber(latest?.ratios?.interest_coverage),
+        threshold: '>= 3.0',
+        comparator: 'min' as const,
+        thresholdValue: 3.0,
+      },
+      {
+        metric: t('debtToEbitda'),
+        actual: toNumber(latest?.ratios?.debt_to_ebitda),
+        threshold: '<= 4.0',
+        comparator: 'max' as const,
+        thresholdValue: 4.0,
+      },
+      {
+        metric: t('currentRatio'),
+        actual: toNumber(latest?.ratios?.current_ratio),
+        threshold: '>= 1.2',
+        comparator: 'min' as const,
+        thresholdValue: 1.2,
+      },
+      {
+        metric: t('fcfToDebt'),
+        actual: toNumber(latest?.ratios?.fcf_to_debt),
+        threshold: '>= 0.05',
+        comparator: 'min' as const,
+        thresholdValue: 0.05,
+      },
+    ].map((row) => {
+      const result = evaluateCovenant(row.actual, row.thresholdValue, row.comparator);
+      return {
+        ...row,
+        status: localizeStatus(result.status),
+        signal: localizeSignal(result.signal),
+        note: localizeNote(result.note, row.thresholdValue),
+        isBreach: result.status === 'breach' || result.status === 'data_missing',
+        isMissing: result.status === 'data_missing',
+      };
+    });
 
-    const ws1 = wb.addWorksheet(t('mainInfoTab'), { properties: { tabColor: { argb: 'FF4F81BD' } } });
+    const breachCount = covenantRows.filter((row) => row.isBreach).length;
+    const missingItems = covenantRows.filter((row) => row.isMissing).map((row) => row.metric);
+
+    addRowWithFormat(wsRisk, [riskText.title, '']);
+    addRowWithFormat(wsRisk, [riskText.ticker, res.ticker]);
+    addRowWithFormat(wsRisk, [riskText.companyName, res.company_name_localized?.[lang] || res.company_name]);
+    addRowWithFormat(wsRisk, [riskText.latestPeriod, latest ? formatPeriodLabel(latest.fiscal_year) : riskText.na]);
+    addRowWithFormat(wsRisk, [riskText.currency, res.currency || riskText.na]);
+    addRowWithFormat(wsRisk, [riskText.altman, toNumber(latestAssessment?.risk_score) ?? riskText.na]);
+    addRowWithFormat(wsRisk, [riskText.zone, latestAssessment?.overall_rating || riskText.na]);
+    addRowWithFormat(wsRisk, [riskText.impliedRating, translateRatingStatus(latestAssessment?.implied_rating || riskText.na, lang)]);
+    addRowWithFormat(wsRisk, [riskText.strengths, Array.isArray(latestAssessment?.strengths) && latestAssessment.strengths.length > 0 ? latestAssessment.strengths.join(' | ') : riskText.none]);
+    addRowWithFormat(wsRisk, [riskText.watchItems, Array.isArray(latestAssessment?.weaknesses) && latestAssessment.weaknesses.length > 0 ? latestAssessment.weaknesses.join(' | ') : riskText.none]);
+    addRowWithFormat(wsRisk, []);
+    addRowWithFormat(wsRisk, [riskText.covenantPreCheck, '', '', '', '', '']);
+    addRowWithFormat(wsRisk, [riskText.metric, riskText.actual, riskText.threshold, riskText.status, riskText.signal, riskText.notes]);
+    covenantRows.forEach((row) => {
+      addRowWithFormat(wsRisk, [row.metric, formatActual(row.actual), row.threshold, row.status, row.signal, row.note]);
+    });
+    addRowWithFormat(wsRisk, []);
+    addRowWithFormat(wsRisk, [riskText.dataQuality, '']);
+    addRowWithFormat(wsRisk, [riskText.breachCount, breachCount]);
+    addRowWithFormat(wsRisk, [riskText.missingKeyInputs, missingItems.length]);
+    addRowWithFormat(wsRisk, [riskText.missingItems, missingItems.length > 0 ? missingItems.join(', ') : riskText.none]);
+
+    const ws1 = wb.addWorksheet(t('excelKpiSheet'), { properties: { tabColor: { argb: 'FF4F81BD' } } });
 
     addRowWithFormat(ws1, [t('tickerCol'), t('companyCol'), t('zScoreCol'), t('ratingCol')]);
     addRowWithFormat(ws1, [
@@ -436,7 +756,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
       addRowWithFormat(ws1, rowData);
     });
 
-    const ws2 = wb.addWorksheet(t('financialsTab'), { properties: { tabColor: { argb: 'FF9BBB59' } } });
+    const ws2 = wb.addWorksheet(t('excelStatementsSheet'), { properties: { tabColor: { argb: 'FF9BBB59' } } });
 
     const finHeaderRow = [t('itemCol'), ...res.history.map((h: any) => formatPeriodLabel(h.fiscal_year))];
     if (hasYoY) {
@@ -511,72 +831,6 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
       addRowWithFormat(ws2, rowData);
     });
 
-    const wsRisk = wb.addWorksheet('Risk Report', { properties: { tabColor: { argb: 'FF8064A2' } } });
-    const latestAssessment = latest?.assessment;
-    const covenantRows = [
-      {
-        metric: t('interestCoverage'),
-        actual: toNumber(latest?.ratios?.interest_coverage),
-        threshold: '>= 3.0',
-        comparator: 'min' as const,
-        thresholdValue: 3.0,
-      },
-      {
-        metric: t('debtToEbitda'),
-        actual: toNumber(latest?.ratios?.debt_to_ebitda),
-        threshold: '<= 4.0',
-        comparator: 'max' as const,
-        thresholdValue: 4.0,
-      },
-      {
-        metric: t('currentRatio'),
-        actual: toNumber(latest?.ratios?.current_ratio),
-        threshold: '>= 1.2',
-        comparator: 'min' as const,
-        thresholdValue: 1.2,
-      },
-      {
-        metric: t('fcfToDebt'),
-        actual: toNumber(latest?.ratios?.fcf_to_debt),
-        threshold: '>= 0.05',
-        comparator: 'min' as const,
-        thresholdValue: 0.05,
-      },
-    ].map((row) => {
-      const result = evaluateCovenant(row.actual, row.thresholdValue, row.comparator);
-      return {
-        ...row,
-        status: result.status,
-        signal: result.signal,
-        note: result.note,
-      };
-    });
-
-    const breachCount = covenantRows.filter((row) => row.status.startsWith('BREACH')).length;
-    const missingItems = covenantRows.filter((row) => row.status.includes('DATA MISSING')).map((row) => row.metric);
-
-    addRowWithFormat(wsRisk, ['Risk Report', '']);
-    addRowWithFormat(wsRisk, ['Ticker', res.ticker]);
-    addRowWithFormat(wsRisk, ['Company Name', res.company_name_localized?.[lang] || res.company_name]);
-    addRowWithFormat(wsRisk, ['Latest Period', latest ? formatPeriodLabel(latest.fiscal_year) : 'N/A']);
-    addRowWithFormat(wsRisk, ['Currency', res.currency || 'N/A']);
-    addRowWithFormat(wsRisk, ['Altman Z-Score', toNumber(latestAssessment?.risk_score) ?? 'N/A']);
-    addRowWithFormat(wsRisk, ['Z-Score Zone', latestAssessment?.overall_rating || 'N/A']);
-    addRowWithFormat(wsRisk, ['Implied Rating', translateRatingStatus(latestAssessment?.implied_rating || 'N/A', lang)]);
-    addRowWithFormat(wsRisk, ['Strengths', Array.isArray(latestAssessment?.strengths) && latestAssessment.strengths.length > 0 ? latestAssessment.strengths.join(' | ') : 'None']);
-    addRowWithFormat(wsRisk, ['Watch Items', Array.isArray(latestAssessment?.weaknesses) && latestAssessment.weaknesses.length > 0 ? latestAssessment.weaknesses.join(' | ') : 'None']);
-    addRowWithFormat(wsRisk, []);
-    addRowWithFormat(wsRisk, ['Covenant Pre-Check', '', '', '', '', '']);
-    addRowWithFormat(wsRisk, ['Metric', 'Actual', 'Threshold', 'Status', 'Signal', 'Notes']);
-    covenantRows.forEach((row) => {
-      addRowWithFormat(wsRisk, [row.metric, formatActual(row.actual), row.threshold, row.status, row.signal, row.note]);
-    });
-    addRowWithFormat(wsRisk, []);
-    addRowWithFormat(wsRisk, ['Data Quality', '']);
-    addRowWithFormat(wsRisk, ['Breach Count', breachCount]);
-    addRowWithFormat(wsRisk, ['Missing Key Inputs', missingItems.length]);
-    addRowWithFormat(wsRisk, ['Missing Items', missingItems.length > 0 ? missingItems.join(', ') : 'None']);
-
     const buffer = await wb.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `${res.ticker}_Financial_Data.xlsx`);
     return;
@@ -631,7 +885,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     { key: 'current_ratio', label: t('currentRatio'), src: 'ratios' },
   ];
 
-  const wsMain = wb.addWorksheet(t('mainInfoTab'), { properties: { tabColor: { argb: 'FF4F81BD' } } });
+  const wsMain = wb.addWorksheet(t('excelPortfolioKpiSheet'), { properties: { tabColor: { argb: 'FF4F81BD' } } });
   const colsPerPeriod = results.length === 1 ? 1 : 1 + (results.length - 1) * 3;
 
   const header1: any[] = [t('metricCol')];
@@ -695,7 +949,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
   });
 
   // Financial Comparison Sheet
-  const wsFinComp = wb.addWorksheet("Financial Comparison", { properties: { tabColor: { argb: 'FF8064A2' } } });
+  const wsFinComp = wb.addWorksheet(t('excelPortfolioStatementsSheet'), { properties: { tabColor: { argb: 'FF8064A2' } } });
 
   const compHeader1: any[] = [t('itemCol')];
   allPeriodsArr.forEach(p => {
@@ -783,8 +1037,10 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
 
   // Company individual sheets (with YoY)
   results.forEach((res) => {
-    const shortName = (res.company_name_localized?.[lang] || res.company_name).substring(0, 25);
-    const ws = wb.addWorksheet(`${shortName} Fin`, { properties: { tabColor: { argb: 'FF9BBB59' } } });
+    const companySheetSuffix = t('excelCompanySheetSuffix');
+    const maxBaseLength = Math.max(1, 31 - companySheetSuffix.length - 1);
+    const shortName = (res.company_name_localized?.[lang] || res.company_name).substring(0, maxBaseLength);
+    const ws = wb.addWorksheet(`${shortName} ${companySheetSuffix}`, { properties: { tabColor: { argb: 'FF9BBB59' } } });
 
     const allKeys = new Set<string>();
     res.history.forEach((h: any) => {
@@ -1122,6 +1378,53 @@ function StatementDialog({
         priorities: [/total liabilities and stockholders equity/, /total liabilities and equity/, /total liabilities equity/],
       },
       {
+        id: 'non_current_deferred_assets',
+        patterns: [/non current deferred tax assets/, /non current deferred assets/],
+        priorities: [/non current deferred tax assets/, /^non current deferred assets$/i],
+      },
+      {
+        id: 'non_current_deferred_liabilities',
+        patterns: [/non current deferred tax liabilities/, /non current deferred liabilities/],
+        priorities: [/non current deferred tax liabilities/, /^non current deferred liabilities$/i],
+      },
+      {
+        id: 'current_deferred_liabilities',
+        patterns: [/current deferred tax liabilities/, /current deferred liabilities/],
+        priorities: [/current deferred tax liabilities/, /^current deferred liabilities$/i],
+      },
+      {
+        id: 'long_term_debt_lease',
+        patterns: [
+          /long term debt and capital lease obligation/,
+          /long term debt & capital lease/,
+          /^long term debt$/,
+          /long term capital lease obligation/,
+        ],
+        priorities: [
+          /^long term debt$/i,
+          /long term debt and capital lease obligation/,
+          /long term debt & capital lease/,
+          /long term capital lease obligation/,
+        ],
+      },
+      {
+        id: 'current_debt_lease',
+        patterns: [
+          /current debt and capital lease obligation/,
+          /current debt & capital lease/,
+          /^current debt$/,
+          /current portion of long term debt/,
+          /current capital lease obligation/,
+        ],
+        priorities: [
+          /^current debt$/i,
+          /current debt and capital lease obligation/,
+          /current debt & capital lease/,
+          /current portion of long term debt/,
+          /current capital lease obligation/,
+        ],
+      },
+      {
         id: 'cash_equivalents',
         patterns: [/cash and cash equivalents/, /cash equivalents and short term investments/, /cash cash equivalents and short term investments/],
         priorities: [/^cash and cash equivalents$/i, /cash equivalents and short term investments/, /cash cash equivalents and short term investments/],
@@ -1246,7 +1549,7 @@ function StatementDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto glass-panel border border-white/10 shadow-2xl">
+      <DialogContent className="w-[min(1120px,96vw)] max-w-[min(1120px,96vw)] max-h-[92vh] overflow-y-auto glass-panel border border-white/10 shadow-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3 flex-wrap">
             <span className="text-2xl font-semibold tracking-tight text-foreground">{companyName}</span>
@@ -1305,7 +1608,7 @@ function StatementDialog({
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/20 border-b border-white/10">
-                <th className="py-2 px-4 text-left font-medium text-muted-foreground w-1/2">
+                <th className="py-2 px-4 text-left font-medium text-muted-foreground w-[65%]">
                   {statementUiText.lineItem}
                 </th>
                 <th className="py-2 px-4 text-right font-medium text-muted-foreground">{t('value')}</th>
@@ -1331,7 +1634,7 @@ function StatementDialog({
                         <Fragment key={k}>
                           <tr className="hover:bg-muted/10 transition-colors">
                             <td className="py-2 pl-6 pr-4 text-muted-foreground align-top">
-                              <div className="grid grid-cols-[14px_minmax(0,1fr)_auto] items-start gap-x-2">
+                              <div className="grid grid-cols-[14px_minmax(0,1fr)] items-start gap-x-2">
                                 {aliases.length > 0 ? (
                                   <button
                                     type="button"
@@ -1347,14 +1650,14 @@ function StatementDialog({
                                 ) : (
                                   <span className="inline-flex h-4 w-[14px] mt-0.5" />
                                 )}
-                                <div className="min-w-0">
+                                <div className="min-w-0 flex flex-wrap items-start gap-x-2 gap-y-1">
                                   <MetricTooltip metricKey={k} label={prettifyKey(k, lang)} lang={lang} />
+                                  {aliases.length > 0 && (
+                                    <span className="inline-flex h-5 items-center rounded-full border border-brand-500/30 bg-brand-500/10 px-2 text-[10px] font-semibold tracking-wide text-brand-300 tabular-nums whitespace-nowrap">
+                                      +{aliases.length}
+                                    </span>
+                                  )}
                                 </div>
-                                {aliases.length > 0 && (
-                                  <span className="pt-0.5 text-[11px] text-muted-foreground/70 font-medium tabular-nums whitespace-nowrap">
-                                    (+{aliases.length})
-                                  </span>
-                                )}
                               </div>
                             </td>
                             <td className={`py-2 px-4 text-right tabular-nums ${typeof v === 'number' && v < 0 ? 'text-rose-600 dark:text-rose-400 font-medium' : ''}`}>
@@ -1365,10 +1668,9 @@ function StatementDialog({
                             aliases.map((alias) => (
                               <tr key={`${k}-${alias.key}`} className="bg-muted/5">
                                 <td className="py-1.5 pl-6 pr-4 text-muted-foreground/85 text-xs align-top">
-                                  <div className="grid grid-cols-[14px_minmax(0,1fr)_auto] items-start gap-x-2">
+                                  <div className="grid grid-cols-[14px_minmax(0,1fr)] items-start gap-x-2">
                                     <span className="inline-flex h-4 w-[14px]" />
                                     <span className="min-w-0 break-words">↳ {alias.label}</span>
-                                    <span />
                                   </div>
                                 </td>
                                 <td className={`py-1.5 px-4 text-right tabular-nums text-xs ${alias.value < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground/90'}`}>
@@ -1777,6 +2079,15 @@ export default function App() {
                   </CardHeader>
 
                   <CardContent className="p-0">
+                    <div className="mx-4 mt-4 mb-2 rounded-lg border border-brand-500/30 bg-brand-500/10 px-4 py-3">
+                      <div className="flex items-start gap-2">
+                        <Info className="mt-0.5 h-4 w-4 text-brand-400 flex-shrink-0" />
+                        <div className="space-y-0.5 text-xs sm:text-sm">
+                          <p className="font-semibold text-foreground">{t('periodGuideTitle')}</p>
+                          <p className="text-muted-foreground">{t('periodGuideBody')}</p>
+                        </div>
+                      </div>
+                    </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead className="bg-muted/40 border-b">
@@ -1784,15 +2095,16 @@ export default function App() {
                             {/* ① Empty header — removed "Metric" label */}
                             <th className="py-2.5 pl-6 pr-4 text-left font-medium text-muted-foreground text-xs uppercase tracking-wider min-w-[12rem]" />
                             {/* column headers — only show valid periods */}
-                            {validHistory.map(period => (
+                            {validHistory.map((period, idx) => (
                               <th key={period.fiscal_year} className="py-2.5 px-4 text-right font-medium min-w-[7rem]">
-                                {/* ② Clickable year button redesigned as a highly prominent action pill */}
                                 <button
                                   onClick={() => openStatements(period, localizedName, res.ticker, res.currency ?? 'USD')}
-                                  className="px-3 py-1 rounded bg-brand-600 hover:bg-brand-500 text-white shadow-sm transition-colors text-xs font-bold tracking-wider cursor-pointer"
-                                  title="Click to view financial statements"
+                                  className={`inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-[11px] font-semibold tracking-wide transition-colors ${idx === 0
+                                    ? 'border-brand-500/60 bg-brand-500/15 text-brand-300'
+                                    : 'border-border bg-background/80 text-foreground/85 hover:border-brand-500/50 hover:bg-brand-500/10 hover:text-brand-300'
+                                    }`}
+                                  title={t('periodButtonTitle')}
                                 >
-                                  {/* ③ Reformatted period label */}
                                   {formatPeriodLabel(period.fiscal_year)}
                                 </button>
                               </th>
