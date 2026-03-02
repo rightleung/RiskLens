@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title=os.getenv("APP_NAME", "RiskLens MVP"),
     description="Minimal runnable FastAPI MVP for credit assessment.",
-    version="0.1.0",
+    version="1.1.0",
 )
 
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")

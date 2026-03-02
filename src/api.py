@@ -58,7 +58,7 @@ if sentry_dsn:
         ],
         traces_sample_rate=0.1,
         environment=environment,
-        release=f"risklens@{os.environ.get('VERSION', '1.0.0')}",
+        release=f"risklens@{os.environ.get('VERSION', '1.1.0')}",
     )
     logger.info("Sentry error monitoring enabled")
 else:
@@ -78,7 +78,7 @@ app = FastAPI(
         "financial ratio analysis, and post-lending covenant monitoring.\n\n"
         "**CONFIDENTIAL — FOR INTERNAL RISK MANAGEMENT USE ONLY**"
     ),
-    version="1.0.0",
+    version="1.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -481,7 +481,7 @@ def health_check():
     return {
         "status": "healthy",
         "service": "Institutional Credit Risk API",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "timestamp": datetime.now().isoformat(),
     }
 
