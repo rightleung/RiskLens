@@ -37,7 +37,8 @@
 
 RiskLens は検証済みの定量的指標にのみ依存しています。主要なスコアリング エージェントは **Altman Z-Score モデル**を利用し、流動性、収益性、経営効率、レバレッジ、お​​よび市場評価を、デフォルト確率という単一の次元に統合します。
 
-> *Z-Score の重み付け、しきい値のマッピング、および 30 以上の基礎となる信用リスク比率 (FCF/有利子負債比率、インタレスト・カバレッジ等) の厳格な数学的内訳については、[METHODOLOGY.md](./METHODOLOGY.md_ja) を参照してください。*
+> *Z-Score の重み付け、しきい値のマッピング、および 30 以上の基礎となる信用リスク比率 (FCF/有利子負債比率、インタレスト・カバレッジ等) の厳格な数学的内訳については、[METHODOLOGY.md](./METHODOLOGY_ja.md) を参照してください。*
+> *Excel レポートの出力構成、シート命名規則、コベナンツ事前チェックのロジックについては、[REPORT_WORKBOOK_SPEC.md](./REPORT_WORKBOOK_SPEC.md) を参照してください。*
 
 ---
 
@@ -71,6 +72,92 @@ cd src
 uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```
 *API Swagger / OpenAPI インターフェイスは以下で利用可能: `http://localhost:8000/docs`*
+
+### 3. フロントエンドのローカル開発（任意）
+```bash
+cd web
+npm install
+npm run dev
+```
+*Vite UI: `http://localhost:5173`*  
+*Vite 開発モードでも、バックエンドは `http://localhost:8000` で起動してください。*
+
+---
+
+## 🔌 API クイック例
+
+### ヘルスチェック
+```bash
+curl http://localhost:8000/health
+```
+
+### 信用リスク評価
+```bash
+curl -X POST http://localhost:8000/api/v1/assess \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tickers": ["AAPL", "MSFT", "0700.HK", "000002.SZ"],
+    "data_source": "yfinance"
+  }'
+```
+
+### コベナンツ監視
+```bash
+curl -X POST http://localhost:8000/api/v1/covenants/check \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ticker": "AAPL",
+    "data_source": "yfinance",
+    "covenants": {
+      "min_current_ratio": 1.2,
+      "max_debt_to_ebitda": 4.0,
+      "min_interest_coverage": 2.0,
+      "min_fcf_to_debt": 0.05
+    }
+  }'
+```
+
+---
+
+## ✅ テスト
+
+```bash
+pytest tests -v
+```
+
+主なテスト対象：
+- Altman Z-Score の閾値と格付けマッピング
+- 財務比率計算ロジック
+- コベナンツ違反判定とテクニカル違反のデフォルト動作
+- 信用評価パイプラインの挙動
+
+---
+
+## 📁 リポジトリ構成
+
+```text
+RiskLens/
+├── src/                 # FastAPI サービスとリスク計算エンジン
+├── tests/               # Pytest テスト
+├── web/                 # React + Vite フロントエンド
+├── data/                # ローカルデータ成果物
+├── METHODOLOGY_ja.md    # 手法ドキュメント（日本語）
+├── ARCHITECTURE_ja.md   # アーキテクチャ文書（日本語）
+└── REPORT_WORKBOOK_SPEC.md
+```
+
+---
+
+## 🧩 トラブルシューティング
+
+- `ModuleNotFoundError` や依存関係の不整合：
+  `.venv` を再作成し、`requirements.txt` を再インストール。
+- A株の社名やローカライズ名が欠落する：
+  オプション依存 `opencc` を導入して再実行。
+- Vite UI から API を呼べない：
+  バックエンドが `127.0.0.1:8000` で起動しているか確認。
+- 期間データが空または欠落する：
+  ティッカー接尾辞（`.HK`、`.SS`、`.SZ`、`.SH`）とデータソース設定を確認。
 
 ---
 

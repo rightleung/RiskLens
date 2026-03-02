@@ -38,6 +38,7 @@
 RiskLens 僅依賴經過交叉驗證的量化指標。核心評分代理使用 **Altman Z-Score 模型**，該模型將流動性、獲利能力、營運效率、槓桿率以及市場估值綜合成為一個預測違約機率的單一維度。
 
 > *有關 Z-Score 權重的嚴謹數學分解、閾值映射表以及 30 多種底層信貸風險比率（例如 自由現金流/債務比率、利息保障倍數）的詳細定義，請參閱 [METHODOLOGY.md](./METHODOLOGY_zh-TW.md)。*
+> *有關 Excel 報告輸出結構、Sheet 命名規範及契約預檢查邏輯，請參閱 [REPORT_WORKBOOK_SPEC.md](./REPORT_WORKBOOK_SPEC.md)。*
 
 ---
 
@@ -71,6 +72,92 @@ cd src
 uvicorn api:app --host 0.0.0.0 --port 8000 --reload
 ```
 *API Swagger / OpenAPI 介面存取位址：`http://localhost:8000/docs`*
+
+### 3. 前端本機開發（可選）
+```bash
+cd web
+npm install
+npm run dev
+```
+*Vite 前端位址：`http://localhost:5173`*  
+*使用 Vite 開發模式時，後端仍需運行在 `http://localhost:8000`。*
+
+---
+
+## 🔌 API 快速範例
+
+### 健康檢查
+```bash
+curl http://localhost:8000/health
+```
+
+### 信用風險評估
+```bash
+curl -X POST http://localhost:8000/api/v1/assess \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tickers": ["AAPL", "MSFT", "0700.HK", "000002.SZ"],
+    "data_source": "yfinance"
+  }'
+```
+
+### 貸後契約檢查
+```bash
+curl -X POST http://localhost:8000/api/v1/covenants/check \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ticker": "AAPL",
+    "data_source": "yfinance",
+    "covenants": {
+      "min_current_ratio": 1.2,
+      "max_debt_to_ebitda": 4.0,
+      "min_interest_coverage": 2.0,
+      "min_fcf_to_debt": 0.05
+    }
+  }'
+```
+
+---
+
+## ✅ 測試
+
+```bash
+pytest tests -v
+```
+
+目前測試主要覆蓋：
+- Altman Z-Score 區間與評級映射邊界
+- 財務比率計算邏輯
+- 契約違約判定與技術性違約預設行為
+- 信用評估主流程行為
+
+---
+
+## 📁 專案目錄結構
+
+```text
+RiskLens/
+├── src/                    # FastAPI 服務與風險引擎
+├── tests/                  # Pytest 測試集
+├── web/                    # React + Vite 前端
+├── data/                   # 本機資料產物
+├── METHODOLOGY_zh-TW.md    # 模型方法論（繁中）
+├── ARCHITECTURE_zh-TW.md   # 系統架構說明（繁中）
+└── REPORT_WORKBOOK_SPEC.md # Excel 報告結構規範
+```
+
+---
+
+## 🧩 常見問題排查
+
+- 出現 `ModuleNotFoundError` 或相依衝突：
+  重建 `.venv` 並重新安裝 `requirements.txt`。
+- A 股公司名或在地化名稱未正確顯示：
+  安裝可選相依 `opencc` 後重試。
+- Vite 前端無法呼叫後端 API：
+  確認後端運行在 `127.0.0.1:8000`，再重新整理頁面。
+- 報表期間為空或不完整：
+  檢查代碼後綴格式（`.HK`、`.SS`、`.SZ`、`.SH`）與資料來源。
 
 ---
 

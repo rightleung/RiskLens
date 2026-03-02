@@ -1,11 +1,11 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, Fragment, useMemo } from 'react'
-import { Search, Loader2, Moon, Sun, ArrowRight, CheckCircle2, AlertTriangle, ExternalLink, Info, Palette, Download } from 'lucide-react'
+import { Search, Loader2, Monitor, Sun, Moon, ArrowRight, CheckCircle2, AlertTriangle, ExternalLink, Info, Palette, Download } from 'lucide-react'
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
@@ -64,6 +64,18 @@ function getYahooUrl(ticker: string) {
 }
 
 type Language = 'en' | 'zh-CN' | 'zh-TW' | 'ja';
+type ColorMode = 'system' | 'light' | 'dark';
+
+const COLOR_MODE_STORAGE_KEY = 'risklens-color-mode';
+
+const getInitialColorMode = (): ColorMode => {
+  if (typeof window === 'undefined') return 'system';
+  const savedMode = window.localStorage.getItem(COLOR_MODE_STORAGE_KEY);
+  if (savedMode === 'light' || savedMode === 'dark' || savedMode === 'system') {
+    return savedMode;
+  }
+  return 'system';
+};
 
 const translations = {
   en: {
@@ -249,6 +261,7 @@ const translations = {
 };
 
 const THEMES = [
+  { id: 'monochrome', name: { en: 'Monochrome', 'zh-CN': '黑白', 'zh-TW': '黑白', ja: 'モノクロ' }, color: 'bg-black' },
   { id: 'celadon', name: { en: 'Celadon', 'zh-CN': '青瓷', 'zh-TW': '青瓷', ja: '青磁' }, color: 'bg-[#5F8F8A]' },
   { id: 'cinnabar', name: { en: 'Cinnabar', 'zh-CN': '朱砂', 'zh-TW': '朱砂', ja: '朱砂' }, color: 'bg-[#C84B31]' },
   { id: 'blackjade', name: { en: 'Black Jade', 'zh-CN': '墨玉', 'zh-TW': '墨玉', ja: '墨玉' }, color: 'bg-[#315C45]' },
@@ -271,9 +284,9 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
 
   const getColName = (n: number) => {
     // n is 0-indexed
-    let ordA = 'A'.charCodeAt(0);
-    let ordZ = 'Z'.charCodeAt(0);
-    let len = ordZ - ordA + 1;
+    const ordA = 'A'.charCodeAt(0);
+    const ordZ = 'Z'.charCodeAt(0);
+    const len = ordZ - ordA + 1;
     let s = "";
     while (n >= 0) {
       s = String.fromCharCode(n % len + ordA) + s;
@@ -301,6 +314,29 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     return row;
   };
 
+  const toNumber = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+  const formatActual = (value: number | null) => (value === null ? '--' : value);
+
+  const evaluateCovenant = (value: number | null, threshold: number, comparator: 'min' | 'max') => {
+    if (value === null) {
+      return {
+        status: 'BREACH (DATA MISSING)',
+        signal: 'Watch',
+        note: 'Missing input',
+      };
+    }
+    if (comparator === 'min') {
+      if (value < threshold) return { status: 'BREACH', signal: 'Watch', note: `Below minimum ${threshold}` };
+      if (value >= threshold * 1.25) return { status: 'PASS', signal: 'Strong', note: 'Comfortable buffer above threshold' };
+      return { status: 'PASS', signal: 'Neutral', note: 'Within threshold' };
+    }
+    if (value > threshold) return { status: 'BREACH', signal: 'Watch', note: `Above maximum ${threshold}` };
+    if (value <= threshold * 0.75) return { status: 'PASS', signal: 'Strong', note: 'Comfortable buffer below threshold' };
+    return { status: 'PASS', signal: 'Neutral', note: 'Within threshold' };
+  };
+
   if (results.length === 1) {
     // === SINGLE COMPANY LOGIC ===
     const res = results[0];
@@ -319,7 +355,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
 
     const annuals = res.history.filter((h: any) => !h.is_quarterly);
     let hasYoY = false;
-    let yoyMap: { yearCode: string, prevYearCode: string, p1: any, p2: any }[] = [];
+    const yoyMap: { yearCode: string, prevYearCode: string, p1: any, p2: any }[] = [];
 
     if (annuals.length >= 2) {
       hasYoY = true;
@@ -474,6 +510,72 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
       }
       addRowWithFormat(ws2, rowData);
     });
+
+    const wsRisk = wb.addWorksheet('Risk Report', { properties: { tabColor: { argb: 'FF8064A2' } } });
+    const latestAssessment = latest?.assessment;
+    const covenantRows = [
+      {
+        metric: t('interestCoverage'),
+        actual: toNumber(latest?.ratios?.interest_coverage),
+        threshold: '>= 3.0',
+        comparator: 'min' as const,
+        thresholdValue: 3.0,
+      },
+      {
+        metric: t('debtToEbitda'),
+        actual: toNumber(latest?.ratios?.debt_to_ebitda),
+        threshold: '<= 4.0',
+        comparator: 'max' as const,
+        thresholdValue: 4.0,
+      },
+      {
+        metric: t('currentRatio'),
+        actual: toNumber(latest?.ratios?.current_ratio),
+        threshold: '>= 1.2',
+        comparator: 'min' as const,
+        thresholdValue: 1.2,
+      },
+      {
+        metric: t('fcfToDebt'),
+        actual: toNumber(latest?.ratios?.fcf_to_debt),
+        threshold: '>= 0.05',
+        comparator: 'min' as const,
+        thresholdValue: 0.05,
+      },
+    ].map((row) => {
+      const result = evaluateCovenant(row.actual, row.thresholdValue, row.comparator);
+      return {
+        ...row,
+        status: result.status,
+        signal: result.signal,
+        note: result.note,
+      };
+    });
+
+    const breachCount = covenantRows.filter((row) => row.status.startsWith('BREACH')).length;
+    const missingItems = covenantRows.filter((row) => row.status.includes('DATA MISSING')).map((row) => row.metric);
+
+    addRowWithFormat(wsRisk, ['Risk Report', '']);
+    addRowWithFormat(wsRisk, ['Ticker', res.ticker]);
+    addRowWithFormat(wsRisk, ['Company Name', res.company_name_localized?.[lang] || res.company_name]);
+    addRowWithFormat(wsRisk, ['Latest Period', latest ? formatPeriodLabel(latest.fiscal_year) : 'N/A']);
+    addRowWithFormat(wsRisk, ['Currency', res.currency || 'N/A']);
+    addRowWithFormat(wsRisk, ['Altman Z-Score', toNumber(latestAssessment?.risk_score) ?? 'N/A']);
+    addRowWithFormat(wsRisk, ['Z-Score Zone', latestAssessment?.overall_rating || 'N/A']);
+    addRowWithFormat(wsRisk, ['Implied Rating', translateRatingStatus(latestAssessment?.implied_rating || 'N/A', lang)]);
+    addRowWithFormat(wsRisk, ['Strengths', Array.isArray(latestAssessment?.strengths) && latestAssessment.strengths.length > 0 ? latestAssessment.strengths.join(' | ') : 'None']);
+    addRowWithFormat(wsRisk, ['Watch Items', Array.isArray(latestAssessment?.weaknesses) && latestAssessment.weaknesses.length > 0 ? latestAssessment.weaknesses.join(' | ') : 'None']);
+    addRowWithFormat(wsRisk, []);
+    addRowWithFormat(wsRisk, ['Covenant Pre-Check', '', '', '', '', '']);
+    addRowWithFormat(wsRisk, ['Metric', 'Actual', 'Threshold', 'Status', 'Signal', 'Notes']);
+    covenantRows.forEach((row) => {
+      addRowWithFormat(wsRisk, [row.metric, formatActual(row.actual), row.threshold, row.status, row.signal, row.note]);
+    });
+    addRowWithFormat(wsRisk, []);
+    addRowWithFormat(wsRisk, ['Data Quality', '']);
+    addRowWithFormat(wsRisk, ['Breach Count', breachCount]);
+    addRowWithFormat(wsRisk, ['Missing Key Inputs', missingItems.length]);
+    addRowWithFormat(wsRisk, ['Missing Items', missingItems.length > 0 ? missingItems.join(', ') : 'None']);
 
     const buffer = await wb.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `${res.ticker}_Financial_Data.xlsx`);
@@ -695,7 +797,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
 
     const annuals = res.history.filter((h: any) => !h.is_quarterly);
     let hasYoY = false;
-    let yoyMap: { yearCode: string, prevYearCode: string, p1: any, p2: any }[] = [];
+    const yoyMap: { yearCode: string, prevYearCode: string, p1: any, p2: any }[] = [];
 
     if (annuals.length >= 2) {
       hasYoY = true;
@@ -794,23 +896,23 @@ import { translateAssessmentText, prettifyKey, getTooltip, translateRatingStatus
 
 function MetricTooltip({ metricKey, label, lang }: { metricKey: string; label: string; lang: Language }) {
   const tip = getTooltip(metricKey, lang);
-  if (!tip) return <span>{label}</span>;
+  if (!tip) return <span className="min-w-0 break-words">{label}</span>;
   return (
     <Tooltip
       content={
         <div className="space-y-1">
           <p>{tip.def}</p>
           {tip.formula && (
-            <p className="text-brand-300 font-mono text-[11px] border-t border-white/10 pt-1 mt-1">
+            <p className="text-brand-300 font-medium text-[11px] border-t border-white/10 pt-1 mt-1">
               = {tip.formula}
             </p>
           )}
         </div>
       }
     >
-      <span className="flex items-center gap-1.5 cursor-help group">
-        {label}
-        <Info className="w-3.5 h-3.5 text-brand-500/70 group-hover:text-brand-400 transition-colors flex-shrink-0" />
+      <span className="group inline-flex max-w-full items-start gap-1.5 cursor-help leading-snug">
+        <span className="min-w-0 break-words">{label}</span>
+        <Info className="mt-0.5 w-3.5 h-3.5 text-brand-500/70 group-hover:text-brand-400 transition-colors flex-shrink-0" />
       </span>
     </Tooltip>
   );
@@ -840,18 +942,278 @@ function StatementDialog({
   const t = getT(lang);
   const STATEMENT_TABS = getStatementTabs(t);
   const isAShare = /^\d{6}(?:\.[A-Z]{2})?$/.test(ticker);
+  const statementUiText = {
+    lineItem: lang === 'ja' ? '勘定科目' : lang === 'zh-TW' ? '會計科目' : lang === 'zh-CN' ? '会计科目' : 'Line Item',
+    period: lang === 'ja' ? '期間' : lang === 'zh-TW' ? '期間' : lang === 'zh-CN' ? '期间' : 'Period',
+    currency: lang === 'ja' ? '通貨' : lang === 'zh-TW' ? '幣別' : lang === 'zh-CN' ? '币种' : 'Currency',
+    foldHintTitle: lang === 'ja' ? '同義項目の折りたたみ' : lang === 'zh-TW' ? '同義項折疊' : lang === 'zh-CN' ? '同义项折叠' : 'Grouped Folding',
+    foldHintBody:
+      lang === 'ja'
+        ? '同義の会計項目は主項目に統合表示されます。行頭の ▸ をクリックすると内訳を展開できます。'
+        : lang === 'zh-TW'
+          ? '同義會計項目會聚合到主項目顯示。點擊行首 ▸ 可展開明細。'
+          : lang === 'zh-CN'
+            ? '同义会计科目会聚合到主项显示。点击行首 ▸ 可展开明细。'
+            : 'Synonymous accounting terms are grouped under a primary term. Click ▸ to expand details.',
+  };
 
   // Use full statements data from the API
-  const displayData: Record<string, number> = period?.statements?.[tab] ?? {};
+  const displayData = useMemo<Record<string, number>>(
+    () => period?.statements?.[tab] ?? {},
+    [period, tab]
+  );
+
+  const [expandedAliases, setExpandedAliases] = useState<Record<string, boolean>>({});
+  const aliasStateKey = (metricKey: string) => `${tab}:${period?.fiscal_year ?? 'na'}:${metricKey}`;
+
+  const { foldedDisplayData, foldedAliases } = useMemo(() => {
+    const entries = Object.entries(displayData) as [string, number][];
+    if (entries.length === 0) {
+      return {
+        foldedDisplayData: {} as Record<string, number>,
+        foldedAliases: {} as Record<string, Array<{ key: string; label: string; value: number }>>,
+      };
+    }
+
+    type Row = {
+      key: string;
+      value: number;
+      normalized: string;
+      order: number;
+    };
+
+    const normalize = (text: string) =>
+      text
+        .toLowerCase()
+        .replace(/[_/&(),.-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const rows: Row[] = entries.map(([key, value], order) => {
+      const englishLabel = prettifyKey(key, 'en');
+      return {
+        key,
+        value,
+        normalized: normalize(`${key} ${englishLabel}`),
+        order,
+      };
+    });
+
+    type FamilyRule = {
+      id: string;
+      patterns: RegExp[];
+      priorities: RegExp[];
+    };
+
+    const rules: FamilyRule[] = [
+      {
+        id: 'net_income',
+        patterns: [/net income/, /normalized income/, /income available to common/, /continuing ops/, /non controlling/],
+        priorities: [/^net income$/i, /net income/, /income available to common/, /normalized income/, /continuing/],
+      },
+      {
+        id: 'ebit_equivalent',
+        patterns: [/operating income as reported/, /\bebit\b/, /operating income/],
+        priorities: [/^ebit$/i, /operating income as reported/, /operating income/],
+      },
+      {
+        id: 'ebitda',
+        patterns: [/\bebitda\b/, /normalized ebitda/],
+        priorities: [/^ebitda$/i, /normalized ebitda/],
+      },
+      {
+        id: 'revenue',
+        patterns: [/total revenue/, /operating revenue/, /\brevenue\b/],
+        priorities: [/^revenue$/i, /total revenue/, /operating revenue/],
+      },
+      {
+        id: 'other_income_expense',
+        patterns: [/other income expense/, /other non operating income expenses/],
+        priorities: [/^other income expense$/i, /other non operating income expenses/],
+      },
+      {
+        id: 'operating_cash_flow',
+        patterns: [/operating cash flow/, /cash flow from continuing operating activities/, /cf from continuing operating activities/, /net cash provided by operating activities/],
+        priorities: [/^operating cash flow$/i, /cash flow from continuing operating activities/, /net cash provided by operating activities/],
+      },
+      {
+        id: 'investing_cash_flow',
+        patterns: [/investing cash flow/, /cash flow from continuing investing activities/, /cf from continuing investing activities/, /net cash used for investing activities/],
+        priorities: [/^investing cash flow$/i, /cash flow from continuing investing activities/, /net cash used for investing activities/],
+      },
+      {
+        id: 'financing_cash_flow',
+        patterns: [/financing cash flow/, /cash flow from continuing financing activities/, /cf from continuing financing activities/, /net cash .* financing activities/],
+        priorities: [/^financing cash flow$/i, /cash flow from continuing financing activities/, /net cash .* financing activities/],
+      },
+      {
+        id: 'change_payables',
+        patterns: [/change in payables accrued expense/, /change in payables/, /change in account payable/, /accrued expense/],
+        priorities: [/change in payables accrued expense/, /^change in payables$/i, /change in account payable/],
+      },
+      {
+        id: 'change_receivables',
+        patterns: [/changes in account receivables/, /change in receivables/, /change in account receivable/],
+        priorities: [/changes in account receivables/, /^change in receivables$/i, /change in account receivable/],
+      },
+      {
+        id: 'depreciation_amortization',
+        patterns: [/depreciation amortization depletion/, /depreciation amortization/, /depreciation and amortization/],
+        priorities: [/depreciation amortization depletion/, /^depreciation amortization$/i, /depreciation and amortization/],
+      },
+      {
+        id: 'dividends_paid',
+        patterns: [/cash dividends paid/, /common stock dividend paid/, /dividend paid/],
+        priorities: [/^cash dividends paid$/i, /common stock dividend paid/, /dividend paid/],
+      },
+      {
+        id: 'common_stock_outflow',
+        patterns: [/repurchase of capital stock/, /common stock payments/, /purchase of common stock/, /buyback/],
+        priorities: [/repurchase of capital stock/, /common stock payments/, /purchase of common stock/],
+      },
+      {
+        id: 'debt_issuance',
+        patterns: [/issuance of debt/, /lt debt issuance/, /long term debt issuance/, /short term debt issuance/],
+        priorities: [/issuance of debt/, /lt debt issuance/, /long term debt issuance/, /short term debt issuance/],
+      },
+      {
+        id: 'debt_repayment',
+        patterns: [/repayment of debt/, /debt repayment/],
+        priorities: [/^repayment of debt$/i, /debt repayment/],
+      },
+      {
+        id: 'cash_end_position',
+        patterns: [/end cash position/, /cash and cash equivalents end of period/, /cash at end of period/],
+        priorities: [/^end cash position$/i, /cash and cash equivalents end of period/, /cash at end of period/],
+      },
+      {
+        id: 'cash_beginning_position',
+        patterns: [/beginning cash position/, /cash and cash equivalents beginning of period/, /cash at beginning of period/],
+        priorities: [/^beginning cash position$/i, /cash and cash equivalents beginning of period/, /cash at beginning of period/],
+      },
+      {
+        id: 'cash_change',
+        patterns: [/changes in cash/, /change in cash and cash equivalents/, /net change in cash/],
+        priorities: [/^changes in cash$/i, /change in cash and cash equivalents/, /net change in cash/],
+      },
+      {
+        id: 'capital_expenditure',
+        patterns: [/capital expenditure/, /\bcapex\b/, /purchase of ppe/, /purchase of property plant and equipment/],
+        priorities: [/^capital expenditure$/i, /\bcapex\b/, /purchase of ppe/, /purchase of property plant and equipment/],
+      },
+      {
+        id: 'total_equity',
+        patterns: [/stockholders equity/, /shareholders equity/, /total equity/, /common stock equity/],
+        priorities: [/^total equity$/i, /stockholders equity/, /shareholders equity/, /common stock equity/],
+      },
+      {
+        id: 'total_assets',
+        patterns: [/total assets/, /assets total/],
+        priorities: [/^total assets$/i, /assets total/],
+      },
+      {
+        id: 'total_liabilities',
+        patterns: [/total liabilities net minority interest/, /^total liabilities$/],
+        priorities: [/^total liabilities$/i, /total liabilities net minority interest/],
+      },
+      {
+        id: 'total_liabilities_equity',
+        patterns: [/total liabilities and stockholders equity/, /total liabilities and equity/, /total liabilities equity/],
+        priorities: [/total liabilities and stockholders equity/, /total liabilities and equity/, /total liabilities equity/],
+      },
+      {
+        id: 'cash_equivalents',
+        patterns: [/cash and cash equivalents/, /cash equivalents and short term investments/, /cash cash equivalents and short term investments/],
+        priorities: [/^cash and cash equivalents$/i, /cash equivalents and short term investments/, /cash cash equivalents and short term investments/],
+      },
+    ];
+
+    const getFamilyId = (row: Row): string | null => {
+      if (row.normalized.includes('cost of revenue') || row.normalized.includes('reconciled cost of revenue')) return null;
+      for (const rule of rules) {
+        if (rule.patterns.some((pattern) => pattern.test(row.normalized))) return rule.id;
+      }
+      return null;
+    };
+
+    const scoreRow = (family: string, row: Row): number => {
+      const rule = rules.find((item) => item.id === family);
+      if (!rule) return 99;
+      for (let i = 0; i < rule.priorities.length; i += 1) {
+        if (rule.priorities[i].test(row.normalized)) return i;
+      }
+      return 99;
+    };
+
+    const groups = new Map<string, Row[]>();
+    const singletons: Row[] = [];
+    rows.forEach((row) => {
+      const family = getFamilyId(row);
+      if (!family) {
+        singletons.push(row);
+        return;
+      }
+      // Fold all semantic synonyms in a family; details are preserved in expandable aliases.
+      const foldKey = family;
+      const bucket = groups.get(foldKey);
+      if (bucket) bucket.push(row);
+      else groups.set(foldKey, [row]);
+    });
+
+    const merged: Array<{
+      key: string;
+      value: number;
+      order: number;
+      aliases: Array<{ key: string; label: string; value: number }>;
+    }> = [];
+
+    groups.forEach((bucket, foldKey) => {
+      const family = foldKey;
+      const primary = [...bucket].sort((a, b) => {
+        const scoreDiff = scoreRow(family, a) - scoreRow(family, b);
+        if (scoreDiff !== 0) return scoreDiff;
+        return a.order - b.order;
+      })[0];
+      const aliases = bucket
+        .filter((row) => row.key !== primary.key)
+        .sort((a, b) => a.order - b.order)
+        .map((row) => ({
+          key: row.key,
+          label: prettifyKey(row.key, lang),
+          value: row.value,
+        }));
+      merged.push({
+        key: primary.key,
+        value: primary.value,
+        order: Math.min(...bucket.map((row) => row.order)),
+        aliases,
+      });
+    });
+
+    singletons.forEach((row) => {
+      merged.push({ key: row.key, value: row.value, order: row.order, aliases: [] });
+    });
+
+    merged.sort((a, b) => a.order - b.order);
+
+    const foldedDisplayData: Record<string, number> = {};
+    const foldedAliases: Record<string, Array<{ key: string; label: string; value: number }>> = {};
+    merged.forEach((row) => {
+      foldedDisplayData[row.key] = row.value;
+      if (row.aliases.length > 0) foldedAliases[row.key] = row.aliases;
+    });
+
+    return { foldedDisplayData, foldedAliases };
+  }, [displayData, lang]);
 
   const tableGroups = useMemo(() => {
-    if (Object.entries(displayData).length === 0) return null;
+    if (Object.entries(foldedDisplayData).length === 0) return null;
 
     const usedKeys = new Set<string>();
     const groups: { title: string, items: [string, number][] }[] = [];
 
     const addGroup = (title: string, matchFn: (k: string) => boolean) => {
-      const items = Object.entries(displayData).filter(([k]) => !usedKeys.has(k) && matchFn(k));
+      const items = Object.entries(foldedDisplayData).filter(([k]) => !usedKeys.has(k) && matchFn(k));
       if (items.length > 0) {
         items.forEach(([k]) => usedKeys.add(k));
         groups.push({ title, items });
@@ -872,13 +1234,13 @@ function StatementDialog({
       addGroup(lang === 'en' ? 'Financing Activities' : lang === 'ja' ? '財務活動' : '筹资活动', k => k.includes('financing') || k.includes('dividend') || k.includes('debt_issuance') || k.includes('stock_issuance'));
     }
 
-    const otherItems = Object.entries(displayData).filter(([k]) => !usedKeys.has(k));
+    const otherItems = Object.entries(foldedDisplayData).filter(([k]) => !usedKeys.has(k));
     if (otherItems.length > 0) {
       groups.push({ title: lang === 'en' ? 'Other' : lang === 'ja' ? 'その他' : '其他', items: otherItems });
     }
 
     return groups;
-  }, [displayData, tab, lang]);
+  }, [foldedDisplayData, tab, lang]);
 
   if (!period) return null;
 
@@ -887,12 +1249,15 @@ function StatementDialog({
       <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto glass-panel border border-white/10 shadow-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3 flex-wrap">
-            <span>{companyName}</span>
-            <Badge variant="outline" className="font-mono">{formatPeriodLabel(period.fiscal_year)}</Badge>
-            {/* Currency badge in header */}
-            <Badge className="bg-zinc-700/60 text-zinc-300 border-0 text-[11px] font-mono">
-              in {currency}
-            </Badge>
+            <span className="text-2xl font-semibold tracking-tight text-foreground">{companyName}</span>
+            <span className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-1.5">
+              <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-semibold">{statementUiText.period}</span>
+              <span className="text-sm font-semibold text-foreground">{formatPeriodLabel(period.fiscal_year)}</span>
+            </span>
+            <span className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-1.5">
+              <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-semibold">{statementUiText.currency}</span>
+              <span className="text-sm font-semibold text-foreground">{currency}</span>
+            </span>
             {isAShare ? (
               <Tooltip content={t('akshareDisclaimer')}>
                 <span className="ml-auto flex items-center gap-1 text-xs text-brand-400 font-normal cursor-help">
@@ -932,11 +1297,17 @@ function StatementDialog({
         </div>
 
         {/* Table */}
+        <div className="mt-2 rounded-md border border-brand-500/20 bg-brand-500/10 px-3 py-2 text-xs text-muted-foreground">
+          <span className="font-semibold text-foreground/90 mr-1">{statementUiText.foldHintTitle}:</span>
+          <span>{statementUiText.foldHintBody}</span>
+        </div>
         <div className="mt-2 rounded-lg border border-white/10 overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/20 border-b border-white/10">
-                <th className="py-2 px-4 text-left font-medium text-muted-foreground w-1/2" />
+                <th className="py-2 px-4 text-left font-medium text-muted-foreground w-1/2">
+                  {statementUiText.lineItem}
+                </th>
                 <th className="py-2 px-4 text-right font-medium text-muted-foreground">{t('value')}</th>
               </tr>
             </thead>
@@ -951,16 +1322,63 @@ function StatementDialog({
                         {g.title}
                       </td>
                     </tr>
-                    {g.items.map(([k, v]) => (
-                      <tr key={k} className="hover:bg-muted/10 transition-colors">
-                        <td className="py-2 pl-8 pr-4 text-muted-foreground">
-                          <MetricTooltip metricKey={k} label={prettifyKey(k, lang)} lang={lang} />
-                        </td>
-                        <td className={`py-2 px-4 text-right font-mono tabular-nums ${(v as number) < 0 ? 'text-rose-600 dark:text-rose-400 font-medium' : ''}`}>
-                          {formatCurrency(v as number, numFormat, lang)}
-                        </td>
-                      </tr>
-                    ))}
+                    {g.items.map(([k, v]) => {
+                      const aliases = foldedAliases[k] ?? [];
+                      const expandKey = aliasStateKey(k);
+                      const isExpanded = !!expandedAliases[expandKey];
+
+                      return (
+                        <Fragment key={k}>
+                          <tr className="hover:bg-muted/10 transition-colors">
+                            <td className="py-2 pl-6 pr-4 text-muted-foreground align-top">
+                              <div className="grid grid-cols-[14px_minmax(0,1fr)_auto] items-start gap-x-2">
+                                {aliases.length > 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedAliases((prev) => ({ ...prev, [expandKey]: !prev[expandKey] }))
+                                    }
+                                    className="inline-flex h-4 w-[14px] items-center justify-center rounded text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 mt-0.5"
+                                    aria-label={isExpanded ? 'Collapse folded details' : 'Expand folded details'}
+                                    title={isExpanded ? 'Collapse folded details' : 'Expand folded details'}
+                                  >
+                                    {isExpanded ? '▾' : '▸'}
+                                  </button>
+                                ) : (
+                                  <span className="inline-flex h-4 w-[14px] mt-0.5" />
+                                )}
+                                <div className="min-w-0">
+                                  <MetricTooltip metricKey={k} label={prettifyKey(k, lang)} lang={lang} />
+                                </div>
+                                {aliases.length > 0 && (
+                                  <span className="pt-0.5 text-[11px] text-muted-foreground/70 font-medium tabular-nums whitespace-nowrap">
+                                    (+{aliases.length})
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className={`py-2 px-4 text-right tabular-nums ${typeof v === 'number' && v < 0 ? 'text-rose-600 dark:text-rose-400 font-medium' : ''}`}>
+                              {formatCurrency(typeof v === 'number' ? v : null, numFormat, lang)}
+                            </td>
+                          </tr>
+                          {isExpanded &&
+                            aliases.map((alias) => (
+                              <tr key={`${k}-${alias.key}`} className="bg-muted/5">
+                                <td className="py-1.5 pl-6 pr-4 text-muted-foreground/85 text-xs align-top">
+                                  <div className="grid grid-cols-[14px_minmax(0,1fr)_auto] items-start gap-x-2">
+                                    <span className="inline-flex h-4 w-[14px]" />
+                                    <span className="min-w-0 break-words">↳ {alias.label}</span>
+                                    <span />
+                                  </div>
+                                </td>
+                                <td className={`py-1.5 px-4 text-right tabular-nums text-xs ${alias.value < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground/90'}`}>
+                                  {formatCurrency(alias.value, numFormat, lang)}
+                                </td>
+                              </tr>
+                            ))}
+                        </Fragment>
+                      );
+                    })}
                   </Fragment>
                 ))
               )}
@@ -976,10 +1394,10 @@ export default function App() {
   const [tickerInput, setTickerInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [data, setData] = useState<AssessmentResponse | null>(null)
-  const [isDark, setIsDark] = useState(true)
   const [lang, setLang] = useState<Language>('en')
+  const [colorMode, setColorMode] = useState<ColorMode>(getInitialColorMode)
   const [numFormat, setNumFormat] = useState<'compact' | 'full'>('compact')
-  const [activeTheme, setActiveTheme] = useState('celadon')
+  const [activeTheme, setActiveTheme] = useState('monochrome')
   const [themeMenuOpen, setThemeMenuOpen] = useState(false)
 
   const t = getT(lang)
@@ -991,16 +1409,32 @@ export default function App() {
   const [selectedTicker, setSelectedTicker] = useState('')
   const [selectedCurrency, setSelectedCurrency] = useState('USD')
 
-  // Apply default theme on mount
+  // Keep selected color theme and follow system light/dark mode.
   useEffect(() => {
-    document.documentElement.classList.add('theme-celadon');
-  }, []);
-
-  const toggleTheme = () => {
     const html = document.documentElement;
-    if (isDark) { html.classList.remove('dark'); setIsDark(false); }
-    else { html.classList.add('dark'); setIsDark(true); }
-  }
+    if (!THEMES.some((theme) => html.classList.contains(`theme-${theme.id}`))) {
+      html.classList.add('theme-monochrome');
+    }
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const applyColorMode = (mode: ColorMode) => {
+      const shouldUseDark = mode === 'dark' || (mode === 'system' && mediaQuery.matches);
+      html.classList.toggle('dark', shouldUseDark);
+    };
+
+    applyColorMode(colorMode);
+    const handleChange = (event: MediaQueryListEvent) => {
+      if (colorMode === 'system') {
+        html.classList.toggle('dark', event.matches);
+      }
+    };
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, [colorMode]);
+
+  useEffect(() => {
+    window.localStorage.setItem(COLOR_MODE_STORAGE_KEY, colorMode);
+  }, [colorMode]);
 
   const changeTheme = (themeId: string) => {
     const html = document.documentElement;
@@ -1034,14 +1468,44 @@ export default function App() {
         body: JSON.stringify({ tickers })
       })
 
-      const json = await res.json()
+      const contentType = res.headers.get('content-type') ?? ''
+      let json: any = null
+
+      if (contentType.includes('application/json')) {
+        try {
+          json = await res.json()
+        } catch {
+          json = null
+        }
+      } else {
+        const text = await res.text()
+        json = text ? { message: text } : null
+      }
+
       if (!res.ok) {
+        const detail = json?.detail
+        const errors = Array.isArray(detail?.errors)
+          ? detail.errors
+          : Array.isArray(json?.errors)
+            ? json.errors
+            : typeof detail === 'string'
+              ? [detail]
+              : typeof json?.message === 'string'
+                ? [json.message]
+                : typeof json?.error === 'string'
+                  ? [json.error]
+                  : [`Request failed (${res.status})`]
+
         setData({
-          errors: json.detail?.errors || [json.detail || 'Unknown error'],
-          suggestions: json.detail?.suggestions
+          errors,
+          suggestions: json?.suggestions || detail?.suggestions
         })
       } else {
-        setData(json)
+        if (json && typeof json === 'object') {
+          setData(json)
+        } else {
+          setData({ errors: ['Received empty response from server'] })
+        }
       }
     } catch (err) {
       setData({ errors: [err instanceof Error ? err.message : 'Network error'] })
@@ -1064,42 +1528,80 @@ export default function App() {
   return (
     <TooltipProvider>
       <div className="min-h-screen text-foreground font-sans">
-        <header className="glass-header">
-          <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-            <div className="flex items-center gap-2 font-semibold text-lg">
-              <span><strong className="font-bold">RiskLens</strong></span>
+        <header className="dashboard-header">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+            <div className="flex items-center gap-2 font-semibold text-lg tracking-tight">
+              <span><strong className="font-bold text-brand-600 dark:text-brand-400">RiskLens</strong></span>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="flex bg-muted/40 p-1 rounded-md border border-white/5 backdrop-blur-sm mr-2 hidden sm:flex">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="flex bg-muted p-1 rounded-md border border-border hidden sm:flex">
                 <button
                   onClick={() => setNumFormat('compact')}
-                  className={`px-3 py-1 text-xs font-medium rounded-sm transition-all ${numFormat === 'compact' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  className={`px-2 py-1 text-[11px] font-semibold rounded-sm transition-all ${numFormat === 'compact' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 >
                   B/M
                 </button>
                 <button
                   onClick={() => setNumFormat('full')}
-                  className={`px-3 py-1 text-xs font-medium rounded-sm transition-all ${numFormat === 'full' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  className={`px-2 py-1 text-[11px] font-semibold rounded-sm transition-all ${numFormat === 'full' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 >
                   1,000
                 </button>
               </div>
               <select
-                className="bg-transparent border border-white/20 rounded-md px-2 py-1 text-sm outline-none cursor-pointer h-9 text-muted-foreground focus:text-foreground hover:text-foreground transition-colors"
+                className="bg-transparent border border-input rounded-md px-2 py-1 text-xs outline-none cursor-pointer h-8 text-muted-foreground focus:text-foreground hover:text-foreground transition-colors"
                 value={lang}
                 onChange={(e) => setLang(e.target.value as Language)}
               >
-                <option value="en" className="bg-background">English</option>
-                <option value="zh-CN" className="bg-background">简体中文</option>
-                <option value="zh-TW" className="bg-background">繁體中文</option>
+                <option value="en" className="bg-background">EN</option>
+                <option value="zh-CN" className="bg-background">简中</option>
+                <option value="zh-TW" className="bg-background">繁中</option>
                 <option value="ja" className="bg-background">日本語</option>
               </select>
+              <div className="flex items-center rounded-md border border-input bg-muted/40 p-0.5">
+                <button
+                  type="button"
+                  aria-label="Auto theme"
+                  title="Auto"
+                  onClick={() => setColorMode('system')}
+                  className={`h-7 w-7 rounded flex items-center justify-center transition-colors ${colorMode === 'system'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                >
+                  <Monitor className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Light theme"
+                  title="Light"
+                  onClick={() => setColorMode('light')}
+                  className={`h-7 w-7 rounded flex items-center justify-center transition-colors ${colorMode === 'light'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                >
+                  <Sun className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Dark theme"
+                  title="Dark"
+                  onClick={() => setColorMode('dark')}
+                  className={`h-7 w-7 rounded flex items-center justify-center transition-colors ${colorMode === 'dark'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                >
+                  <Moon className="w-3.5 h-3.5" />
+                </button>
+              </div>
               <div className="relative">
-                <Button variant="ghost" size="icon" onClick={() => setThemeMenuOpen(!themeMenuOpen)}>
-                  <Palette className="w-5 h-5 text-brand-400" />
+                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setThemeMenuOpen(!themeMenuOpen)}>
+                  <Palette className="w-4 h-4 text-muted-foreground hover:text-brand-500" />
                 </Button>
                 {themeMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-48 p-2 bg-popover text-popover-foreground border border-white/20 rounded-md shadow-xl z-50">
+                  <div className="absolute right-0 mt-2 w-48 p-2 bg-popover text-popover-foreground border border-border rounded-md shadow-xl z-50">
                     <p className="px-2 py-1 text-xs font-semibold text-muted-foreground mb-1">{t('themeSelect')}</p>
                     {THEMES.map(tOption => (
                       <button
@@ -1107,58 +1609,57 @@ export default function App() {
                         onClick={() => changeTheme(tOption.id)}
                         className={`flex items-center w-full gap-3 px-2 py-1.5 rounded-md text-sm hover:bg-muted ${activeTheme === tOption.id ? 'bg-muted font-medium' : ''}`}
                       >
-                        <span className={`w-4 h-4 rounded-full ${tOption.color} border border-white/20`} />
+                        <span className={`w-3 h-3 rounded-full ${tOption.color} border border-border`} />
                         {tOption.name[lang] || tOption.name['en']}
                       </button>
                     ))}
                   </div>
                 )}
               </div>
-              <Button variant="ghost" size="icon" onClick={toggleTheme}>
-                {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-              </Button>
             </div>
           </div>
         </header>
 
-        <main className="w-full max-w-7xl mx-auto px-6 py-12 flex flex-col items-center">
-          <div className="w-full max-w-xl text-center space-y-4 mb-10">
-            <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight">{t('title')}</h1>
-            <p className="text-muted-foreground text-lg md:text-xl">
-              {t('subtitle')}
-            </p>
+        <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-10 flex flex-col items-center">
+          <div className="w-full mb-10 animate-in fade-in duration-500">
+            <div className="w-full max-w-3xl mx-auto text-center space-y-3 mb-6">
+              <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-foreground">{t('title')}</h1>
+              <p className="text-muted-foreground text-base md:text-lg">
+                {t('subtitle')}
+              </p>
+            </div>
+
+            <Card className="w-full dashboard-panel bg-white/95 dark:bg-card border-border">
+              <CardContent className="p-4">
+                <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      value={tickerInput}
+                      onChange={(e) => setTickerInput(e.target.value)}
+                      placeholder={t('placeholder')}
+                      className="pl-9 h-10 text-sm bg-white dark:bg-background border-input placeholder:text-muted-foreground/70 transition-colors focus-visible:ring-brand-500 shadow-sm"
+                    />
+                  </div>
+                  <Button type="submit" disabled={isLoading} className="h-10 px-6 font-medium shadow-sm">
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {t('synthesizing')}
+                      </>
+                    ) : (
+                      <>
+                        {t('synthesize')}
+                        <ArrowRight className="ml-2 w-4 h-4" />
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
           </div>
 
-          <Card className="w-full max-w-6xl glass-panel border-white/10 shadow-xl overflow-hidden mb-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <CardContent className="p-6">
-              <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-                  <Input
-                    value={tickerInput}
-                    onChange={(e) => setTickerInput(e.target.value)}
-                    placeholder={t('placeholder')}
-                    className="pl-10 h-12 text-lg bg-background/50 border-input shadow-inner transition-colors focus-visible:ring-brand-500"
-                  />
-                </div>
-                <Button type="submit" disabled={isLoading} className="h-12 px-8 shadow-md">
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {t('synthesizing')}
-                    </>
-                  ) : (
-                    <>
-                      {t('synthesize')}
-                      <ArrowRight className="ml-2 w-4 h-4" />
-                    </>
-                  )}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-
-          <div className="w-full space-y-8">
+          <div className="w-full space-y-6">
             {data?.results && data.results.length > 1 && (
               <div className="flex justify-end animate-in fade-in slide-in-from-bottom-6">
                 <Button onClick={() => exportToExcel(data.results!, t, lang)} className="shadow-md bg-brand-600 hover:bg-brand-500 text-white font-bold tracking-wide">
@@ -1168,7 +1669,7 @@ export default function App() {
               </div>
             )}
             {data?.errors && (
-              <Card className="glass-panel border-rose-500/20 shadow-rose-500/10">
+              <Card className="dashboard-panel border-rose-500/50 shadow-sm bg-rose-500/5">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-rose-500">
                     <AlertTriangle className="w-5 h-5" />
@@ -1204,6 +1705,7 @@ export default function App() {
               const validHistory = res.history.filter((p: Period) => p.assessment != null);
               const latest = validHistory[0]
               if (!latest) return null;
+              const riskScore = typeof latest.assessment.risk_score === 'number' ? latest.assessment.risk_score : null
 
               const zZone = latest.assessment.overall_rating || 'N/A'
               const isSafe = zZone.includes('(S)')
@@ -1216,8 +1718,8 @@ export default function App() {
               const hasMultipleNames = otherNames.length > 0;
 
               return (
-                <Card key={res.ticker} className="glass-panel overflow-hidden animate-in fade-in slide-in-from-bottom-8 duration-700 fill-mode-both">
-                  <CardHeader className="bg-muted/30 border-b">
+                <Card key={res.ticker} className="dashboard-panel overflow-hidden animate-in fade-in duration-500">
+                  <CardHeader className="bg-muted/10 border-b py-4">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                       <div>
                         <div className="flex items-center gap-3">
@@ -1238,7 +1740,7 @@ export default function App() {
                               </Tooltip>
                             )}
                           </div>
-                          <span className="text-muted-foreground text-sm font-mono tracking-tight font-medium bg-muted/30 px-2 py-1 rounded">
+                          <span className="text-muted-foreground text-sm font-medium bg-muted/30 px-2 py-1 rounded">
                             {res.ticker}
                           </span>
                           <Button
@@ -1252,13 +1754,13 @@ export default function App() {
                           </Button>
                         </div>
                       </div>
-                      <div className="flex gap-4 p-3 bg-background/50 rounded-lg shadow-inner border">
+                      <div className="flex gap-4 p-3 bg-white dark:bg-background/50 rounded-lg shadow-inner border">
                         <div className="flex flex-col items-center px-4 border-r">
                           <div className="text-xs text-muted-foreground font-semibold tracking-wider uppercase">
                             <MetricTooltip metricKey="zscore" label={t('zScore')} lang={lang} />
                           </div>
                           <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-2xl font-bold">{latest.assessment.risk_score.toFixed(2)}</span>
+                            <span className="text-2xl font-bold">{riskScore !== null ? riskScore.toFixed(2) : '--'}</span>
                             <span className={`text-sm font-bold ${isSafe ? 'text-emerald-500' : isGrey ? 'text-amber-500' : 'text-rose-500'}`}>
                               [{translateRatingStatus(zZone, lang)}]
                             </span>
@@ -1277,17 +1779,17 @@ export default function App() {
                   <CardContent className="p-0">
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
-                        <thead className="bg-muted/10 border-b">
+                        <thead className="bg-muted/40 border-b">
                           <tr>
                             {/* ① Empty header — removed "Metric" label */}
-                            <th className="py-4 pl-6 pr-4 text-left font-medium text-muted-foreground" />
+                            <th className="py-2.5 pl-6 pr-4 text-left font-medium text-muted-foreground text-xs uppercase tracking-wider min-w-[12rem]" />
                             {/* column headers — only show valid periods */}
                             {validHistory.map(period => (
-                              <th key={period.fiscal_year} className="py-4 px-4 text-right font-medium">
+                              <th key={period.fiscal_year} className="py-2.5 px-4 text-right font-medium min-w-[7rem]">
                                 {/* ② Clickable year button redesigned as a highly prominent action pill */}
                                 <button
                                   onClick={() => openStatements(period, localizedName, res.ticker, res.currency ?? 'USD')}
-                                  className="px-4 py-1.5 rounded-md bg-brand-600 hover:bg-brand-500 text-white shadow-md hover:shadow-lg transition-all transform hover:-translate-y-0.5 text-sm font-extrabold tracking-wide cursor-pointer ring-1 ring-brand-400/50"
+                                  className="px-3 py-1 rounded bg-brand-600 hover:bg-brand-500 text-white shadow-sm transition-colors text-xs font-bold tracking-wider cursor-pointer"
                                   title="Click to view financial statements"
                                 >
                                   {/* ③ Reformatted period label */}
@@ -1297,25 +1799,26 @@ export default function App() {
                             ))}
                           </tr>
                         </thead>
-                        <tbody className="divide-y">
+                        <tbody className="divide-y border-white/5">
                           {metricRows.map((row) => (
-                            <tr key={row.key} className="hover:bg-muted/5 transition-colors">
-                              <td className="py-3 pl-6 pr-4 font-medium">
+                            <tr key={row.key} className="hover:bg-muted/20 even:bg-muted/5 transition-colors text-sm">
+                              <td className="py-2.5 pl-6 pr-4 font-medium text-foreground/80">
                                 <MetricTooltip metricKey={row.key} label={row.label} lang={lang} />
                               </td>
                               {validHistory.map((period, j) => {
                                 const sourceObj = row.src === 'ratios' ? period.ratios : period.raw_metrics;
                                 const rawVal = sourceObj ? sourceObj[row.key] : null;
+                                const numericVal = typeof rawVal === 'number' ? rawVal : null;
 
                                 let displayVal = '--';
-                                if (rawVal !== null && rawVal !== undefined) {
-                                  if (row.isCurrency) displayVal = formatCurrency(rawVal as number, numFormat, lang);
-                                  else if (row.format === '%') displayVal = ((rawVal as number) * 100).toFixed(1) + '%';
-                                  else displayVal = (rawVal as number).toFixed(2) + 'x';
+                                if (numericVal !== null) {
+                                  if (row.isCurrency) displayVal = formatCurrency(numericVal, numFormat, lang);
+                                  else if (row.format === '%') displayVal = (numericVal * 100).toFixed(1) + '%';
+                                  else displayVal = numericVal.toFixed(2) + 'x';
                                 }
 
                                 return (
-                                  <td key={`${row.key}-${j}`} className={`py-3 px-4 text-right tabular-nums ${(rawVal as number) < 0 ? 'text-rose-600 dark:text-rose-400 font-medium' : 'text-muted-foreground'}`}>
+                                  <td key={`${row.key}-${j}`} className={`py-2.5 px-4 text-right tabular-nums font-medium ${numericVal !== null && numericVal < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`}>
                                     {displayVal}
                                   </td>
                                 )
@@ -1326,17 +1829,17 @@ export default function App() {
                       </table>
                     </div>
 
-                    <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x border-t bg-muted/5">
-                      <div className="p-6 space-y-4">
-                        <div className="flex items-center gap-2 text-emerald-500 font-semibold">
-                          <CheckCircle2 className="w-5 h-5" />
+                    <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x border-t bg-muted/10">
+                      <div className="p-4 sm:p-6 space-y-3">
+                        <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-semibold text-sm uppercase tracking-wide">
+                          <CheckCircle2 className="w-4 h-4" />
                           <h4>{t('strengths')}</h4>
                         </div>
                         <ul className="space-y-2 text-sm">
                           {latest.assessment.strengths.slice(0, 3).map((s, i) => (
-                            <li key={i} className="flex gap-2 text-muted-foreground">
-                              <span className="min-w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5" />
-                              {translateAssessmentText(s, lang)}
+                            <li key={i} className="flex items-start gap-2 text-muted-foreground">
+                              <span className="min-w-1.5 h-1.5 rounded-full bg-emerald-500/50 mt-1.5" />
+                              <span className="leading-relaxed">{translateAssessmentText(s, lang)}</span>
                             </li>
                           ))}
                           {latest.assessment.strengths.length === 0 && (
@@ -1344,16 +1847,16 @@ export default function App() {
                           )}
                         </ul>
                       </div>
-                      <div className="p-6 space-y-4">
-                        <div className="flex items-center gap-2 text-rose-500 font-semibold">
-                          <AlertTriangle className="w-5 h-5" />
+                      <div className="p-4 sm:p-6 space-y-3">
+                        <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 font-semibold text-sm uppercase tracking-wide">
+                          <AlertTriangle className="w-4 h-4" />
                           <h4>{t('watchItems')}</h4>
                         </div>
                         <ul className="space-y-2 text-sm">
                           {latest.assessment.weaknesses.slice(0, 3).map((w, i) => (
-                            <li key={i} className="flex gap-2 text-muted-foreground">
-                              <span className="min-w-1.5 h-1.5 rounded-full bg-rose-500 mt-1.5" />
-                              {translateAssessmentText(w, lang)}
+                            <li key={i} className="flex items-start gap-2 text-muted-foreground">
+                              <span className="min-w-1.5 h-1.5 rounded-full bg-rose-500/50 mt-1.5" />
+                              <span className="leading-relaxed">{translateAssessmentText(w, lang)}</span>
                             </li>
                           ))}
                           {latest.assessment.weaknesses.length === 0 && (

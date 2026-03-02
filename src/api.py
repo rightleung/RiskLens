@@ -14,7 +14,7 @@ import math
 import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional, Any, Dict
@@ -27,7 +27,34 @@ import concurrent.futures
 
 logger = logging.getLogger(__name__)
 
-from data_fetcher import FinancialDataFetcher
+# ── Error Monitoring (Sentry) ─────────────────────────────────────────────────
+# Initialize Sentry for error tracking
+# Set SENTRY_DSN environment variable to enable, or leave empty to disable
+import os
+sentry_dsn = os.environ.get("SENTRY_DSN", "")
+environment = os.environ.get("ENVIRONMENT", "development").lower()
+debug_enabled = os.environ.get("DEBUG", "").lower() in {"1", "true", "yes", "on"}
+debug_error_details_enabled = debug_enabled and environment != "production"
+if sentry_dsn:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.logging import LoggingIntegration
+
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        integrations=[
+            FastApiIntegration(),
+            LoggingIntegration(level=logging.WARNING, event_level=logging.ERROR),
+        ],
+        traces_sample_rate=0.1,
+        environment=environment,
+        release=f"risklens@{os.environ.get('VERSION', '1.0.0')}",
+    )
+    logger.info("Sentry error monitoring enabled")
+else:
+    logger.info("Sentry disabled (set SENTRY_DSN env var to enable)")
+
+from data_fetcher import FinancialDataFetcher, DataFetchError, DataFetchErrorType
 from ratio_analyzer import RatioAnalyzer, CreditRatioAnalysis
 from covenant_monitor import FinancialCovenants, CovenantMonitor, CovenantReport
 from zscore import calculate_z_score
@@ -47,14 +74,42 @@ app = FastAPI(
 )
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
-# Allow both local Vite dev server and production same-origin
+def _parse_cors_origins() -> List[str]:
+    configured = os.environ.get("CORS_ORIGINS", "").strip()
+    if configured:
+        origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
+        return origins or ["*"]
+    # Safe local defaults when env is not provided.
+    return ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+
+cors_origins = _parse_cors_origins()
+cors_allow_credentials = "*" not in cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Exception Handlers ─────────────────────────────────────────────────────────
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    """Catch unhandled exceptions and return proper error response."""
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "message": str(exc) if debug_error_details_enabled else "An unexpected error occurred",
+            "path": str(request.url),
+        },
+    )
+
 
 # ── Shared Instances ─────────────────────────────────────────────────────────
 
@@ -72,11 +127,15 @@ class AssessmentRequest(BaseModel):
     """Request body for credit assessment."""
     tickers: List[str] = Field(
         ...,
+        min_length=1,
+        max_length=50,
         description="List of stock tickers to analyze",
         examples=[["AAPL", "MSFT"]],
     )
     fiscal_year: Optional[int] = Field(
         default=None,
+        ge=1900,
+        le=2100,
         description="Fiscal year (defaults to current year)",
     )
     data_source: str = Field(
@@ -90,6 +149,8 @@ class CovenantCheckRequest(BaseModel):
     ticker: str = Field(..., description="Stock ticker to check")
     fiscal_year: Optional[int] = Field(
         default=None,
+        ge=1900,
+        le=2100,
         description="Fiscal year (defaults to current year)",
     )
     data_source: str = Field(
@@ -118,10 +179,13 @@ def _calculate_ratios(data: dict) -> CreditRatioAnalysis:
 
 
 def _analyze_single_ticker(ticker: str, fiscal_year: int, data_source: str) -> dict:
-    """Full pipeline for a single ticker: fetch → ratios → assessment."""
+    """Full pipeline for a single ticker: fetch → ratios → assessment.
+
+    Raises:
+        DataFetchError: When data fetching fails with detailed error type
+    """
+    # This will now raise DataFetchError instead of returning None
     data = fetcher.get_financial_data(ticker, data_source)
-    if data is None:
-        raise ValueError(f"Could not fetch financial data for '{ticker}'")
 
     company_name = data.get("company_name", ticker)
     history = data.get("history", [])
@@ -187,7 +251,7 @@ def _analyze_single_ticker(ticker: str, fiscal_year: int, data_source: str) -> d
                         except ImportError:
                             company_name_localized['zh-TW'] = cn_name
         except Exception as e:
-            print(f"Sina Translation fetch failed for {ticker}: {e}")
+            logger.debug(f"Sina translation fetch failed for {ticker}: {e}")
             pass # Fallback to original name if fetch fails
     
     historical_results = []
@@ -420,6 +484,10 @@ async def run_credit_assessment(request: AssessmentRequest):
     Returns a list of assessment results, each containing the credit rating,
     risk score, risk factors, strengths/weaknesses, and full financial ratios.
     """
+    tickers = [ticker.strip().upper() for ticker in request.tickers if isinstance(ticker, str) and ticker.strip()]
+    if not tickers:
+        raise HTTPException(status_code=422, detail={"errors": ["At least one non-empty ticker is required."]})
+
     fiscal_year = request.fiscal_year or datetime.now().year
     results: List[dict] = []
     errors: List[str] = []
@@ -428,33 +496,81 @@ async def run_credit_assessment(request: AssessmentRequest):
     from fastapi.concurrency import run_in_threadpool
     import asyncio
 
-    async def process_ticker(ticker: str):
+    try:
+        max_concurrency = max(1, int(os.environ.get("ASSESS_MAX_CONCURRENCY", "8")))
+    except ValueError:
+        max_concurrency = 8
+    try:
+        per_ticker_timeout = max(1.0, float(os.environ.get("ASSESS_TICKER_TIMEOUT_SECONDS", "20")))
+    except ValueError:
+        per_ticker_timeout = 20.0
+    suggestions_timeout = min(8.0, max(1.0, per_ticker_timeout / 3))
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    async def fetch_suggestions(ticker: str) -> list:
+        """Bound suggestion lookup latency to avoid cascading slowdowns."""
         try:
-            # Dispatch the synchronous, blocking fetching and analysis logic to a worker thread
-            result = await run_in_threadpool(
-                _analyze_single_ticker, ticker, fiscal_year, request.data_source
+            return await asyncio.wait_for(
+                run_in_threadpool(_search_tickers, ticker),
+                timeout=suggestions_timeout,
             )
-            if result and result.get('history') and len(result['history']) > 0:
-                return {"type": "success", "data": result}
-            else:
-                sugg = await run_in_threadpool(_search_tickers, ticker)
+        except Exception:
+            return []
+
+    async def process_ticker(ticker: str):
+        async with semaphore:
+            try:
+                # Dispatch blocking analysis logic to worker thread with a hard timeout.
+                result = await asyncio.wait_for(
+                    run_in_threadpool(
+                        _analyze_single_ticker, ticker, fiscal_year, request.data_source
+                    ),
+                    timeout=per_ticker_timeout,
+                )
+                if result and result.get('history') and len(result['history']) > 0:
+                    return {"type": "success", "data": result}
+                else:
+                    sugg = await fetch_suggestions(ticker)
+                    return {
+                        "type": "error",
+                        "ticker": ticker,
+                        "msg": "No financial data available",
+                        "error_type": "no_data_available",
+                        "sugg": sugg
+                    }
+            except asyncio.TimeoutError:
+                sugg = await fetch_suggestions(ticker)
                 return {
-                    "type": "error", 
-                    "ticker": ticker, 
-                    "msg": "No financial data available", 
+                    "type": "error",
+                    "ticker": ticker,
+                    "msg": f"Timed out after {per_ticker_timeout:.0f}s",
+                    "error_type": "timeout",
+                    "sugg": sugg,
+                }
+            except DataFetchError as exc:
+                # Handle detailed data fetching errors with specific error types
+                sugg = await fetch_suggestions(ticker)
+                return {
+                    "type": "error",
+                    "ticker": ticker,
+                    "msg": exc.message,
+                    "error_type": exc.error_type.value,
+                    "details": exc.details,
                     "sugg": sugg
                 }
-        except Exception as exc:
-            sugg = await run_in_threadpool(_search_tickers, ticker)
-            return {
-                "type": "error", 
-                "ticker": ticker, 
-                "msg": str(exc), 
-                "sugg": sugg
-            }
+            except Exception as exc:
+                # Fallback for unexpected errors
+                sugg = await fetch_suggestions(ticker)
+                return {
+                    "type": "error",
+                    "ticker": ticker,
+                    "msg": str(exc),
+                    "error_type": "unknown",
+                    "sugg": sugg
+                }
 
     # Gather results concurrently
-    tasks = [process_ticker(t) for t in request.tickers]
+    tasks = [process_ticker(t) for t in tickers]
     outcomes = await asyncio.gather(*tasks)
 
     for outcome in outcomes:
@@ -502,23 +618,44 @@ def check_covenants(request: CovenantCheckRequest):
     Returns a report listing each covenant, its threshold, the actual value,
     and whether it was breached.
     """
+    ticker = request.ticker.strip().upper()
+    if not ticker:
+        raise HTTPException(status_code=422, detail={"error": "Ticker cannot be empty."})
+
     fiscal_year = request.fiscal_year or datetime.now().year
 
-    data = fetcher.get_financial_data(request.ticker.upper(), request.data_source)
-    if data is None:
+    try:
+        data = fetcher.get_financial_data(ticker, request.data_source)
+    except DataFetchError as exc:
         raise HTTPException(
             status_code=404,
-            detail=f"Could not fetch financial data for '{request.ticker}'",
+            detail={
+                "error": exc.message,
+                "error_type": exc.error_type.value,
+                "ticker": exc.ticker,
+                "details": exc.details
+            }
         )
 
-    company_name = data.get("company_name", request.ticker)
-    
+    if not data:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": f"No financial data available for '{ticker}'",
+                "error_type": DataFetchErrorType.NO_DATA_AVAILABLE.value,
+                "ticker": ticker,
+                "details": {"reason": "empty_response"},
+            },
+        )
+
+    company_name = data.get("company_name", ticker)
+
     # Extract the latest period's statements for ratio calculation
     history = data.get("history", [])
     if not history:
         raise HTTPException(
             status_code=404,
-            detail=f"No financial history available for '{request.ticker}'",
+            detail=f"No financial history available for '{ticker}'",
         )
     latest_period = history[0]
     period_data = {

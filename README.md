@@ -1,93 +1,134 @@
-# RiskLens — Institutional Credit Risk & Covenant Monitoring Platform
+# RiskLens MVP (FastAPI)
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+这是一个可本地运行的最小可用项目（MVP）：
+- 后端：FastAPI
+- 前端：`templates/ + static/` 原生 HTML/CSS/JS
+- 目标：`GET /` 页面输入 ticker 后，调用 `POST /api/assess` 返回风险评估结果
 
-*An enterprise-grade orchestration framework for institutional credit assessment, robust financial statement harmonization, and continuous post-lending covenant monitoring.*
+## 1. 功能清单
 
----
+- `GET /health`：健康检查
+- `GET /docs`：Swagger 文档
+- `GET /`：前端页面
+- `POST /api/assess`：单 ticker 风险评估
+- `POST /api/v1/assess`：兼容多 ticker 批量评估（简化版）
 
-## 🏛️ Project Objective
+## 2. 项目结构
 
-In Commercial and Institutional Banking (CIB), automated ingestion, harmonization, and real-time monitoring of corporate borrower financials is a critical operational bottleneck. **RiskLens** bridges the gap between raw, unstructured financial statements and actionable, auditable credit insights. 
+```text
+RiskLens/
+├── main.py                    # FastAPI 启动入口（uvicorn main:app）
+├── src/
+│   ├── data_fetcher.py        # 已有数据获取逻辑（复用）
+│   ├── ratio_analyzer.py      # 已有比率分析逻辑（复用）
+│   ├── zscore.py              # 已有 Z-Score 逻辑（复用）
+│   └── services/
+│       └── assessment_service.py   # 新增服务层（业务编排）
+├── templates/
+│   └── index.html             # 页面模板
+├── static/
+│   ├── css/app.css            # 页面样式
+│   └── js/app.js              # 前端交互脚本
+├── requirements.txt
+├── .env.example
+└── run_app.sh
+```
 
-It executes a straight-through processing (STP) pipeline to extract diverse financial data arrays, standardizes over 30 fundamental credit ratios, and objectively applies the **Altman Z-Score Model** to segment credit exposure into Safe, Grey, and Distress tranches.
+## 3. 安装与启动
 
-## 🚀 Enterprise Capabilities
+### 3.1 创建环境并安装依赖
 
-### 1. Unified Global Data Harmonization 
-- **Multi-Market Parsing**: Seamlessly acquires and standardizes structures across the US, Hong Kong, and **Mainland China (A-Shares)** markets.
-- **Bilingual Taxonomies**: Embedded logic maps complex Chinese onshore reporting (via AKShare) directly into IFRS/US GAAP-aligned equivalents.
-- **Dynamic Period Resolution**: Handles and annualizes highly irregular fiscal boundaries, including cumulative onshore quarters (Q1, H1, Q3) and discrete offshore reporting.
-
-### 2. Algorithmic Credit Grading (`POST /api/v1/assess`)
-- **Altman Z-Score Engine**: Automates the exact multivariate bankruptcy prediction formula tailored for public corporate debt.
-- **Stress Differentiation**: Programmatically isolates strengths and weaknesses by cross-validating Interest Coverage, FCF/Debt, and Debt/EBITDA trajectories across 4 fiscal periods.
-- **Implied S&P Rating Translation**: Projects Z-Score outputs onto standard S&P-equivalent agency ratings (AAA through D) for immediate portfolio triage.
-
-### 3. Post-Lending Covenant Surveillance (`POST /api/v1/covenants/check`)
-- **Automated Compliance Checks**: Evaluates incoming financials against customizable, loan-specific financial covenants (e.g., minimum liquidity, maximum leverage).
-- **Conservative Default Protocols**: Data unavailability or anomalous NaN values safely trigger technical breach alerts rather than false-positive passes.
-- **JSON-Schema Triggers**: Capable of integrating natively with downstream core banking systems or alerting dashboards via structured exception payloads.
-
----
-
-## 📊 Analytics Framework
-
-RiskLens relies exclusively on verified quantitative metrics. The primary scoring agent utilizes the **Altman Z-Score Model**, which synthesizes liquidity, profitability, operating efficiency, leverage, and market valuation into a single dimension of default probability.
-
-> *For a rigorous mathematical breakdown of the Z-Score weights, threshold mappings, and definitions behind the 30+ underlying credit ratios (e.g., FCF-to-Debt, Interest Coverage), refer to [METHODOLOGY.md](./METHODOLOGY.md).*
-
-**1.0 Scope Note:** The live API pipeline uses Altman Z-Score as the sole scoring model. The module `src/credit_risk_assessment.py` is a legacy/experimental framework and is not invoked by the FastAPI service.
-
----
-
-## 🛠️ Technology Stack & Architecture
-
-Built with a strict separation of concerns, ensuring high throughput, concurrency, and reliability:
-
-- **Data Gateway**: Asynchronous `FastAPI` Python execution handling concurrent HTTP streams for data retrieval and multi-language semantic translation.
-- **Analysis Engine**: Highly vectorized `Pandas` and `Numpy` core for instantaneous time-series financial aggregation.
-- **Type Safety**: End-to-end `Pydantic` schema enforcement guaranteeing uncompromised data validation before analytical execution.
-- **Client Interface**: Ultra-responsive React 19 SPA running on `Vite` featuring zero-latency toggle states, dynamic data visualizations, and robust internationalization.
-- **Localization (i18n)**: Out-of-the-box native localization traversing `en`, `zh-CN`, `zh-TW`, and `ja`—complete with fully translated statement taxonomies and AI-assisted cross-border semantic matching for company names.
-
----
-
-## 🏁 Deployment Protocol
-
-### 1. Execution via Provided Gateway
 ```bash
-# Instantiate the complete API and Frontend environments
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 3.2 启动服务
+
+```bash
+uvicorn main:app --reload
+```
+
+或一键启动：
+
+```bash
 ./run_app.sh
 ```
 
-### 2. Manual Bootstrapping
+## 4. 访问地址
+
+- 首页：`http://127.0.0.1:8000/`
+- 健康检查：`http://127.0.0.1:8000/health`
+- API 文档：`http://127.0.0.1:8000/docs`
+
+## 5. API 快速示例
+
+### 5.1 单 ticker 评估
+
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Ignite ASGI Server
-cd src
-uvicorn api:app --host 0.0.0.0 --port 8000 --reload
-```
-*API Swagger / OpenAPI Interface available at: `http://localhost:8000/docs`*
-
-### 3. Post-Migration (Linux to macOS)
-```bash
-# 1) Recreate Python environment to avoid cross-platform binaries
-rm -rf .venv
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-
-# 2) Reinstall frontend dependencies
-cd web
-npm ci
+curl -X POST http://127.0.0.1:8000/api/assess \
+  -H "Content-Type: application/json" \
+  -d '{"ticker":"AAPL","data_source":"yfinance"}'
 ```
 
----
+### 5.2 离线演示（推荐）
 
-## 👨‍💻 Maintainer
-**Right Leung**
+当本机网络不可用时使用 `demo`：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/assess \
+  -H "Content-Type: application/json" \
+  -d '{"ticker":"DEMO","data_source":"demo"}'
+```
+
+## 6. 配置说明
+
+可选复制模板：
+
+```bash
+cp .env.example .env
+```
+
+当前 MVP 使用的环境变量：
+- `APP_NAME`：应用名称（默认 `RiskLens MVP`）
+- `APP_PORT`：本地端口（默认 `8000`）
+- `ASSESS_TIMEOUT_SECONDS`：单次评估超时时间（秒，默认 `25`）
+- `ENVIRONMENT` / `DEBUG` / `SENTRY_DSN`：预留给现有监控能力
+
+## 7. Smoke 测试（推荐）
+
+服务启动后执行：
+
+```bash
+./smoke_test.sh http://127.0.0.1:8000
+```
+
+会检查：
+- `/health`
+- `/docs`
+- `/`
+- `/api/assess`（demo 闭环 + 参数校验）
+
+## 8. 常见问题（FAQ）
+
+1. 页面提示“请求失败，请稍后重试”
+- 先确认后端是否已启动：访问 `/health`。
+- 再确认前端调用地址是否同源（默认就是同源）。
+
+2. 使用 `AAPL` 等真实 ticker 返回网络错误
+- 说明第三方数据源不可达或被限流。
+- 可先用 `ticker=DEMO` + `data_source=demo` 完成闭环验证。
+
+3. `ModuleNotFoundError`
+- 确认在项目根目录启动。
+- 确认已激活 `.venv` 并安装 `requirements.txt`。
+
+4. `GET /` 打开但没有结果
+- 打开浏览器开发者工具查看请求是否调用 `/api/assess`。
+- 检查返回 JSON 中 `error` 字段。
+
+## 9. 说明
+
+仓库中 `src/api.py` 与 `web/` 仍保留，作为原有实现与后续扩展参考；
+当前 MVP 验收以 `main.py` 入口为准。

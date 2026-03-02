@@ -12,10 +12,216 @@ import numpy as np
 import yfinance as yf
 import time
 import logging
-from datetime import datetime
-from typing import Dict, Any, Optional
+import threading
+from datetime import datetime, timedelta
+from typing import Dict, Any, Optional, Callable
+from enum import Enum
+from functools import wraps
 
 logger = logging.getLogger(__name__)
+
+
+# ── Simple In-Memory Cache with TTL ──────────────────────────────────────────
+
+class SimpleCache:
+    """Thread-safe in-memory cache with TTL support."""
+
+    def __init__(self, default_ttl: int = 600):
+        """Initialize cache.
+
+        Args:
+            default_ttl: Default time-to-live in seconds (default: 600 = 10 minutes)
+        """
+        self._cache: Dict[str, tuple[Any, datetime]] = {}
+        self._default_ttl = default_ttl
+        self._hits = 0
+        self._misses = 0
+        self._lock = threading.RLock()
+
+    def get(self, key: str) -> Optional[Any]:
+        """Get value from cache if not expired.
+
+        Args:
+            key: Cache key
+
+        Returns:
+            Cached value if exists and not expired, None otherwise
+        """
+        with self._lock:
+            if key not in self._cache:
+                self._misses += 1
+                return None
+
+            value, expiry = self._cache[key]
+            if datetime.now() > expiry:
+                # Expired, remove from cache
+                del self._cache[key]
+                self._misses += 1
+                return None
+
+            self._hits += 1
+            return value
+
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+        """Set value in cache with TTL.
+
+        Args:
+            key: Cache key
+            value: Value to cache
+            ttl: Time-to-live in seconds (uses default if None)
+        """
+        ttl = ttl if ttl is not None else self._default_ttl
+        expiry = datetime.now() + timedelta(seconds=ttl)
+        with self._lock:
+            self._cache[key] = (value, expiry)
+
+    def clear(self) -> None:
+        """Clear all cached entries."""
+        with self._lock:
+            self._cache.clear()
+            self._hits = 0
+            self._misses = 0
+
+    def stats(self) -> Dict[str, int]:
+        """Get cache statistics.
+
+        Returns:
+            Dict with hits, misses, size, and hit_rate
+        """
+        with self._lock:
+            total = self._hits + self._misses
+            hit_rate = (self._hits / total * 100) if total > 0 else 0
+            return {
+                "hits": self._hits,
+                "misses": self._misses,
+                "size": len(self._cache),
+                "hit_rate": round(hit_rate, 2)
+            }
+
+
+# Global cache instance (10-minute TTL)
+_data_cache = SimpleCache(default_ttl=600)
+
+
+# ── Ticker Normalization ─────────────────────────────────────────────────────
+
+def _normalize_ticker(ticker: str) -> str:
+    """Normalize ticker format for better compatibility.
+
+    Handles special cases:
+    - BRK.B → BRK-B (Berkshire Hathaway Class B)
+    - BF.B → BF-B (Brown-Forman Class B)
+    - Removes extra whitespace
+    - Converts to uppercase
+
+    Args:
+        ticker: Raw ticker string
+
+    Returns:
+        Normalized ticker string
+    """
+    ticker = ticker.strip().upper()
+
+    # Special handling for Class B shares with dot notation
+    # yfinance uses hyphen (-) not dot (.) for share classes
+    if ticker.endswith('.B'):
+        ticker = ticker[:-2] + '-B'
+        logger.debug(f"Normalized Class B ticker: {ticker}")
+    elif ticker.endswith('.A'):
+        ticker = ticker[:-2] + '-A'
+        logger.debug(f"Normalized Class A ticker: {ticker}")
+
+    return ticker
+
+
+# ── Retry Mechanism with Exponential Backoff ────────────────────────────────
+
+def retry_with_backoff(
+    max_retries: int = 3,
+    initial_delay: float = 1.0,
+    backoff_factor: float = 2.0,
+    max_delay: float = 10.0,
+    retriable_errors: tuple = (Exception,)
+):
+    """Decorator for retrying functions with exponential backoff.
+
+    Args:
+        max_retries: Maximum number of retry attempts (default: 3)
+        initial_delay: Initial delay in seconds (default: 1.0)
+        backoff_factor: Multiplier for delay after each retry (default: 2.0)
+        max_delay: Maximum delay between retries in seconds (default: 10.0)
+        retriable_errors: Tuple of exception types to retry on
+
+    Returns:
+        Decorated function that retries on failure
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            delay = initial_delay
+            last_exception = None
+
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except retriable_errors as e:
+                    last_exception = e
+
+                    # Don't retry on invalid ticker or no data errors
+                    if isinstance(e, DataFetchError):
+                        if e.error_type in (DataFetchErrorType.INVALID_TICKER,
+                                           DataFetchErrorType.NO_DATA_AVAILABLE):
+                            logger.debug(f"Non-retriable error for {func.__name__}: {e.error_type.value}")
+                            raise
+
+                    if attempt < max_retries:
+                        logger.warning(
+                            f"Attempt {attempt + 1}/{max_retries} failed for {func.__name__}: {e}. "
+                            f"Retrying in {delay:.1f}s..."
+                        )
+                        time.sleep(delay)
+                        delay = min(delay * backoff_factor, max_delay)
+                    else:
+                        logger.error(f"All {max_retries} retries exhausted for {func.__name__}")
+                        raise
+
+            # Should never reach here, but just in case
+            if last_exception:
+                raise last_exception
+
+        return wrapper
+    return decorator
+
+
+# ── Custom Exceptions ────────────────────────────────────────────────────────
+
+class DataFetchErrorType(Enum):
+    """Types of data fetching errors."""
+    INVALID_TICKER = "invalid_ticker"
+    NO_DATA_AVAILABLE = "no_data_available"
+    RATE_LIMIT = "rate_limit"
+    NETWORK_ERROR = "network_error"
+    UNKNOWN = "unknown"
+
+
+class DataFetchError(Exception):
+    """Custom exception for data fetching errors with detailed error types."""
+
+    def __init__(self, message: str, error_type: DataFetchErrorType, ticker: str = None, details: Dict[str, Any] = None):
+        super().__init__(message)
+        self.message = message
+        self.error_type = error_type
+        self.ticker = ticker
+        self.details = details or {}
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert exception to dictionary for API responses."""
+        return {
+            "error": self.message,
+            "error_type": self.error_type.value,
+            "ticker": self.ticker,
+            "details": self.details
+        }
 
 # Optional AKShare integration (akshare_data.py is a legacy module)
 try:
@@ -263,6 +469,12 @@ def _akshare_row_to_df(row: pd.Series, field_map: dict) -> pd.DataFrame:
     return pd.DataFrame.from_dict(records, orient='index', columns=['Value'])
 
 
+@retry_with_backoff(
+    max_retries=2,
+    initial_delay=1.5,
+    backoff_factor=2.0,
+    retriable_errors=(Exception,)
+)
 def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
     """Fetch A-share data from AKShare's Sina Finance API.
     
@@ -276,9 +488,9 @@ def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
     
     try:
         # Fetch all 3 statements
-        print(f"Fetching AKShare for {ticker}...")
+        logger.info(f"Fetching AKShare data for {ticker}")
         company_name = ticker
-        
+
         # Get company info first
         try:
             stock_info = ak.stock_individual_info_em(symbol=ticker)
@@ -288,18 +500,18 @@ def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
                         company_name = stock_info[stock_info['item'] == col]['value'].values[0]
                         break
         except Exception as e:
-            print(f"AKShare Individual Info error for {ticker}: {e}")
+            logger.warning(f"AKShare individual info error for {ticker}: {e}")
 
         inc_df = ak.stock_financial_report_sina(stock=ticker, symbol='利润表')
         bal_df = ak.stock_financial_report_sina(stock=ticker, symbol='资产负债表')
         cf_df = ak.stock_financial_report_sina(stock=ticker, symbol='现金流量表')
-        print(f"AKShare {ticker} sizes: inc={len(inc_df) if inc_df is not None else 0}, bal={len(bal_df) if bal_df is not None else 0}, cf={len(cf_df) if cf_df is not None else 0}")
+        logger.debug(f"AKShare {ticker} statement sizes: income={len(inc_df) if inc_df is not None else 0}, balance={len(bal_df) if bal_df is not None else 0}, cashflow={len(cf_df) if cf_df is not None else 0}")
     except Exception as e:
-        print(f"AKShare Sina error for {ticker}: {e}")
+        logger.error(f"AKShare Sina API error for {ticker}: {e}")
         return None
-    
+
     if inc_df is None or inc_df.empty:
-        print(f"AKShare inc_df is empty for {ticker}")
+        logger.warning(f"AKShare income statement is empty for {ticker}")
         return None
 
     # Company name fetch attempted above; market cap fetched from yfinance at the end
@@ -438,7 +650,7 @@ def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
                     inc_e.loc['ebitda', 'Value'] = ebit + est_da
                     inc_e.loc['reconciled_depreciation', 'Value'] = est_da
     except Exception as e:
-        print(f"yfinance supplement error for {ticker}: {e}")
+        logger.warning(f"yfinance EBITDA supplement error for {ticker}: {e}")
 
     return {
         'ticker': ticker,
@@ -452,6 +664,12 @@ class FinancialDataFetcher:
     """Fetches financial statements from external sources."""
 
     @staticmethod
+    @retry_with_backoff(
+        max_retries=3,
+        initial_delay=1.0,
+        backoff_factor=2.0,
+        retriable_errors=(Exception,)
+    )
     def get_financial_data(ticker: str, data_source: str = 'auto') -> Optional[Dict[str, Any]]:
         """
         Fetch financial data with auto-detection of market.
@@ -464,12 +682,36 @@ class FinancialDataFetcher:
         Returns a dict with keys:
             ticker, company_name, market_cap, history
         where history is a list of period dicts.
+
+        Results are cached for 10 minutes to reduce API calls.
         """
         ticker = ticker.strip()
+        if not ticker:
+            raise DataFetchError(
+                "Ticker cannot be empty",
+                error_type=DataFetchErrorType.INVALID_TICKER,
+                ticker=ticker,
+                details={"reason": "Empty ticker string"}
+            )
+
         source = (data_source or "auto").strip().lower()
         if source not in ("auto", "yfinance", "akshare"):
             source = "auto"
-        
+
+        # Normalize special ticker formats
+        ticker = _normalize_ticker(ticker)
+
+        # Build cache key: ticker + data_source
+        cache_key = f"{ticker.upper()}:{source}"
+
+        # Check cache first
+        cached_result = _data_cache.get(cache_key)
+        if cached_result is not None:
+            logger.debug(f"Cache hit for {cache_key}")
+            return cached_result
+
+        logger.debug(f"Cache miss for {cache_key}, fetching from source...")
+
         # OR-004: Strip A-share exchange suffixes before routing detection.
         # Handles copy-pasted formats like "600519.SS", "000002.SZ", "000002.SH"
         _raw = ticker.upper()
@@ -483,13 +725,21 @@ class FinancialDataFetcher:
             if source in ("auto", "akshare"):
                 result = _fetch_a_share_akshare(ticker)
                 if result and result.get('history'):
+                    # Cache successful AKShare result
+                    _data_cache.set(cache_key, result)
+                    logger.debug(f"Cached AKShare result for {cache_key}")
                     return result
                 if source == "akshare":
-                    # Caller explicitly requested AKShare; do not silently fallback.
-                    print(f"AKShare failed for {ticker} (akshare requested)")
-                    return None
+                    # Caller explicitly requested AKShare; surface explicit failure.
+                    logger.warning(f"AKShare failed for {ticker} (akshare requested)")
+                    raise DataFetchError(
+                        f"No financial data available from AKShare for '{ticker}'",
+                        error_type=DataFetchErrorType.NO_DATA_AVAILABLE,
+                        ticker=ticker,
+                        details={"source": "akshare"},
+                    )
                 # Fallback to yfinance for auto mode
-                print(f"AKShare failed for {ticker}, falling back to yfinance")
+                logger.info(f"AKShare failed for {ticker}, falling back to yfinance")
             suffix = '.SS' if ticker.startswith('6') else '.SZ'
             ticker = ticker + suffix
 
@@ -578,12 +828,86 @@ class FinancialDataFetcher:
             # Final order: quarterly (newest first) then annual (newest first)
             history = quarterly_entries + annual_entries
 
-            return {
+            # Validate that we have actual financial data before returning success
+            if not history:
+                logger.warning(f"No financial history available for {ticker}")
+                raise DataFetchError(
+                    f"No financial data available for ticker '{ticker}'",
+                    error_type=DataFetchErrorType.NO_DATA_AVAILABLE,
+                    ticker=ticker,
+                    details={"reason": "Empty history after fetching statements"}
+                )
+
+            result = {
                 'ticker': ticker,
                 'company_name': info.get('longName', info.get('shortName', ticker)),
                 'market_cap': info.get('marketCap'),
                 'history': history
             }
+
+            # Cache successful result
+            _data_cache.set(cache_key, result)
+            logger.debug(f"Cached result for {cache_key}")
+
+            return result
+        except DataFetchError:
+            # Re-raise our custom exceptions
+            raise
         except Exception as e:
-            print(f"yfinance Error for {ticker}: {e}")
-            return None
+            error_msg = str(e).lower()
+
+            # Classify error type based on error message and provide helpful suggestions
+            if "404" in error_msg or "not found" in error_msg:
+                error_type = DataFetchErrorType.INVALID_TICKER
+                suggestions = []
+
+                # Provide helpful suggestions based on ticker format
+                if '.' in ticker and not ticker.endswith(('.HK', '.SS', '.SZ', '.SH')):
+                    suggestions.append(f"Try using hyphen instead: {ticker.replace('.', '-')}")
+                if ticker.endswith('.B'):
+                    suggestions.append(f"Class B shares should use hyphen: {ticker[:-2]}-B")
+                if ticker.isdigit() and len(ticker) == 6:
+                    suggestions.append(f"A-share tickers need exchange suffix: {ticker}.SS or {ticker}.SZ")
+
+                message = f"Ticker '{ticker}' not found in data source"
+                if suggestions:
+                    message += f". Suggestions: {'; '.join(suggestions)}"
+
+            elif "429" in error_msg or "rate limit" in error_msg or "too many requests" in error_msg:
+                error_type = DataFetchErrorType.RATE_LIMIT
+                message = f"Rate limit exceeded for '{ticker}'. Please wait a moment and try again."
+            elif any(
+                token in error_msg
+                for token in (
+                    "timeout",
+                    "connection",
+                    "network",
+                    "proxy",
+                    "failed to connect",
+                    "could not connect",
+                    "curl: (7)",
+                )
+            ):
+                error_type = DataFetchErrorType.NETWORK_ERROR
+                message = f"Network error when fetching '{ticker}'. Check your internet connection."
+            else:
+                error_type = DataFetchErrorType.UNKNOWN
+                message = f"Error fetching data for '{ticker}': {e}"
+
+            logger.error(f"yfinance error for {ticker}: {e}")
+            raise DataFetchError(message, error_type=error_type, ticker=ticker, details={"original_error": str(e)})
+
+    @staticmethod
+    def get_cache_stats() -> Dict[str, int]:
+        """Get cache statistics.
+
+        Returns:
+            Dict with hits, misses, size, and hit_rate percentage
+        """
+        return _data_cache.stats()
+
+    @staticmethod
+    def clear_cache() -> None:
+        """Clear all cached data."""
+        _data_cache.clear()
+        logger.info("Data cache cleared")
