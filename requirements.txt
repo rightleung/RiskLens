@@ -1,15 +1,23 @@
 # Credit Analyst Toolkit — Dependencies
-numpy
-pandas
-matplotlib
-pandas_datareader
-yfinance
-akshare
-openpyxl
-python-dateutil
+numpy==2.4.2
+pandas==3.0.1
+matplotlib==3.10.8
+pandas-datareader==0.10.0
+yfinance==1.2.0
+akshare==1.18.30
+openpyxl==3.1.5
+python-dateutil==2.9.0.post0
 
-fastapi
-uvicorn
-pydantic
-requests
+fastapi==0.133.1
+uvicorn==0.41.0
+pydantic==2.12.5
+requests==2.32.5
+# Optional: enables Chinese simplified/traditional conversion if installed.
 opencc
+
+# Testing
+pytest==9.0.2
+httpx==0.28.1
+
+# Error monitoring
+sentry-sdk==2.53.0

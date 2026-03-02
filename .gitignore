@@ -34,3 +34,13 @@ dist/
 node_modules/
 web/node_modules/
 
+# Playwright artifacts
+web/test-results/
+web/playwright-report/
+web/.playwright/
+
+# Local scratch files (do not release)
+web/revert_export.cjs
+web/revert_export.js
+web/test_color.xlsx
+web/test_color2.cjs

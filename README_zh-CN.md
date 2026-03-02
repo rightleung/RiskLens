@@ -38,6 +38,7 @@
 RiskLens 仅依赖经过交叉验证的量化指标。核心评分代理使用 **Altman Z-Score 模型**，该模型将流动性、盈利能力、营运效率、杠杆率以及市场估值综合成一个预测违约概率的单一维度。
 
 > *有关 Z-Score 权重的严谨数学分解、阈值映射表以及 30 多种底层信贷风险比率（例如 自由现金流/债务比率、利息保障倍数）的详细定义，请参阅 [METHODOLOGY.md](./METHODOLOGY_zh-CN.md)。*
+> *有关 Excel 报告输出结构、Sheet 命名规范及契约预检查逻辑，请参阅 [REPORT_WORKBOOK_SPEC.md](./REPORT_WORKBOOK_SPEC.md)。*
 
 **1.0 范围说明：** 当前 API 运行的评分模型仅使用 Altman Z-Score。`src/credit_risk_assessment.py` 为历史/实验性框架，未接入 FastAPI 服务。
 
@@ -86,6 +87,92 @@ python -m pip install -r requirements.txt
 cd web
 npm ci
 ```
+
+### 4. 前端本地开发（可选）
+```bash
+cd web
+npm install
+npm run dev
+```
+*Vite 前端地址：`http://localhost:5173`*  
+*使用 Vite 开发模式时，后端仍需运行在 `http://localhost:8000`。*
+
+---
+
+## 🔌 API 快速示例
+
+### 健康检查
+```bash
+curl http://localhost:8000/health
+```
+
+### 信用风险评估
+```bash
+curl -X POST http://localhost:8000/api/v1/assess \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tickers": ["AAPL", "MSFT", "0700.HK", "000002.SZ"],
+    "data_source": "yfinance"
+  }'
+```
+
+### 贷后契约检查
+```bash
+curl -X POST http://localhost:8000/api/v1/covenants/check \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ticker": "AAPL",
+    "data_source": "yfinance",
+    "covenants": {
+      "min_current_ratio": 1.2,
+      "max_debt_to_ebitda": 4.0,
+      "min_interest_coverage": 2.0,
+      "min_fcf_to_debt": 0.05
+    }
+  }'
+```
+
+---
+
+## ✅ 测试
+
+```bash
+pytest tests -v
+```
+
+当前测试主要覆盖：
+- Altman Z-Score 分段与评级映射边界
+- 财务比率计算逻辑
+- 契约违约判定与技术性违约默认行为
+- 信用评估主流程行为
+
+---
+
+## 📁 项目目录结构
+
+```text
+RiskLens/
+├── src/                    # FastAPI 服务与风险引擎
+├── tests/                  # Pytest 测试集
+├── web/                    # React + Vite 前端
+├── data/                   # 本地数据产物
+├── METHODOLOGY_zh-CN.md    # 模型方法论（中文）
+├── ARCHITECTURE_zh-CN.md   # 系统架构说明（中文）
+└── REPORT_WORKBOOK_SPEC.md # Excel 报告结构规范
+```
+
+---
+
+## 🧩 常见问题排查
+
+- 出现 `ModuleNotFoundError` 或依赖冲突：
+  重建 `.venv` 并重新安装 `requirements.txt`。
+- A 股公司名或本地化名称未正确显示：
+  安装可选依赖 `opencc` 后重试。
+- Vite 前端无法调用后端 API：
+  确认后端运行在 `127.0.0.1:8000`，再刷新页面。
+- 报表周期为空或不完整：
+  检查代码后缀格式（`.HK`、`.SS`、`.SZ`、`.SH`）与数据源选择。
 
 ---
 

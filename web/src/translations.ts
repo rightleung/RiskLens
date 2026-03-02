@@ -15,6 +15,9 @@ export const translateAssessmentText = (text: string, lang: Language): string =>
         'Healthy liquidity': {
             'en': 'Healthy liquidity', 'zh-CN': '健康的流动性', 'zh-TW': '健康的流動性', 'ja': '健全な流動性'
         },
+        'Good liquidity': {
+            'en': 'Good liquidity', 'zh-CN': '良好的流动性', 'zh-TW': '良好的流動性', 'ja': '良好な流動性'
+        },
         'Strong profitability margins': {
             'en': 'Strong profitability margins', 'zh-CN': '强劲的利润率', 'zh-TW': '強勁的利潤率', 'ja': '強固な利益率'
         },

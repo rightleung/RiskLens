@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RiskLens MVP</title>
+    <link rel="stylesheet" href="/static/css/app.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="card">
+        <h1>RiskLens MVP</h1>
+        <p class="subtitle">最小可运行 MVP：输入 ticker，调用 FastAPI，返回风险评估。</p>
+
+        <form id="assess-form" class="form">
+          <label for="ticker">Ticker</label>
+          <input id="ticker" name="ticker" type="text" placeholder="例如：AAPL（离线可用 DEMO）" required />
+
+          <label for="data_source">数据源</label>
+          <select id="data_source" name="data_source">
+            <option value="yfinance" selected>yfinance</option>
+            <option value="auto">auto</option>
+            <option value="akshare">akshare</option>
+            <option value="demo">demo（离线）</option>
+          </select>
+
+          <button id="submit-btn" type="submit">开始评估</button>
+        </form>
+
+        <p id="status" class="status" aria-live="polite"></p>
+        <p id="error" class="error" aria-live="assertive"></p>
+
+        <section id="result" class="result hidden">
+          <h2>评估结果</h2>
+          <div id="summary"></div>
+          <h3>关键指标</h3>
+          <pre id="metrics"></pre>
+        </section>
+      </section>
+    </main>
+
+    <script src="/static/js/app.js" defer></script>
+  </body>
+</html>
