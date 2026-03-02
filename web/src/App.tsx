@@ -590,13 +590,59 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     return riskText.noteWithinThreshold;
   };
 
-  if (results.length === 1) {
-    // === SINGLE COMPANY LOGIC ===
-    const res = results[0];
-    const latest = res.history[0];
-    const latestAssessment = latest?.assessment;
-    const wsRisk = wb.addWorksheet(riskText.sheetName, { properties: { tabColor: { argb: 'FF8064A2' } } });
-    const covenantRows = [
+  const periodFillPalette = ['FFE8D6D6', 'FFD9E5F6', 'FFE2F0D9', 'FFFCE4D6', 'FFE7E0F5', 'FFD7ECEA'];
+
+  const applyPeriodHeaderBands = (
+    ws: ExcelJS.Worksheet,
+    rowNumber: number,
+    periodCount: number,
+    colsPerPeriod: number,
+    startCol = 2
+  ) => {
+    for (let i = 0; i < periodCount; i += 1) {
+      const fillColor = periodFillPalette[i % periodFillPalette.length];
+      const colStart = startCol + i * colsPerPeriod;
+      const colEnd = colStart + colsPerPeriod - 1;
+      for (let col = colStart; col <= colEnd; col += 1) {
+        const cell = ws.getCell(rowNumber, col);
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: fillColor },
+        };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.font = { ...(cell.font || {}), bold: true };
+      }
+    }
+  };
+
+  const centerRowRange = (ws: ExcelJS.Worksheet, rowNumber: number, startCol: number, endCol: number) => {
+    for (let col = startCol; col <= endCol; col += 1) {
+      ws.getCell(rowNumber, col).alignment = { horizontal: 'center', vertical: 'middle' };
+    }
+  };
+
+  const autoFitWorksheet = (ws: ExcelJS.Worksheet, min = 10, max = 44) => {
+    ws.columns.forEach((column, idx) => {
+      let longest = min;
+      column.eachCell({ includeEmpty: true }, (cell) => {
+        const raw =
+          typeof cell.value === 'object' && cell.value !== null && 'result' in cell.value
+            ? (cell.value as { result?: unknown }).result
+            : cell.value;
+        const text = raw == null ? '' : String(raw);
+        longest = Math.max(longest, text.length + 2);
+      });
+      ws.getColumn(idx + 1).width = Math.min(max, longest);
+    });
+  };
+
+  const autoFitWorkbook = () => {
+    wb.worksheets.forEach((ws) => autoFitWorksheet(ws));
+  };
+
+  const buildLocalizedCovenantRows = (latest: any) => {
+    const rawRows = [
       {
         metric: t('interestCoverage'),
         actual: toNumber(latest?.ratios?.interest_coverage),
@@ -625,7 +671,9 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
         comparator: 'min' as const,
         thresholdValue: 0.05,
       },
-    ].map((row) => {
+    ];
+
+    return rawRows.map((row) => {
       const result = evaluateCovenant(row.actual, row.thresholdValue, row.comparator);
       return {
         ...row,
@@ -636,6 +684,15 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
         isMissing: result.status === 'data_missing',
       };
     });
+  };
+
+  if (results.length === 1) {
+    // === SINGLE COMPANY LOGIC ===
+    const res = results[0];
+    const latest = res.history[0];
+    const latestAssessment = latest?.assessment;
+    const wsRisk = wb.addWorksheet(riskText.sheetName, { properties: { tabColor: { argb: 'FF8064A2' } } });
+    const covenantRows = buildLocalizedCovenantRows(latest);
 
     const breachCount = covenantRows.filter((row) => row.isBreach).length;
     const missingItems = covenantRows.filter((row) => row.isMissing).map((row) => row.metric);
@@ -696,7 +753,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     }
 
     const baseYearsLabels = res.history.map((h: any) => formatPeriodLabel(h.fiscal_year));
-    const yearsRow = [t('metricCol'), ...baseYearsLabels];
+    const yearsRow = [t('itemCol'), ...baseYearsLabels];
     if (hasYoY) {
       yearsRow.push(''); // Spacer column
       yoyMap.forEach(cmp => {
@@ -704,7 +761,8 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
         yearsRow.push(t('varPct'));
       });
     }
-    addRowWithFormat(ws1, yearsRow);
+    const yearsHeaderRow = addRowWithFormat(ws1, yearsRow);
+    applyPeriodHeaderBands(ws1, yearsHeaderRow.number, baseYearsLabels.length, 1, 2);
 
     const metricRowsLocal = [
       { key: 'operating_income', label: t('ebit'), src: 'raw_metrics' },
@@ -766,7 +824,8 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
         finHeaderRow.push(t('varPct'));
       });
     }
-    addRowWithFormat(ws2, finHeaderRow);
+    const finHeaderRowRef = addRowWithFormat(ws2, finHeaderRow);
+    applyPeriodHeaderBands(ws2, finHeaderRowRef.number, res.history.length, 1, 2);
 
     const allKeys = new Set<string>();
     res.history.forEach((h: any) => {
@@ -831,6 +890,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
       addRowWithFormat(ws2, rowData);
     });
 
+    autoFitWorkbook();
     const buffer = await wb.xlsx.writeBuffer();
     saveAs(new Blob([buffer]), `${res.ticker}_Financial_Data.xlsx`);
     return;
@@ -885,15 +945,46 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     { key: 'current_ratio', label: t('currentRatio'), src: 'ratios' },
   ];
 
+  const wsRiskPortfolio = wb.addWorksheet(riskText.sheetName, { properties: { tabColor: { argb: 'FF8064A2' } } });
+  addRowWithFormat(wsRiskPortfolio, [
+    riskText.ticker,
+    riskText.companyName,
+    riskText.latestPeriod,
+    riskText.altman,
+    riskText.impliedRating,
+    riskText.breachCount,
+    riskText.missingKeyInputs,
+    riskText.missingItems,
+  ]);
+  centerRowRange(wsRiskPortfolio, 1, 1, 8);
+
+  results.forEach((res) => {
+    const latest = res.history?.[0];
+    const covenantRows = buildLocalizedCovenantRows(latest);
+    const breachCount = covenantRows.filter((row) => row.isBreach).length;
+    const missingItems = covenantRows.filter((row) => row.isMissing).map((row) => row.metric);
+
+    addRowWithFormat(wsRiskPortfolio, [
+      res.ticker,
+      res.company_name_localized?.[lang] || res.company_name,
+      latest ? formatPeriodLabel(latest.fiscal_year) : riskText.na,
+      toNumber(latest?.assessment?.risk_score) ?? riskText.na,
+      translateRatingStatus(latest?.assessment?.implied_rating || riskText.na, lang),
+      breachCount,
+      missingItems.length,
+      missingItems.length > 0 ? missingItems.join(', ') : riskText.none,
+    ]);
+  });
+
   const wsMain = wb.addWorksheet(t('excelPortfolioKpiSheet'), { properties: { tabColor: { argb: 'FF4F81BD' } } });
   const colsPerPeriod = results.length === 1 ? 1 : 1 + (results.length - 1) * 3;
 
-  const header1: any[] = [t('metricCol')];
+  const header1: any[] = [t('itemCol')];
   allPeriodsArr.forEach(p => {
     header1.push(formatPeriodLabel(p));
     for (let i = 1; i < colsPerPeriod; i++) header1.push(''); // Reserved for merge
   });
-  addRowWithFormat(wsMain, header1);
+  const wsMainHeader1 = addRowWithFormat(wsMain, header1);
 
   const header2: any[] = [''];
   allPeriodsArr.forEach(() => {
@@ -906,7 +997,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
       header2.push(t('varPct'));
     }
   });
-  addRowWithFormat(wsMain, header2);
+  const wsMainHeader2 = addRowWithFormat(wsMain, header2);
 
   metricRowsLocal.forEach(row => {
     const rowData: (any)[] = [row.label];
@@ -947,6 +1038,8 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     wsMain.mergeCells(1, colIndex, 1, colIndex + colsPerPeriod - 1);
     colIndex += colsPerPeriod;
   });
+  applyPeriodHeaderBands(wsMain, wsMainHeader1.number, allPeriodsArr.length, colsPerPeriod, 2);
+  centerRowRange(wsMain, wsMainHeader2.number, 2, wsMain.columnCount);
 
   // Financial Comparison Sheet
   const wsFinComp = wb.addWorksheet(t('excelPortfolioStatementsSheet'), { properties: { tabColor: { argb: 'FF8064A2' } } });
@@ -956,7 +1049,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     compHeader1.push(formatPeriodLabel(p));
     for (let i = 1; i < colsPerPeriod; i++) compHeader1.push(''); // Span for columns
   });
-  addRowWithFormat(wsFinComp, compHeader1);
+  const wsFinCompHeader1 = addRowWithFormat(wsFinComp, compHeader1);
 
   const compHeader2: any[] = [''];
   allPeriodsArr.forEach(() => {
@@ -969,7 +1062,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
       compHeader2.push(t('varPct'));
     }
   });
-  addRowWithFormat(wsFinComp, compHeader2);
+  const wsFinCompHeader2 = addRowWithFormat(wsFinComp, compHeader2);
 
   const allCompKeys = new Set<string>();
   results.forEach(res => {
@@ -1034,6 +1127,8 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     wsFinComp.mergeCells(1, colIndex, 1, colIndex + colsPerPeriod - 1);
     colIndex += colsPerPeriod;
   });
+  applyPeriodHeaderBands(wsFinComp, wsFinCompHeader1.number, allPeriodsArr.length, colsPerPeriod, 2);
+  centerRowRange(wsFinComp, wsFinCompHeader2.number, 2, wsFinComp.columnCount);
 
   // Company individual sheets (with YoY)
   results.forEach((res) => {
@@ -1081,7 +1176,8 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
         finHeaderRow.push(t('varPct'));
       });
     }
-    addRowWithFormat(ws, finHeaderRow);
+    const companyFinHeaderRowRef = addRowWithFormat(ws, finHeaderRow);
+    applyPeriodHeaderBands(ws, companyFinHeaderRowRef.number, res.history.length, 1, 2);
 
     const baseColMap: Record<string, string> = {};
     res.history.forEach((h: any, i: number) => {
@@ -1549,7 +1645,7 @@ function StatementDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="w-[min(1120px,96vw)] max-w-[min(1120px,96vw)] max-h-[92vh] overflow-y-auto glass-panel border border-white/10 shadow-2xl">
+      <DialogContent className="w-[min(920px,94vw)] max-w-[min(920px,94vw)] max-h-[92vh] overflow-y-auto glass-panel border border-white/10 shadow-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3 flex-wrap">
             <span className="text-2xl font-semibold tracking-tight text-foreground">{companyName}</span>
@@ -2079,15 +2175,6 @@ export default function App() {
                   </CardHeader>
 
                   <CardContent className="p-0">
-                    <div className="mx-4 mt-4 mb-2 rounded-lg border border-brand-500/30 bg-brand-500/10 px-4 py-3">
-                      <div className="flex items-start gap-2">
-                        <Info className="mt-0.5 h-4 w-4 text-brand-400 flex-shrink-0" />
-                        <div className="space-y-0.5 text-xs sm:text-sm">
-                          <p className="font-semibold text-foreground">{t('periodGuideTitle')}</p>
-                          <p className="text-muted-foreground">{t('periodGuideBody')}</p>
-                        </div>
-                      </div>
-                    </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead className="bg-muted/40 border-b">
@@ -2099,9 +2186,9 @@ export default function App() {
                               <th key={period.fiscal_year} className="py-2.5 px-4 text-right font-medium min-w-[7rem]">
                                 <button
                                   onClick={() => openStatements(period, localizedName, res.ticker, res.currency ?? 'USD')}
-                                  className={`inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-[11px] font-semibold tracking-wide transition-colors ${idx === 0
-                                    ? 'border-brand-500/60 bg-brand-500/15 text-brand-300'
-                                    : 'border-border bg-background/80 text-foreground/85 hover:border-brand-500/50 hover:bg-brand-500/10 hover:text-brand-300'
+                                  className={`inline-flex items-center justify-center rounded-md border px-3 py-1 text-[11px] font-semibold tracking-[0.08em] transition-colors ${idx === 0
+                                    ? 'border-transparent bg-foreground/90 text-background shadow-sm'
+                                    : 'border-border/70 bg-muted/35 text-muted-foreground hover:bg-muted/60 hover:text-foreground'
                                     }`}
                                   title={t('periodButtonTitle')}
                                 >
@@ -2177,6 +2264,9 @@ export default function App() {
                         </ul>
                       </div>
                     </div>
+                    <p className="px-4 py-3 text-xs text-muted-foreground italic">
+                      * ({t('periodGuideBody')})
+                    </p>
                   </CardContent>
                 </Card>
               )
