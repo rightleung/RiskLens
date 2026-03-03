@@ -66,6 +66,31 @@ RiskLens/
 ./smoke_test.sh http://127.0.0.1:18000
 ```
 
+### 4.3 CLI 命令（`risklens`）一次性配置
+
+在项目根目录（`RiskLens/`）执行一次：
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf "$(pwd)/risklens" ~/.local/bin/risklens
+grep -q 'export PATH="$HOME/.local/bin:$PATH"' ~/.zshrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+验证：
+
+```bash
+risklens version
+```
+
+基础命令：
+
+- `risklens assess AAPL MSFT --data-source yfinance`
+- `risklens search apple --limit 10`
+- `risklens covenants AAPL --min-current-ratio 1.2 --max-debt-to-equity 2.0`
+- `risklens sources`
+- `risklens version`
+
 ## 5. API 示例（Dashboard 路径）
 
 ### 5.1 风险评估

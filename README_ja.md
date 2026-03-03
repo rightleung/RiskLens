@@ -66,6 +66,31 @@ RiskLens/
 ./smoke_test.sh http://127.0.0.1:18000
 ```
 
+### 4.3 CLI コマンド（`risklens`）の初回セットアップ
+
+プロジェクトルート（`RiskLens/`）で一度だけ実行:
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf "$(pwd)/risklens" ~/.local/bin/risklens
+grep -q 'export PATH="$HOME/.local/bin:$PATH"' ~/.zshrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+確認:
+
+```bash
+risklens version
+```
+
+基本コマンド:
+
+- `risklens assess AAPL MSFT --data-source yfinance`
+- `risklens search apple --limit 10`
+- `risklens covenants AAPL --min-current-ratio 1.2 --max-debt-to-equity 2.0`
+- `risklens sources`
+- `risklens version`
+
 ## 5. API 例（Dashboard パス）
 
 ### 5.1 リスク評価

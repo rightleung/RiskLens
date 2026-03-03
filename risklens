@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# RiskLens command entrypoint
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$SCRIPT_DIR/run_cli.sh" "$@"

@@ -66,6 +66,31 @@ Open:
 ./smoke_test.sh http://127.0.0.1:18000
 ```
 
+### 4.3 CLI Command (`risklens`) One-Time Setup
+
+Run once in the project root (`RiskLens/`):
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf "$(pwd)/risklens" ~/.local/bin/risklens
+grep -q 'export PATH="$HOME/.local/bin:$PATH"' ~/.zshrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Verify:
+
+```bash
+risklens version
+```
+
+Basic commands:
+
+- `risklens assess AAPL MSFT --data-source yfinance`
+- `risklens search apple --limit 10`
+- `risklens covenants AAPL --min-current-ratio 1.2 --max-debt-to-equity 2.0`
+- `risklens sources`
+- `risklens version`
+
 ## 5. API Examples (Dashboard Path)
 
 ### 5.1 Risk Assessment
