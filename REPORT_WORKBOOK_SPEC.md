@@ -41,7 +41,7 @@ Rules:
 
 ### KPI Trends Sheet
 
-- columns: periods (`FYxx` / `yyQx`) + optional YoY columns for annual pairs
+- columns: periods (`FYxx` / `yyQx`) + optional YoY columns (latest-quarter YoY if available, otherwise annual pairs)
 - metrics include:
   - EBIT
   - EBITDA
@@ -60,7 +60,7 @@ Rules:
   - HK tickers -> IFRS order
   - CN A-share tickers -> CAS order
 - synonymous keys are folded under a primary key (frontend modal behavior), while Excel keeps line-item rows based on ordered key collection
-- optional YoY columns are generated for annual periods where both values exist
+- optional YoY columns use latest quarter vs same quarter last year when latest is quarterly; otherwise annual pairs where both values exist
 
 ## 2. Multi-Company Export
 

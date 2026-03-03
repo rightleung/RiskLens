@@ -137,6 +137,57 @@ class TestFinancialDataFetcher:
         assert "history" in result
         assert len(result["history"]) > 0
 
+    def test_latest_quarter_keeps_prior_year_same_quarter(self, monkeypatch):
+        """Latest quarterly period should retain same quarter last year for YoY."""
+        fetcher = FinancialDataFetcher()
+
+        def _build_statement(cols: list[str], value: float) -> pd.DataFrame:
+            return pd.DataFrame({pd.Timestamp(col): {"Total Revenue": value} for col in cols})
+
+        class _QuarterlyYoYTicker:
+            def __init__(self, _symbol: str):
+                self.info = {"longName": "Quarterly YoY Corp", "marketCap": 1000}
+                self.income_stmt = _build_statement(["2024-12-31", "2023-12-31"], 1000.0)
+                self.balance_sheet = _build_statement(["2024-12-31", "2023-12-31"], 900.0)
+                self.cashflow = _build_statement(["2024-12-31", "2023-12-31"], 800.0)
+                quarter_cols = ["2025-09-30", "2025-06-30", "2024-09-30", "2024-06-30"]
+                self.quarterly_income_stmt = _build_statement(quarter_cols, 100.0)
+                self.quarterly_balance_sheet = _build_statement(quarter_cols, 90.0)
+                self.quarterly_cashflow = _build_statement(quarter_cols, 80.0)
+
+        monkeypatch.setattr(data_fetcher.yf, "Ticker", _QuarterlyYoYTicker)
+        result = fetcher.get_financial_data("AAPL", "yfinance")
+
+        quarterly_labels = [p["year_label"] for p in result["history"] if p["is_quarterly"]]
+        assert "Q3 '25 (U)" in quarterly_labels
+        assert "Q3 '24 (U)" in quarterly_labels
+        assert "Q2 '24 (U)" not in quarterly_labels
+
+    def test_does_not_keep_prior_year_quarter_when_latest_fy_exists(self, monkeypatch):
+        """Do not keep prior-year same quarter when latest quarter is not displayed."""
+        fetcher = FinancialDataFetcher()
+
+        def _build_statement(cols: list[str], value: float) -> pd.DataFrame:
+            return pd.DataFrame({pd.Timestamp(col): {"Total Revenue": value} for col in cols})
+
+        class _AnnualSupersedesQ4Ticker:
+            def __init__(self, _symbol: str):
+                self.info = {"longName": "Annual Supersedes Q4 Corp", "marketCap": 1000}
+                self.income_stmt = _build_statement(["2025-12-31", "2024-12-31"], 1000.0)
+                self.balance_sheet = _build_statement(["2025-12-31", "2024-12-31"], 900.0)
+                self.cashflow = _build_statement(["2025-12-31", "2024-12-31"], 800.0)
+                quarter_cols = ["2025-12-31", "2024-12-31"]
+                self.quarterly_income_stmt = _build_statement(quarter_cols, 100.0)
+                self.quarterly_balance_sheet = _build_statement(quarter_cols, 90.0)
+                self.quarterly_cashflow = _build_statement(quarter_cols, 80.0)
+
+        monkeypatch.setattr(data_fetcher.yf, "Ticker", _AnnualSupersedesQ4Ticker)
+        result = fetcher.get_financial_data("AAPL", "yfinance")
+
+        quarterly_labels = [p["year_label"] for p in result["history"] if p["is_quarterly"]]
+        assert "Q4 '24 (U)" not in quarterly_labels
+        assert "Q4 '25 (U)" not in quarterly_labels
+
     def test_exception_to_dict(self):
         """Test that DataFetchError can be serialized to dict."""
         error = DataFetchError(

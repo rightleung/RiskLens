@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, Fragment, useMemo } from 'react'
-import { Search, Loader2, Monitor, Sun, Moon, ArrowRight, CheckCircle2, AlertTriangle, ExternalLink, Info, Palette, Download } from 'lucide-react'
+import { Search, Loader2, Monitor, Sun, Moon, ArrowRight, CheckCircle2, AlertTriangle, ExternalLink, Info, Palette, Download, ChevronRight, ChevronDown } from 'lucide-react'
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,7 @@ import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
 
 interface Period {
   fiscal_year: string;
+  is_quarterly?: boolean;
   assessment: {
     overall_rating: string;
     risk_score: number;
@@ -48,6 +49,116 @@ function formatPeriodLabel(label: string): string {
   if (qMatch) return `${qMatch[2]}Q${qMatch[1]}`;
   return label;
 }
+
+type YoYComparison = {
+  yearCode: string;
+  prevYearCode: string;
+  p1: Period;
+  p2: Period;
+};
+
+const parseQuarterLabel = (rawLabel: unknown): { year: number; quarter: number } | null => {
+  const label = String(rawLabel ?? '');
+  const normalized = formatPeriodLabel(label);
+  const normalizedMatch = normalized.match(/^(\d{2,4})Q([1-4])$/i);
+  if (normalizedMatch) {
+    const rawYear = Number(normalizedMatch[1]);
+    const year = normalizedMatch[1].length <= 2 ? 2000 + rawYear : rawYear;
+    return { year, quarter: Number(normalizedMatch[2]) };
+  }
+
+  const fallbackMatch = label.match(/Q([1-4])\s*'?\s*(\d{2,4})/i);
+  if (fallbackMatch) {
+    const rawYear = Number(fallbackMatch[2]);
+    const year = fallbackMatch[2].length <= 2 ? 2000 + rawYear : rawYear;
+    return { year, quarter: Number(fallbackMatch[1]) };
+  }
+
+  return null;
+};
+
+const buildYoYMapForHistory = (history: Period[]): YoYComparison[] => {
+  if (!Array.isArray(history) || history.length < 2) return [];
+
+  const comparisons: YoYComparison[] = [];
+  const latest = history[0];
+  if (latest?.is_quarterly) {
+    const latestQuarter = parseQuarterLabel(latest.fiscal_year);
+    if (latestQuarter) {
+      const prevYearSameQuarter = history.find((period, idx) => {
+        if (idx === 0 || !period?.is_quarterly) return false;
+        const candidate = parseQuarterLabel(period.fiscal_year);
+        return (
+          candidate !== null &&
+          candidate.quarter === latestQuarter.quarter &&
+          candidate.year === latestQuarter.year - 1
+        );
+      });
+      if (prevYearSameQuarter) {
+        comparisons.push({
+          yearCode: formatPeriodLabel(latest.fiscal_year),
+          prevYearCode: formatPeriodLabel(prevYearSameQuarter.fiscal_year),
+          p1: latest,
+          p2: prevYearSameQuarter
+        });
+      }
+    }
+  }
+
+  const annuals = history.filter((period) => !period?.is_quarterly);
+  if (annuals.length >= 2) {
+    comparisons.push({
+      yearCode: formatPeriodLabel(annuals[0].fiscal_year),
+      prevYearCode: formatPeriodLabel(annuals[1].fiscal_year),
+      p1: annuals[0],
+      p2: annuals[1]
+    });
+  }
+
+  // Annual-only view keeps the second annual pair for trend continuity.
+  if (!latest?.is_quarterly && annuals.length >= 3) {
+    comparisons.push({
+      yearCode: formatPeriodLabel(annuals[1].fiscal_year),
+      prevYearCode: formatPeriodLabel(annuals[2].fiscal_year),
+      p1: annuals[1],
+      p2: annuals[2]
+    });
+  }
+
+  return comparisons;
+};
+
+const buildDisplayHistoryForCard = (history: Period[]): Period[] => {
+  if (!Array.isArray(history) || history.length === 0) return [];
+  const latest = history[0];
+  if (!latest?.is_quarterly) return history;
+
+  const selected: Period[] = [latest];
+  const latestQuarter = parseQuarterLabel(latest.fiscal_year);
+
+  if (latestQuarter) {
+    const prevYearSameQuarter = history.find((period, idx) => {
+      if (idx === 0 || !period?.is_quarterly) return false;
+      const candidate = parseQuarterLabel(period.fiscal_year);
+      return (
+        candidate !== null &&
+        candidate.quarter === latestQuarter.quarter &&
+        candidate.year === latestQuarter.year - 1
+      );
+    });
+    if (prevYearSameQuarter) selected.push(prevYearSameQuarter);
+  }
+
+  selected.push(...history.filter((period) => !period?.is_quarterly));
+
+  const seen = new Set<string>();
+  return selected.filter((period) => {
+    const key = period.fiscal_year;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 
 function formatCurrency(val: number | null | undefined, format: 'compact' | 'full' = 'compact', lang: Language = 'en') {
   if (val === null || val === undefined || isNaN(val)) return '--';
@@ -1098,27 +1209,8 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     ]);
     addRowWithFormat(ws1, []);
 
-    const annuals = res.history.filter((h: any) => !h.is_quarterly);
-    let hasYoY = false;
-    const yoyMap: { yearCode: string, prevYearCode: string, p1: any, p2: any }[] = [];
-
-    if (annuals.length >= 2) {
-      hasYoY = true;
-      yoyMap.push({
-        yearCode: formatPeriodLabel(annuals[0].fiscal_year),
-        prevYearCode: formatPeriodLabel(annuals[1].fiscal_year),
-        p1: annuals[0],
-        p2: annuals[1]
-      });
-      if (annuals.length >= 3) {
-        yoyMap.push({
-          yearCode: formatPeriodLabel(annuals[1].fiscal_year),
-          prevYearCode: formatPeriodLabel(annuals[2].fiscal_year),
-          p1: annuals[1],
-          p2: annuals[2]
-        });
-      }
-    }
+    const yoyMap = buildYoYMapForHistory(res.history);
+    const hasYoY = yoyMap.length > 0;
 
     const baseYearsLabels = res.history.map((h: any) => formatPeriodLabel(h.fiscal_year));
     const yearsRow = [t('itemCol'), ...baseYearsLabels];
@@ -1468,27 +1560,8 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     const companyStandard = detectAccountingStandard(res.ticker);
     const orderedCompanyKeys = getOrderedStatementKeys(res.history, companyStandard);
 
-    const annuals = res.history.filter((h: any) => !h.is_quarterly);
-    let hasYoY = false;
-    const yoyMap: { yearCode: string, prevYearCode: string, p1: any, p2: any }[] = [];
-
-    if (annuals.length >= 2) {
-      hasYoY = true;
-      yoyMap.push({
-        yearCode: formatPeriodLabel(annuals[0].fiscal_year),
-        prevYearCode: formatPeriodLabel(annuals[1].fiscal_year),
-        p1: annuals[0],
-        p2: annuals[1]
-      });
-      if (annuals.length >= 3) {
-        yoyMap.push({
-          yearCode: formatPeriodLabel(annuals[1].fiscal_year),
-          prevYearCode: formatPeriodLabel(annuals[2].fiscal_year),
-          p1: annuals[1],
-          p2: annuals[2]
-        });
-      }
-    }
+    const yoyMap = buildYoYMapForHistory(res.history);
+    const hasYoY = yoyMap.length > 0;
 
     const finHeaderRow = [t('itemCol'), ...res.history.map((h: any) => formatPeriodLabel(h.fiscal_year))];
     if (hasYoY) {
@@ -1601,12 +1674,12 @@ function StatementDialog({
     foldHintTitle: lang === 'ja' ? '同義項目の折りたたみ' : lang === 'zh-TW' ? '同義項折疊' : lang === 'zh-CN' ? '同义项折叠' : 'Grouped Folding',
     foldHintBody:
       lang === 'ja'
-        ? '同義の会計項目は主項目に統合表示されます。行頭の ▸ をクリックすると内訳を展開できます。'
+        ? '同義の会計項目は主項目に統合表示されます。行頭の矢印をクリックすると内訳を展開できます。'
         : lang === 'zh-TW'
-          ? '同義會計項目會聚合到主項目顯示。點擊行首 ▸ 可展開明細。'
+          ? '同義會計項目會聚合到主項目顯示。點擊行首箭頭可展開明細。'
           : lang === 'zh-CN'
-            ? '同义会计科目会聚合到主项显示。点击行首 ▸ 可展开明细。'
-            : 'Synonymous accounting terms are grouped under a primary term. Click ▸ to expand details.',
+            ? '同义会计科目会聚合到主项显示。点击行首箭头可展开明细。'
+            : 'Synonymous accounting terms are grouped under a primary term. Click the leading arrow to expand details.',
   };
 
   // Use full statements data from the API
@@ -1993,10 +2066,11 @@ function StatementDialog({
         </div>
 
         {/* Table */}
-        <div className="mt-2 rounded-md border border-brand-500/20 bg-brand-500/10 px-3 py-2 text-xs text-muted-foreground">
+        <p className="mt-2 px-1 text-xs text-muted-foreground">
+          <span className="mr-1">*</span>
           <span className="font-semibold text-foreground/90 mr-1">{statementUiText.foldHintTitle}:</span>
           <span>{statementUiText.foldHintBody}</span>
-        </div>
+        </p>
         <div className="mt-2 rounded-lg border border-white/10 overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -2026,24 +2100,24 @@ function StatementDialog({
                       return (
                         <Fragment key={k}>
                           <tr className="hover:bg-muted/10 transition-colors">
-                            <td className="py-2 pl-6 pr-4 text-muted-foreground align-top">
-                              <div className="grid grid-cols-[22px_minmax(0,1fr)] items-start gap-x-2">
+                            <td className="py-2 pl-6 pr-4 text-muted-foreground align-middle">
+                              <div className="grid grid-cols-[22px_minmax(0,1fr)] items-center gap-x-2">
                                 {aliases.length > 0 ? (
                                   <button
                                     type="button"
                                     onClick={() =>
                                       setExpandedAliases((prev) => ({ ...prev, [expandKey]: !prev[expandKey] }))
                                     }
-                                    className="inline-flex h-6 w-[22px] items-center justify-center rounded text-lg font-bold leading-none text-muted-foreground hover:text-foreground hover:bg-muted/60 mt-0.5"
+                                    className="inline-flex h-6 w-[22px] items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted/60"
                                     aria-label={isExpanded ? 'Collapse folded details' : 'Expand folded details'}
                                     title={isExpanded ? 'Collapse folded details' : 'Expand folded details'}
                                   >
-                                    {isExpanded ? '▾' : '▸'}
+                                    {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                                   </button>
                                 ) : (
-                                  <span className="inline-flex h-6 w-[22px] mt-0.5" />
+                                  <span className="inline-flex h-6 w-[22px]" />
                                 )}
-                                <div className="min-w-0 flex flex-wrap items-start gap-x-2 gap-y-1">
+                                <div className="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
                                   <MetricTooltip metricKey={k} label={prettifyKey(k, lang)} lang={lang} />
                                   {aliases.length > 0 && (
                                     <span className="inline-flex h-5 items-center rounded-full border border-brand-500/30 bg-brand-500/10 px-2 text-[10px] font-semibold tracking-wide text-brand-300 tabular-nums whitespace-nowrap">
@@ -2521,9 +2595,28 @@ export default function App() {
 
             {data?.results?.map((res) => {
               const validHistory = res.history.filter((p: Period) => p.assessment != null);
-              const latest = validHistory[0]
+              const displayHistory = buildDisplayHistoryForCard(validHistory);
+              const latest = displayHistory[0]
               if (!latest) return null;
               const riskScore = typeof latest.assessment.risk_score === 'number' ? latest.assessment.risk_score : null
+              const yoyMap = buildYoYMapForHistory(displayHistory);
+              const hasYoY = yoyMap.length > 0;
+              type MetricRow = (typeof metricRows)[number];
+              const getMetricNumericValue = (period: Period, row: MetricRow): number | null => {
+                const sourceObj = row.src === 'ratios' ? period.ratios : period.raw_metrics;
+                const rawVal = sourceObj ? sourceObj[row.key] : null;
+                return typeof rawVal === 'number' ? rawVal : null;
+              };
+              const formatMetricValue = (numericVal: number | null, row: MetricRow, isDelta = false): string => {
+                if (numericVal === null) return '--';
+                if (row.isCurrency) return formatCurrency(numericVal, numFormat, lang);
+                if (row.format === '%') {
+                  const scaled = numericVal * 100;
+                  return isDelta ? `${scaled.toFixed(1)}pp` : `${scaled.toFixed(1)}%`;
+                }
+                if (row.format === 'x') return `${numericVal.toFixed(2)}x`;
+                return numericVal.toFixed(2);
+              };
 
               const zZone = latest.assessment.overall_rating || 'N/A'
               const isSafe = zZone.includes('(S)')
@@ -2595,14 +2688,33 @@ export default function App() {
                   </CardHeader>
 
                   <CardContent className="p-0">
+                    <div className="px-4 pt-3">
+                      <Tooltip
+                        content={
+                          <div className="max-w-[18rem] space-y-1 text-xs leading-relaxed">
+                            <p className="font-semibold">{t('periodGuideTitle')}</p>
+                            <p>{t('periodGuideBody')}</p>
+                          </div>
+                        }
+                      >
+                        <button
+                          type="button"
+                          aria-label={t('periodGuideTitle')}
+                          className="inline-flex w-full items-center justify-start gap-2 rounded-md border border-brand-500/40 bg-brand-500/15 px-3 py-2 text-xs font-semibold text-brand-200 hover:bg-brand-500/25 hover:border-brand-400/60 transition-colors"
+                        >
+                          <Info className="h-4 w-4 flex-shrink-0" />
+                          <span>{t('periodGuideTitle')}</span>
+                        </button>
+                      </Tooltip>
+                    </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead className="bg-muted/40 border-b">
                           <tr>
                             {/* ① Empty header — removed "Metric" label */}
-                            <th className="py-2.5 pl-6 pr-4 text-left font-medium text-muted-foreground text-xs uppercase tracking-wider min-w-[12rem]" />
+                            <th className="sticky left-0 z-30 border-r border-white/10 bg-background py-2.5 pl-6 pr-4 text-left font-medium text-muted-foreground text-xs uppercase tracking-wider min-w-[12rem]" />
                             {/* column headers — only show valid periods */}
-                            {validHistory.map((period) => (
+                            {displayHistory.map((period) => (
                               <th key={period.fiscal_year} className="py-2.5 px-4 text-right font-medium min-w-[7rem]">
                                 <button
                                   onClick={() => openStatements(period, localizedName, res.ticker, res.currency ?? 'USD')}
@@ -2613,31 +2725,49 @@ export default function App() {
                                 </button>
                               </th>
                             ))}
+                            {hasYoY && yoyMap.map((cmp, idx) => (
+                              <Fragment key={`yoy-header-${idx}`}>
+                                <th className="py-2.5 px-4 text-right font-medium min-w-[8rem] text-xs uppercase tracking-wide text-muted-foreground">
+                                  {`${cmp.yearCode} ${t('varVs')} ${cmp.prevYearCode}`}
+                                </th>
+                                <th className="py-2.5 px-4 text-right font-medium min-w-[6rem] text-xs uppercase tracking-wide text-muted-foreground">
+                                  {t('varPct')}
+                                </th>
+                              </Fragment>
+                            ))}
                           </tr>
                         </thead>
                         <tbody className="divide-y border-white/5">
                           {metricRows.map((row) => (
-                            <tr key={row.key} className="hover:bg-muted/20 even:bg-muted/5 transition-colors text-sm">
-                              <td className="py-2.5 pl-6 pr-4 font-medium text-foreground/80">
+                            <tr key={row.key} className="group hover:bg-muted/20 even:bg-muted/5 transition-colors text-sm">
+                              <td className="sticky left-0 z-20 border-r border-white/10 bg-background py-2.5 pl-6 pr-4 font-medium text-foreground/80 group-hover:bg-background">
                                 <MetricTooltip metricKey={row.key} label={row.label} lang={lang} />
                               </td>
-                              {validHistory.map((period, j) => {
-                                const sourceObj = row.src === 'ratios' ? period.ratios : period.raw_metrics;
-                                const rawVal = sourceObj ? sourceObj[row.key] : null;
-                                const numericVal = typeof rawVal === 'number' ? rawVal : null;
-
-                                let displayVal = '--';
-                                if (numericVal !== null) {
-                                  if (row.isCurrency) displayVal = formatCurrency(numericVal, numFormat, lang);
-                                  else if (row.format === '%') displayVal = (numericVal * 100).toFixed(1) + '%';
-                                  else displayVal = numericVal.toFixed(2) + 'x';
-                                }
+                              {displayHistory.map((period, j) => {
+                                const numericVal = getMetricNumericValue(period, row);
+                                const displayVal = formatMetricValue(numericVal, row);
 
                                 return (
                                   <td key={`${row.key}-${j}`} className={`py-2.5 px-4 text-right tabular-nums font-medium ${numericVal !== null && numericVal < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`}>
                                     {displayVal}
                                   </td>
                                 )
+                              })}
+                              {hasYoY && yoyMap.map((cmp, idx) => {
+                                const v1 = getMetricNumericValue(cmp.p1, row);
+                                const v2 = getMetricNumericValue(cmp.p2, row);
+                                const delta = v1 !== null && v2 !== null ? v1 - v2 : null;
+                                const pct = delta !== null && v2 !== null && Math.abs(v2) > 0 ? delta / Math.abs(v2) : null;
+                                return (
+                                  <Fragment key={`${row.key}-yoy-${idx}`}>
+                                    <td className={`py-2.5 px-4 text-right tabular-nums font-medium ${delta !== null && delta < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`}>
+                                      {formatMetricValue(delta, row, true)}
+                                    </td>
+                                    <td className={`py-2.5 px-4 text-right tabular-nums font-medium ${pct !== null && pct < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`}>
+                                      {pct === null ? '--' : `${(pct * 100).toFixed(1)}%`}
+                                    </td>
+                                  </Fragment>
+                                );
                               })}
                             </tr>
                           ))}
@@ -2681,9 +2811,6 @@ export default function App() {
                         </ul>
                       </div>
                     </div>
-                    <p className="px-4 py-3 text-xs text-muted-foreground italic">
-                      * ({t('periodGuideBody')})
-                    </p>
                   </CardContent>
                 </Card>
               )

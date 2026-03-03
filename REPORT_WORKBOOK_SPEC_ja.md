@@ -41,7 +41,7 @@ Language: [EN](./REPORT_WORKBOOK_SPEC.md) | [简中](./REPORT_WORKBOOK_SPEC_zh-C
 
 ### KPI 推移シート
 
-- 列構成：期間列（`FYxx` / `yyQx`）+ 年次ペアの任意 YoY 列
+- 列構成：期間列（`FYxx` / `yyQx`）+ 任意 YoY 列（最新期が四半期なら前年同四半期を優先、そうでなければ年次ペア）
 - 指標：
   - EBIT
   - EBITDA
@@ -60,7 +60,7 @@ Language: [EN](./REPORT_WORKBOOK_SPEC.md) | [简中](./REPORT_WORKBOOK_SPEC_zh-C
   - 香港 ticker -> IFRS 順
   - 中国 A 株 ticker -> CAS 順
 - 同義科目はフロントエンドのモーダルで主科目に折りたたみ、Excel は順序付きキー集合に基づき行を保持
-- 年次ペアがある場合は任意で YoY 列を生成
+- YoY 列ルール：最新期が四半期の場合は「最新四半期 vs 前年同四半期」、それ以外は年次ペアがある場合に生成
 
 ## 2. 複数企業エクスポート
 

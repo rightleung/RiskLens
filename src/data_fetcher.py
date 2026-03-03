@@ -14,7 +14,7 @@ import time
 import logging
 import threading
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any, Optional, Callable, List, Tuple
 from enum import Enum
 from functools import wraps
 
@@ -528,14 +528,45 @@ def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
 
     # Identify annual vs quarterly: annual = ends with 1231
     annual_dates = [d for d in dates_inc if _date_digits(d).endswith('1231')]
-    quarterly_dates = [d for d in dates_inc if not _date_digits(d).endswith('1231')]
+    quarterly_dates_raw = [d for d in dates_inc if not _date_digits(d).endswith('1231')]
 
     # Take latest 3 annual
     annual_dates = annual_dates[:3]
     latest_annual_year = int(_date_digits(annual_dates[0])[:4]) if annual_dates else 0
 
-    # Only keep quarterly dates with year > latest annual year
-    quarterly_dates = [d for d in quarterly_dates if int(_date_digits(d)[:4]) > latest_annual_year]
+    def _year_quarter(date_val: Any) -> Optional[Tuple[int, int]]:
+        ds = _date_digits(date_val)
+        if len(ds) < 6:
+            return None
+        year = int(ds[:4])
+        month = int(ds[4:6])
+        quarter = (month - 1) // 3 + 1
+        return year, quarter
+
+    # Keep quarters newer than the latest annual FY, plus the prior-year same quarter
+    # for the latest quarter to support YoY quarter comparisons (e.g., 25Q3 vs 24Q3).
+    latest_quarter_meta = _year_quarter(quarterly_dates_raw[0]) if quarterly_dates_raw else None
+    prior_year_same_quarter = None
+    latest_quarter_is_displayed = (
+        latest_quarter_meta is not None
+        and (latest_annual_year == 0 or latest_quarter_meta[0] > latest_annual_year)
+    )
+    if latest_quarter_is_displayed:
+        prior_year_same_quarter = (latest_quarter_meta[0] - 1, latest_quarter_meta[1])
+
+    quarterly_dates: List[Any] = []
+    seen_quarters: set[Tuple[int, int]] = set()
+    for d in quarterly_dates_raw:
+        yq = _year_quarter(d)
+        if yq is None:
+            continue
+        quarter_year = yq[0]
+        keep = latest_annual_year == 0 or quarter_year > latest_annual_year
+        if prior_year_same_quarter is not None and yq == prior_year_same_quarter:
+            keep = True
+        if keep and yq not in seen_quarters:
+            quarterly_dates.append(d)
+            seen_quarters.add(yq)
 
     def _find_row(df, date_val):
         """Find the row matching a report date."""
@@ -786,7 +817,8 @@ class FinancialDataFetcher:
                 if i == 0 and col_date_str and len(col_date_str) >= 10:
                     latest_annual_date = col_date_str
             
-            # 2. Fetch Quarterly Data — only keep quarters NEWER than latest annual
+            # 2. Fetch Quarterly Data — keep quarters newer than latest annual plus
+            # latest-quarter YoY baseline (same quarter last year).
             inc_q = stock.quarterly_income_stmt
             bal_q = stock.quarterly_balance_sheet
             cf_q = stock.quarterly_cashflow
@@ -797,33 +829,63 @@ class FinancialDataFetcher:
                     cols_count_q = max(cols_count_q, len(stmt.columns))
             cols_count_q = min(cols_count_q, 12)  # safety cap
             
-            quarterly_entries = []
+            quarterly_candidates = []
             for i in range(cols_count_q):
                 col_date_str = None
                 year_label = f"Q{i+1} Unaudited"
+                quarter_meta = None
                 for stmt in [inc_q, bal_q, cf_q]:
                     if stmt is not None and not stmt.empty and i < len(stmt.columns):
                         col_date_str = str(stmt.columns[i])[:10]
                         if len(col_date_str) >= 10:
                             m = int(col_date_str[5:7])
                             q = (m - 1) // 3 + 1
+                            quarter_meta = (int(col_date_str[:4]), q)
                             year_label = f"Q{q} '{col_date_str[2:4]} (U)"
                         break
-                
-                # Skip quarters in the same year or earlier than the latest annual FY
-                if latest_annual_date and col_date_str:
-                    annual_year = int(latest_annual_date[:4])
-                    quarter_year = int(col_date_str[:4])
-                    if quarter_year <= annual_year:
-                        continue
-                        
-                quarterly_entries.append({
+
+                quarterly_candidates.append({
                     'year_label': year_label,
                     'is_quarterly': True,
                     'income': _extract_single_column(inc_q, i),
                     'balance': _extract_single_column(bal_q, i),
                     'cash': _extract_single_column(cf_q, i),
+                    '_quarter_meta': quarter_meta,
                 })
+
+            latest_quarter_meta = None
+            for candidate in quarterly_candidates:
+                candidate_meta = candidate.get('_quarter_meta')
+                if candidate_meta is not None:
+                    latest_quarter_meta = candidate_meta
+                    break
+
+            annual_year = int(latest_annual_date[:4]) if latest_annual_date else None
+            prior_year_same_quarter = None
+            latest_quarter_is_displayed = (
+                latest_quarter_meta is not None
+                and (annual_year is None or latest_quarter_meta[0] > annual_year)
+            )
+            if latest_quarter_is_displayed:
+                prior_year_same_quarter = (latest_quarter_meta[0] - 1, latest_quarter_meta[1])
+
+            quarterly_entries = []
+            seen_quarters = set()
+            for candidate in quarterly_candidates:
+                candidate_meta = candidate.get('_quarter_meta')
+                keep = True
+                if annual_year is not None and candidate_meta is not None:
+                    keep = candidate_meta[0] > annual_year
+                    if prior_year_same_quarter is not None and candidate_meta == prior_year_same_quarter:
+                        keep = True
+                if not keep:
+                    continue
+                if candidate_meta is not None and candidate_meta in seen_quarters:
+                    continue
+                if candidate_meta is not None:
+                    seen_quarters.add(candidate_meta)
+                candidate.pop('_quarter_meta', None)
+                quarterly_entries.append(candidate)
             
             # Final order: quarterly (newest first) then annual (newest first)
             history = quarterly_entries + annual_entries

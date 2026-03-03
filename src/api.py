@@ -673,10 +673,29 @@ async def search_symbols(
     limit: int = Query(20, ge=1, le=50, description="Maximum number of results"),
 ):
     """Search candidate equity tickers for the company finder dialog."""
+    import asyncio
     from fastapi.concurrency import run_in_threadpool
 
     try:
-        results = await run_in_threadpool(_search_tickers, q, limit, True)
+        timeout_seconds = max(0.5, float(os.environ.get("SYMBOL_SEARCH_TIMEOUT_SECONDS", "8")))
+    except ValueError:
+        timeout_seconds = 8.0
+
+    try:
+        results = await asyncio.wait_for(
+            run_in_threadpool(_search_tickers, q, limit, True),
+            timeout=timeout_seconds,
+        )
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "error": "Symbol search timed out",
+                "error_type": "timeout",
+                "message": f"Unable to search symbols within {timeout_seconds:.1f}s",
+                "query": q,
+            },
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=503,

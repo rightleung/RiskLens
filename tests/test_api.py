@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 import sys
 import os
 import types
+import time
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -194,6 +195,18 @@ class TestSymbolSearch:
         monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Search=FakeSearch))
         suggestions = api._search_tickers("MSFLX", limit=5)
         assert suggestions == [{"symbol": "MSFT", "name": "Microsoft Corporation"}]
+
+    def test_symbol_search_timeout_returns_504(self, client, monkeypatch):
+        def _slow_search(*_args, **_kwargs):
+            time.sleep(0.8)
+            return []
+
+        monkeypatch.setattr(api, "_search_tickers", _slow_search)
+        monkeypatch.setenv("SYMBOL_SEARCH_TIMEOUT_SECONDS", "0.05")
+        response = client.get("/api/v1/symbols/search", params={"q": "nio", "limit": 20})
+        assert response.status_code == 504
+        detail = response.json().get("detail", {})
+        assert detail.get("error_type") == "timeout"
 
 
 class TestCovenantEndpoint:
