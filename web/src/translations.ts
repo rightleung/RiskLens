@@ -846,8 +846,16 @@ export const prettifyKey = (key: string, lang: Language): string => {
     return dictionary[normalizedKey]?.[lang] || key.split(/_|\s+/).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 };
 export type TooltipDef = { def: string; formula?: string };
-export const getTooltip = (metricKey: string, lang: Language): TooltipDef | null => {
-    const normalizedKey = metricKey.toLowerCase().replace(/\s+/g, '_');
+export const getTooltip = (metricKey: string, lang: Language, label?: string): TooltipDef | null => {
+    const normalizeTooltipText = (value: string): string =>
+        value
+            .toLowerCase()
+            .trim()
+            .replace(/[^\p{L}\p{N}]+/gu, '_')
+            .replace(/^_+|_+$/g, '');
+    const normalizedKey = normalizeTooltipText(metricKey);
+    const normalizedLabel = label ? normalizeTooltipText(label) : '';
+    const tooltipLookupText = `${normalizedKey}_${normalizedLabel}`;
     const tooltips: Record<string, Record<Language, TooltipDef>> = {
         'operating_income': {
             'en': { def: 'Earnings Before Interest and Taxes (EBIT). Measures profitability from core operations.', formula: 'Revenue - COGS - Operating Expenses' },
@@ -897,6 +905,132 @@ export const getTooltip = (metricKey: string, lang: Language): TooltipDef | null
             'zh-TW': { def: '衡量使用短期資產償還短期債務的能力。小於1倍可能表明流動性存在問題。', formula: '流動資產 / 流動負債' },
             'ja': { def: '短期資産を用いて短期負債を支払う能力を測定します。1未満は潜在的な流動性の問題を示します。', formula: '流動資産 / 流動負債' }
         },
+        'total_revenue': {
+            'en': { def: 'Total revenue includes all recognized revenue from core and other reportable operating streams during the period.' },
+            'zh-CN': { def: '总营业收入是报告期内已确认的全部营业相关收入。' },
+            'zh-TW': { def: '總營業收入是報告期內已確認的全部營業相關收入。' },
+            'ja': { def: '総売上高は、当期に認識された営業関連収益の総額です。' }
+        },
+        'operating_revenue': {
+            'en': { def: 'Operating revenue represents income from primary business activities and excludes most non-operating items.' },
+            'zh-CN': { def: '营业收入主要来自主营业务，通常不含多数营业外项目。' },
+            'zh-TW': { def: '營業收入主要來自主營業務，通常不含多數營業外項目。' },
+            'ja': { def: '営業収益は本業由来の収益を示し、通常は営業外項目を含みません。' }
+        },
+        'cost_of_revenue': {
+            'en': { def: 'Cost of revenue captures direct costs required to deliver products or services tied to current-period revenue.' },
+            'zh-CN': { def: '营业成本是与当期收入直接对应的交付成本（如材料、制造、服务交付成本）。' },
+            'zh-TW': { def: '營業成本是與當期收入直接對應的交付成本（如材料、製造、服務交付成本）。' },
+            'ja': { def: '売上原価は当期売上に直接対応する提供原価（材料費・製造費・提供費用など）です。' }
+        },
+        'reconciled_cost_of_revenue': {
+            'en': { def: 'Reconciled cost of revenue is a normalized/adjusted cost line after mapping or reconciliation across reporting taxonomies.' },
+            'zh-CN': { def: '调整后营业成本是经过口径映射或归并后的营业成本，用于跨公司/跨准则可比。' },
+            'zh-TW': { def: '調整後營業成本是經過口徑映射或歸併後的營業成本，用於跨公司/跨準則可比。' },
+            'ja': { def: '調整済み売上原価は、科目マッピング後に比較可能性を高めた原価項目です。' }
+        },
+        'operating_expense': {
+            'en': { def: 'Operating expenses are period costs to run the business (e.g., SG&A, R&D) and are not directly attributable to units sold.' },
+            'zh-CN': { def: '营业费用是维持经营发生的期间费用（如销售、管理、研发），不直接随单件产品交付而变动。' },
+            'zh-TW': { def: '營業費用是維持經營發生的期間費用（如銷售、管理、研發），不直接隨單件產品交付而變動。' },
+            'ja': { def: '営業費用は販売費・一般管理費・研究開発費などの期間費用で、単位販売に直接対応しません。' }
+        },
+        'other_operating_expenses': {
+            'en': { def: 'Other operating expenses are residual operating costs not classified into primary expense buckets.' },
+            'zh-CN': { def: '其他营业费用是未归入主要费用分类的经营相关支出。' },
+            'zh-TW': { def: '其他營業費用是未歸入主要費用分類的經營相關支出。' },
+            'ja': { def: 'その他営業費用は、主要費目に分類されない営業関連費用です。' }
+        },
+        'total_expenses': {
+            'en': { def: 'Total expenses is the aggregate of expense lines recognized in the period under the report taxonomy.' },
+            'zh-CN': { def: '总费用是报告口径下当期确认的各类费用合计。' },
+            'zh-TW': { def: '總費用是報告口徑下當期確認的各類費用合計。' },
+            'ja': { def: '総費用は、当期に認識された費用科目の合計です。' }
+        },
+        'basic_eps': {
+            'en': { def: 'Basic EPS is net income attributable to common shareholders divided by weighted-average basic shares outstanding.', formula: 'Net Income to Common / Weighted Avg Basic Shares' },
+            'zh-CN': { def: '基本每股收益按普通股加权平均股数计算，不考虑潜在摊薄。', formula: '归母净利润 / 基本加权平均股数' },
+            'zh-TW': { def: '基本每股收益按普通股加權平均股數計算，不考慮潛在攤薄。', formula: '歸母淨利潤 / 基本加權平均股數' },
+            'ja': { def: '基本EPSは潜在株式を考慮せず、普通株主帰属利益を基本加重平均株式数で割って算出します。', formula: '普通株主帰属利益 / 基本加重平均株式数' }
+        },
+        'diluted_eps': {
+            'en': { def: 'Diluted EPS reflects potential share dilution from options, warrants, or convertibles, usually lower than basic EPS.', formula: 'Adjusted Net Income to Common / Weighted Avg Diluted Shares' },
+            'zh-CN': { def: '稀释每股收益把期权、可转债等潜在普通股摊薄影响计入分母，通常低于基本EPS。', formula: '调整后归母净利润 / 稀释加权平均股数' },
+            'zh-TW': { def: '稀釋每股收益把期權、可轉債等潛在普通股攤薄影響計入分母，通常低於基本EPS。', formula: '調整後歸母淨利潤 / 稀釋加權平均股數' },
+            'ja': { def: '希薄化EPSはストックオプションや転換証券などの潜在株式を反映し、通常は基本EPSより低くなります。', formula: '調整後普通株主帰属利益 / 希薄化加重平均株式数' }
+        },
+        'operating_cash_flow': {
+            'en': { def: 'Operating cash flow is net cash generated from core operations before investing and financing activities.' },
+            'zh-CN': { def: '经营现金流是企业本业经营活动产生的净现金流，不含投融资活动。' },
+            'zh-TW': { def: '經營現金流是企業本業經營活動產生的淨現金流，不含投融資活動。' },
+            'ja': { def: '営業キャッシュフローは、本業の営業活動で生み出した純キャッシュフローです。' }
+        },
+        'free_cash_flow': {
+            'en': { def: 'Free cash flow is cash available after operating needs and capital expenditures, indicating discretionary cash capacity.', formula: 'Operating Cash Flow - Capital Expenditures' },
+            'zh-CN': { def: '自由现金流是经营现金流扣除资本开支后的可支配现金能力。', formula: '经营现金流 - 资本开支' },
+            'zh-TW': { def: '自由現金流是經營現金流扣除資本開支後的可支配現金能力。', formula: '經營現金流 - 資本開支' },
+            'ja': { def: 'フリーキャッシュフローは営業CFから設備投資を差し引いた残余キャッシュです。', formula: '営業CF - 資本的支出' }
+        },
+        'tax_provision': {
+            'en': { def: 'Tax provision is accounting tax expense recognized for the period, which may differ from cash taxes paid.' },
+            'zh-CN': { def: '所得税（Tax Provision）是当期会计口径确认的税费，不等同于当期实际缴税现金。' },
+            'zh-TW': { def: '所得稅（Tax Provision）是當期會計口徑確認的稅費，不等同於當期實際繳稅現金。' },
+            'ja': { def: 'Tax Provisionは当期に会計上認識する税金費用で、実際の納税キャッシュと一致しない場合があります。' }
+        },
+        'current_provisions': {
+            'en': { def: 'Current provisions are expected obligations likely to be settled within one year.' },
+            'zh-CN': { def: '流动预计负债是预计在一年内结清的预计义务。' },
+            'zh-TW': { def: '流動預計負債是預計在一年內結清的預計義務。' },
+            'ja': { def: '流動引当金は、1年以内に決済見込みのある見積債務です。' }
+        },
+        'long_term_provisions': {
+            'en': { def: 'Long-term provisions are expected obligations with settlement generally beyond one year.' },
+            'zh-CN': { def: '长期预计负债是预计在一年以上期间结清的预计义务。' },
+            'zh-TW': { def: '長期預計負債是預計在一年以上期間結清的預計義務。' },
+            'ja': { def: '長期引当金は、通常1年超で決済される見積債務です。' }
+        },
+        'working_capital': {
+            'en': { def: 'Working capital measures short-term liquidity buffer based on current assets and current liabilities.', formula: 'Current Assets - Current Liabilities' },
+            'zh-CN': { def: '营运资本反映短期流动性缓冲。', formula: '流动资产 - 流动负债' },
+            'zh-TW': { def: '營運資本反映短期流動性緩衝。', formula: '流動資產 - 流動負債' },
+            'ja': { def: '運転資本は短期流動性の余力を示す指標です。', formula: '流動資産 - 流動負債' }
+        },
+        'change_in_working_capital': {
+            'en': { def: 'Change in working capital shows period-over-period movement in working capital and affects operating cash flow.' },
+            'zh-CN': { def: '营运资本变动反映营运资本较上期的增减，对经营现金流有直接影响。' },
+            'zh-TW': { def: '營運資本變動反映營運資本較上期的增減，對經營現金流有直接影響。' },
+            'ja': { def: '運転資本増減は前期比の変化を示し、営業CFに直接影響します。' }
+        },
+        'change_in_other_working_capital': {
+            'en': { def: 'Change in other working capital captures remaining working-capital line item movements not shown separately.' },
+            'zh-CN': { def: '其他营运资本变动是未单独披露项目的营运资本合并变动。' },
+            'zh-TW': { def: '其他營運資本變動是未單獨披露項目的營運資本合併變動。' },
+            'ja': { def: 'その他運転資本増減は、個別開示されない運転資本項目の合算変動です。' }
+        },
+        'retained_earnings': {
+            'en': { def: 'Retained earnings are accumulated profits kept in the company after dividends and other equity distributions.' },
+            'zh-CN': { def: '留存收益是累计净利润在扣除分红等分配后的留存部分。' },
+            'zh-TW': { def: '保留盈餘是累計淨利潤在扣除分紅等分配後的留存部分。' },
+            'ja': { def: '利益剰余金は、累積利益から配当等を控除して社内に留保した部分です。' }
+        },
+        'gains_losses_not_affecting_retained_earnings': {
+            'en': { def: 'These gains/losses are recorded in equity or OCI and do not flow through retained earnings in the period.' },
+            'zh-CN': { def: '该项目为不影响留存收益的损益，通常计入其他综合收益或其他权益项目。' },
+            'zh-TW': { def: '該項目為不影響保留盈餘的損益，通常計入其他綜合收益或其他權益項目。' },
+            'ja': { def: 'この損益は利益剰余金を直接増減させず、OCIやその他資本項目で処理されることが一般的です。' }
+        },
+        'treasury_stock': {
+            'en': { def: 'Treasury stock is the carrying amount of repurchased shares held by the company and reduces equity.' },
+            'zh-CN': { def: '库存股是公司回购并持有的自有股份金额，通常在权益中列为扣减项。' },
+            'zh-TW': { def: '庫藏股是公司回購並持有的自有股份金額，通常在權益中列為扣減項。' },
+            'ja': { def: '自己株式は自社が買い戻して保有する株式の帳簿価額で、資本を減額します。' }
+        },
+        'treasury_shares_number': {
+            'en': { def: 'Treasury shares number is the count of repurchased shares held in treasury, distinct from treasury stock value.' },
+            'zh-CN': { def: '库存股数量是公司持有回购股份的股数，区别于库存股金额。' },
+            'zh-TW': { def: '庫藏股數量是公司持有回購股份的股數，區別於庫藏股金額。' },
+            'ja': { def: '自己株式数は保有中の自己株式の株数で、自己株式の金額とは別概念です。' }
+        },
         'zscore': {
             'en': { def: 'Altman Z-Score. Predicts the probability of a company going bankrupt within 2 years. >2.99 is safe, 1.81-2.99 is grey, <1.81 is distress.', formula: '1.2(Working Capital/Total Assets) + 1.4(Retained Earnings/Total Assets) + 3.3(EBIT/Total Assets) + 0.6(Market Value of Equity/Total Liabilities) + 1.0(Sales/Total Assets)' },
             'zh-CN': { def: '奥特曼 Z-score。预测公司两年内破产的概率。>2.99 为安全，1.81-2.99 为灰色地带，<1.81 为财务困境。', formula: '1.2(营运资本/总资产) + 1.4(留存收益/总资产) + 3.3(EBIT/总资产) + 0.6(股权市值/总负债) + 1.0(销售额/总资产)' },
@@ -910,7 +1044,230 @@ export const getTooltip = (metricKey: string, lang: Language): TooltipDef | null
             'ja': { def: 'Z-Scoreの閾値から導出された実験的な信用格付け。Z-Scoreのデフォルト確率は、S&Pグローバル格付け尺度の相当格付けにマッピングされます。' }
         }
     };
-    return tooltips[normalizedKey]?.[lang] || null;
+    const directTooltip = tooltips[normalizedKey]?.[lang] || tooltips[normalizedKey]?.['en'] || null;
+    if (directTooltip) return directTooltip;
+
+    const generalTermTooltips: Record<string, Record<Language, TooltipDef>> = {
+        'revenue_recognition': {
+            'en': { def: 'Revenue is recognized when performance obligations are satisfied, not simply when cash is received.' },
+            'zh-CN': { def: '收入确认基于履约义务是否完成，而不是是否收到现金。' },
+            'zh-TW': { def: '收入確認基於履約義務是否完成，而不是是否收到現金。' },
+            'ja': { def: '売上計上は現金回収時点ではなく、履行義務の充足時点に基づきます。' }
+        },
+        'accrued_revenue': {
+            'en': { def: 'Accrued revenue is earned but not yet billed or collected.' },
+            'zh-CN': { def: '应计收入指已赚取但尚未开票或收款的收入。' },
+            'zh-TW': { def: '應計收入指已賺取但尚未開票或收款的收入。' },
+            'ja': { def: '未収収益は、すでに発生したが未請求・未回収の収益です。' }
+        },
+        'deferred_revenue': {
+            'en': { def: 'Deferred (unearned) revenue is cash received before delivering goods or services, and is recorded as a liability first.' },
+            'zh-CN': { def: '递延（预收）收入是先收款后履约，初始作为负债确认。' },
+            'zh-TW': { def: '遞延（預收）收入是先收款後履約，初始作為負債確認。' },
+            'ja': { def: '繰延収益（前受収益）は、履行前に受け取った対価で、まず負債として計上します。' }
+        },
+        'accrued_expenses': {
+            'en': { def: 'Accrued expenses are incurred but not yet paid; they are recorded to match expenses with the period incurred.' },
+            'zh-CN': { def: '应计费用是已发生但尚未支付的费用，用于匹配当期费用。' },
+            'zh-TW': { def: '應計費用是已發生但尚未支付的費用，用於匹配當期費用。' },
+            'ja': { def: '未払費用は、発生済みだが未払いの費用で、期間対応のために計上されます。' }
+        },
+        'prepaid_expenses': {
+            'en': { def: 'Prepaid expenses are payments made in advance and expensed over future periods.' },
+            'zh-CN': { def: '预付费用是提前支付、在未来期间分摊确认的费用。' },
+            'zh-TW': { def: '預付費用是提前支付、在未來期間分攤確認的費用。' },
+            'ja': { def: '前払費用は先払いした費用を将来期間に配分して費用化します。' }
+        },
+        'cogs_vs_opex': {
+            'en': { def: 'COGS is directly tied to producing goods/services, while OPEX covers operating overhead such as admin and sales.' },
+            'zh-CN': { def: 'COGS（营业成本）直接对应产品/服务交付，OPEX（经营费用）是管理和销售等期间费用。' },
+            'zh-TW': { def: 'COGS（營業成本）直接對應產品/服務交付，OPEX（經營費用）是管理和銷售等期間費用。' },
+            'ja': { def: 'COGSは提供物に直接紐づく原価、OPEXは販売費・一般管理費などの運営費用です。' }
+        },
+        'gross_margin_vs_markup': {
+            'en': { def: 'Gross margin is Gross Profit divided by Revenue, while markup is Gross Profit divided by Cost; they are not interchangeable.' },
+            'zh-CN': { def: '毛利率=毛利/收入，加成率=毛利/成本，两者口径不同不可互换。' },
+            'zh-TW': { def: '毛利率=毛利/收入，加成率=毛利/成本，兩者口徑不同不可互換。' },
+            'ja': { def: '粗利率は粗利/売上、マークアップは粗利/原価で、同じ指標ではありません。' }
+        },
+        'non_gaap_adjustments': {
+            'en': { def: 'Non-GAAP adjustments exclude selected items from reported earnings; always review what is included or excluded.' },
+            'zh-CN': { def: 'Non-GAAP 调整会剔除部分项目，需明确调整口径和可比性。' },
+            'zh-TW': { def: 'Non-GAAP 調整會剔除部分項目，需明確調整口徑和可比性。' },
+            'ja': { def: 'Non-GAAP調整は一部項目を除外するため、除外内容と比較可能性の確認が重要です。' }
+        },
+        'depreciation_vs_amortization': {
+            'en': { def: 'Depreciation allocates the cost of tangible assets; amortization allocates the cost of intangible assets.' },
+            'zh-CN': { def: '折旧对应有形资产，摊销对应无形资产，都是成本分摊。' },
+            'zh-TW': { def: '折舊對應有形資產，攤銷對應無形資產，都是成本分攤。' },
+            'ja': { def: '減価償却は有形資産、償却は無形資産の取得原価配分です。' }
+        },
+        'impairment': {
+            'en': { def: 'Impairment recognizes that an asset’s carrying value exceeds its recoverable amount.' },
+            'zh-CN': { def: '减值表示资产账面价值高于可回收金额，需要计提损失。' },
+            'zh-TW': { def: '減值表示資產帳面價值高於可回收金額，需要計提損失。' },
+            'ja': { def: '減損は、資産簿価が回収可能価額を上回る場合に損失を認識する処理です。' }
+        },
+        'goodwill': {
+            'en': { def: 'Goodwill arises in acquisitions when purchase price exceeds identifiable net assets, and is tested for impairment rather than amortized (under IFRS/US GAAP).' },
+            'zh-CN': { def: '商誉通常来自并购溢价，通常不摊销而做减值测试。' },
+            'zh-TW': { def: '商譽通常來自併購溢價，通常不攤銷而做減值測試。' },
+            'ja': { def: 'のれんは買収時の超過対価で、通常は償却ではなく減損テストの対象です。' }
+        },
+        'deferred_tax': {
+            'en': { def: 'Deferred tax assets/liabilities arise from temporary differences between accounting and tax treatments.' },
+            'zh-CN': { def: '递延所得税资产/负债来自会计与税务处理的暂时性差异。' },
+            'zh-TW': { def: '遞延所得稅資產/負債來自會計與稅務處理的暫時性差異。' },
+            'ja': { def: '繰延税金資産・負債は、会計と税務の一時差異から生じます。' }
+        },
+        'allowance_for_doubtful_accounts': {
+            'en': { def: 'Allowance for doubtful accounts is a contra-asset estimate of receivables expected to be uncollectible.' },
+            'zh-CN': { def: '坏账准备是对应收账款预计无法收回部分的备抵估计。' },
+            'zh-TW': { def: '壞帳準備是對應收帳款預計無法收回部分的備抵估計。' },
+            'ja': { def: '貸倒引当金は、回収不能見込の売掛債権を見積もる評価性勘定です。' }
+        },
+        'provisions_vs_contingent_liabilities': {
+            'en': { def: 'A provision is recognized when outflow is probable and measurable; contingent liabilities are disclosed when less certain.' },
+            'zh-CN': { def: '预计负债在“很可能且可估计”时确认；或有负债通常仅披露不入账。' },
+            'zh-TW': { def: '預計負債在「很可能且可估計」時確認；或有負債通常僅披露不入帳。' },
+            'ja': { def: '引当金は発生可能性が高く見積可能な場合に認識し、偶発債務は不確実性が高い場合に注記します。' }
+        },
+        'lease_liabilities_rou_assets': {
+            'en': { def: 'Most leases create both a right-of-use asset and a lease liability on the balance sheet.' },
+            'zh-CN': { def: '多数租赁会同时确认使用权资产（ROU）和租赁负债。' },
+            'zh-TW': { def: '多數租賃會同時確認使用權資產（ROU）和租賃負債。' },
+            'ja': { def: '多くのリースは、使用権資産とリース負債を同時に計上します。' }
+        },
+        'capitalized_vs_expensed_costs': {
+            'en': { def: 'Capitalized costs are recorded as assets and expensed later; expensed costs hit profit immediately.' },
+            'zh-CN': { def: '资本化成本先入资产后摊销，费用化成本当期直接计入损益。' },
+            'zh-TW': { def: '資本化成本先入資產後攤銷，費用化成本當期直接計入損益。' },
+            'ja': { def: '資本化コストは資産計上して後で費用化し、費用処理は当期損益に即時反映されます。' }
+        },
+        'stock_based_compensation': {
+            'en': { def: 'Stock-based compensation is a non-cash employee compensation expense recognized over vesting periods.' },
+            'zh-CN': { def: '股权激励费用通常为非现金费用，按归属期确认。' },
+            'zh-TW': { def: '股權激勵費用通常為非現金費用，按歸屬期確認。' },
+            'ja': { def: '株式報酬費用は非現金費用で、通常は権利確定期間にわたり認識されます。' }
+        },
+        'basic_vs_diluted_eps': {
+            'en': { def: 'Basic EPS uses current shares; diluted EPS assumes conversion of potential shares (options, convertibles).' },
+            'zh-CN': { def: '基本EPS基于现有股本，稀释EPS考虑期权/可转债等潜在摊薄。' },
+            'zh-TW': { def: '基本EPS基於現有股本，稀釋EPS考慮期權/可轉債等潛在攤薄。' },
+            'ja': { def: '基本EPSは現株式数、希薄化EPSは潜在株式の転換影響を反映します。' }
+        },
+        'other_comprehensive_income': {
+            'en': { def: 'Other comprehensive income (OCI) captures gains/losses bypassing net income, such as certain FX or fair value changes.' },
+            'zh-CN': { def: '其他综合收益（OCI）记录不经过净利润的利得或损失项目。' },
+            'zh-TW': { def: '其他綜合收益（OCI）記錄不經過淨利潤的利得或損失項目。' },
+            'ja': { def: 'その他包括利益（OCI）は、純利益を通さずに認識される損益項目を示します。' }
+        },
+        'retained_earnings': {
+            'en': { def: 'Retained earnings are accumulated profits kept in the business after dividends.' },
+            'zh-CN': { def: '留存收益是企业累计净利润扣除分红后的未分配部分。' },
+            'zh-TW': { def: '保留盈餘是企業累計淨利潤扣除分紅後的未分配部分。' },
+            'ja': { def: '利益剰余金は、累積利益から配当を差し引いて社内に留保した金額です。' }
+        },
+        'treasury_stock': {
+            'en': { def: 'Treasury stock is the company’s own shares repurchased and held, reducing equity.' },
+            'zh-CN': { def: '库存股是公司回购并持有的自家股份，通常减少股东权益。' },
+            'zh-TW': { def: '庫藏股是公司回購並持有的自家股份，通常減少股東權益。' },
+            'ja': { def: '自己株式は自社が買い戻して保有する株式で、通常は資本を減少させます。' }
+        },
+        'working_capital': {
+            'en': { def: 'Working capital measures short-term liquidity buffer: current assets minus current liabilities.' },
+            'zh-CN': { def: '营运资本=流动资产-流动负债，反映短期流动性缓冲。', formula: 'Current Assets - Current Liabilities' },
+            'zh-TW': { def: '營運資本=流動資產-流動負債，反映短期流動性緩衝。', formula: 'Current Assets - Current Liabilities' },
+            'ja': { def: '運転資本は短期流動性の余力を示し、流動資産-流動負債で計算します。', formula: 'Current Assets - Current Liabilities' }
+        },
+        'ocf_vs_fcf': {
+            'en': { def: 'Operating cash flow (OCF) is cash from operations; free cash flow (FCF) is OCF minus capital expenditure.' },
+            'zh-CN': { def: '经营现金流（OCF）是经营活动现金，FCF=OCF-资本开支。', formula: 'FCF = OCF - CapEx' },
+            'zh-TW': { def: '經營現金流（OCF）是經營活動現金，FCF=OCF-資本開支。', formula: 'FCF = OCF - CapEx' },
+            'ja': { def: '営業CF(OCF)は本業の現金創出力、FCFはOCFから設備投資を差し引いた残余です。', formula: 'FCF = OCF - CapEx' }
+        },
+        'fair_value_hierarchy': {
+            'en': { def: 'Fair value hierarchy classifies valuation inputs: Level 1 (quoted), Level 2 (observable), Level 3 (unobservable).' },
+            'zh-CN': { def: '公允价值层级：Level 1（活跃报价）、Level 2（可观察输入）、Level 3（不可观察输入）。' },
+            'zh-TW': { def: '公允價值層級：Level 1（活躍報價）、Level 2（可觀察輸入）、Level 3（不可觀察輸入）。' },
+            'ja': { def: '公正価値ヒエラルキーは評価入力をLevel 1/2/3に区分します。' }
+        },
+        'related_party_transactions': {
+            'en': { def: 'Related-party transactions occur with affiliates or key stakeholders and may require extra scrutiny for arm’s-length terms.' },
+            'zh-CN': { def: '关联方交易发生在关联主体之间，需关注是否按公允条件交易。' },
+            'zh-TW': { def: '關聯方交易發生在關聯主體之間，需關注是否按公允條件交易。' },
+            'ja': { def: '関連当事者取引は利害関係者間で行われるため、独立当事者間条件かの検証が重要です。' }
+        },
+        'going_concern': {
+            'en': { def: 'Going concern assumes the company can continue operating for the foreseeable future.' },
+            'zh-CN': { def: '持续经营假设指企业在可预见未来能够继续经营。' },
+            'zh-TW': { def: '持續經營假設指企業在可預見未來能夠繼續經營。' },
+            'ja': { def: '継続企業の前提は、企業が予見可能な将来にわたり事業継続できることを意味します。' }
+        },
+        'restatement': {
+            'en': { def: 'A restatement revises previously issued financial statements due to material errors or accounting changes.' },
+            'zh-CN': { def: '财务重述是对已发布报表的更正，通常因重大差错或会计处理变化。' },
+            'zh-TW': { def: '財務重述是對已發布報表的更正，通常因重大差錯或會計處理變化。' },
+            'ja': { def: '修正再表示は、重要な誤謬や会計処理変更により過去財務諸表を訂正することです。' }
+        },
+        'material_weakness': {
+            'en': { def: 'Material weakness indicates a significant internal-control deficiency that could lead to material misstatement.' },
+            'zh-CN': { def: '重大缺陷表示内部控制存在重大弱点，可能导致财务报表重大错报。' },
+            'zh-TW': { def: '重大缺陷表示內部控制存在重大弱點，可能導致財務報表重大錯報。' },
+            'ja': { def: '重要な内部統制不備は、財務諸表に重要な虚偽表示を生む可能性がある統制欠陥です。' }
+        }
+    };
+
+    const generalTermMatchers: Array<{ id: keyof typeof generalTermTooltips; patterns: string[] }> = [
+        { id: 'revenue_recognition', patterns: ['total_revenue', 'operating_revenue', 'contract_revenue', 'sales_revenue', '营业收入', '營業收入', '売上'] },
+        { id: 'accrued_revenue', patterns: ['accrued_revenue', 'accrued_interest_receivable', 'accrued_income', '应计收入', '應計收入', '未収収益'] },
+        { id: 'deferred_revenue', patterns: ['deferred_revenue', 'unearned_revenue', 'contract_liabilit', '递延收入', '遞延收入', '前受収益', '契約負債'] },
+        { id: 'accrued_expenses', patterns: ['accrued_expense', 'payables_and_accrued_expenses', '应计费用', '應計費用', '未払費用'] },
+        { id: 'prepaid_expenses', patterns: ['prepaid_asset', 'prepaid_expense', '预付', '預付', '前払'] },
+        { id: 'cogs_vs_opex', patterns: ['cost_of_revenue', 'reconciled_cost_of_revenue', 'operating_expense', 'total_expenses', '营业成本', '營業成本', '売上原価', '营业费用', '營業費用', '営業費用'] },
+        { id: 'gross_margin_vs_markup', patterns: ['gross_profit', 'gross_margin', 'markup', '毛利', '粗利'] },
+        { id: 'non_gaap_adjustments', patterns: ['normalized_ebitda', 'normalized_income', 'non_gaap', 'unusual_items', '标准化', '標準化', '調整後'] },
+        { id: 'depreciation_vs_amortization', patterns: ['depreciation', 'amortization', 'reconciled_depreciation', '折旧', '折舊', '摊销', '攤銷', '減価償却', '償却'] },
+        { id: 'impairment', patterns: ['impairment', '减值', '減值', '減損'] },
+        { id: 'goodwill', patterns: ['goodwill', '商誉', '商譽', 'のれん'] },
+        { id: 'deferred_tax', patterns: ['deferred_tax', 'deferred_income_tax', 'deferred_taxes', '递延所得税', '遞延所得稅', '繰延税金'] },
+        { id: 'allowance_for_doubtful_accounts', patterns: ['allowance_for_doubtful_accounts', 'receivables_adjustments_allowances', 'credit_loss_allowance', '坏账', '壞帳', '貸倒引当'] },
+        { id: 'provisions_vs_contingent_liabilities', patterns: ['current_provisions', 'long_term_provisions', 'contingent_liabilit', '预计负债', '預計負債', '或有负债', '或有負債', '偶発債務', '引当金'] },
+        { id: 'lease_liabilities_rou_assets', patterns: ['lease_obligation', 'capital_lease', 'lease_liabilit', 'right_of_use', 'leases', '租赁负债', '租賃負債', '使用权资产', '使用權資產', 'リース負債', '使用権資産'] },
+        { id: 'capitalized_vs_expensed_costs', patterns: ['capitalized', 'capital_expenditure', 'purchase_of_ppe', 'purchase_of_intangibles', '资本化', '資本化', '費用化', '資本的支出'] },
+        { id: 'stock_based_compensation', patterns: ['stock_based_compensation', 'share_based_compensation', '股权激励', '股權激勵', '株式報酬'] },
+        { id: 'basic_vs_diluted_eps', patterns: ['basic_eps', 'diluted_eps', '基本每股收益', '稀释每股收益', '稀釋每股收益', '基本eps', '希薄化eps'] },
+        { id: 'other_comprehensive_income', patterns: ['other_comprehensive_income', '_oci_', '其他综合收益', '其他綜合收益', '包括利益', 'その他包括利益'] },
+        { id: 'retained_earnings', patterns: ['retained_earnings', '留存收益', '保留盈餘', '利益剰余金'] },
+        { id: 'treasury_stock', patterns: ['treasury_stock', 'treasury_shares', '库存股', '庫藏股', '自己株式'] },
+        { id: 'working_capital', patterns: ['working_capital', '营运资本', '營運資本', '運転資本'] },
+        { id: 'ocf_vs_fcf', patterns: ['operating_cash_flow', 'free_cash_flow', 'free_cf', '经营现金流', '經營現金流', '営業キャッシュフロー', '自由现金流', '自由現金流', 'フリーキャッシュフロー'] },
+        { id: 'fair_value_hierarchy', patterns: ['fair_value', 'fvtpl', 'fair_value_change', '公允价值', '公允價值', '公正価値', 'level_1', 'level_2', 'level_3'] },
+        { id: 'related_party_transactions', patterns: ['related_party', '关联方', '關聯方', '関連当事者'] },
+        { id: 'going_concern', patterns: ['going_concern', '持续经营', '持續經營', '継続企業'] },
+        { id: 'restatement', patterns: ['restatement', '重述', '再表示'] },
+        { id: 'material_weakness', patterns: ['material_weakness', 'internal_control_weakness', '重大缺陷', '重大弱點', '重要な内部統制不備'] },
+    ];
+
+    for (const matcher of generalTermMatchers) {
+        const normalizedPatterns = matcher.patterns
+            .map((pattern) => normalizeTooltipText(pattern))
+            .filter(Boolean);
+        if (normalizedPatterns.some((pattern) => tooltipLookupText.includes(pattern))) {
+            const matched = generalTermTooltips[matcher.id]?.[lang] || generalTermTooltips[matcher.id]?.['en'] || null;
+            if (!matched) return null;
+            if (label && label.trim()) {
+                const delimiter = lang === 'en' ? ': ' : '：';
+                return {
+                    ...matched,
+                    def: `${label.trim()}${delimiter}${matched.def}`,
+                };
+            }
+            return matched;
+        }
+    }
+
+    return null;
 };
 export const translateRatingStatus = (status: string, lang: Language): string => {
     if (lang === 'en') return status;

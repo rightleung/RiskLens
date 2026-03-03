@@ -469,6 +469,60 @@ def _akshare_row_to_df(row: pd.Series, field_map: dict) -> pd.DataFrame:
     return pd.DataFrame.from_dict(records, orient='index', columns=['Value'])
 
 
+def _normalize_profile_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "null", "--", "-"}:
+        return None
+    return text
+
+
+def _normalize_profile_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    text = str(value).strip().replace(",", "")
+    if not text:
+        return None
+    try:
+        return int(float(text))
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_company_profile_from_yfinance_info(info: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(info, dict):
+        return {}
+    return {
+        "description": _normalize_profile_text(info.get("longBusinessSummary") or info.get("description")),
+        "sector": _normalize_profile_text(info.get("sectorDisp") or info.get("sector")),
+        "industry": _normalize_profile_text(info.get("industryDisp") or info.get("industry")),
+        "website": _normalize_profile_text(info.get("website")),
+        "country": _normalize_profile_text(info.get("country")),
+        "employees": _normalize_profile_int(info.get("fullTimeEmployees")),
+        "products": [],
+    }
+
+
+def _merge_company_profiles(primary: Dict[str, Any], fallback: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(primary or {})
+    fb = fallback or {}
+    for key in ("description", "sector", "industry", "website", "country", "employees"):
+        if not merged.get(key) and fb.get(key):
+            merged[key] = fb[key]
+    primary_products = merged.get("products") if isinstance(merged.get("products"), list) else []
+    fallback_products = fb.get("products") if isinstance(fb.get("products"), list) else []
+    combined = []
+    seen = set()
+    for value in primary_products + fallback_products:
+        cleaned = _normalize_profile_text(value)
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            combined.append(cleaned)
+    merged["products"] = combined
+    return merged
+
+
 @retry_with_backoff(
     max_retries=2,
     initial_delay=1.5,
@@ -479,7 +533,7 @@ def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
     """Fetch A-share data from AKShare's Sina Finance API.
     
     Returns the same dict format as the yfinance path:
-        { ticker, company_name, market_cap, history: [...] }
+        { ticker, company_name, market_cap, company_profile, history: [...] }
     """
     try:
         import akshare as ak
@@ -490,17 +544,105 @@ def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
         # Fetch all 3 statements
         logger.info(f"Fetching AKShare data for {ticker}")
         company_name = ticker
+        company_profile: Dict[str, Any] = {
+            "description": None,
+            "sector": None,
+            "industry": None,
+            "website": None,
+            "country": "China",
+            "employees": None,
+            "products": [],
+        }
 
         # Get company info first
         try:
             stock_info = ak.stock_individual_info_em(symbol=ticker)
             if stock_info is not None and not stock_info.empty:
+                stock_info_map: Dict[str, Any] = {}
+                if {'item', 'value'}.issubset(set(stock_info.columns)):
+                    for _, row in stock_info.iterrows():
+                        key = str(row.get('item', '')).strip()
+                        if key:
+                            stock_info_map[key] = row.get('value')
+
                 for col in ['股票简称', '公司名称', '名称', 'name']:
-                    if col in stock_info['item'].values:
-                        company_name = stock_info[stock_info['item'] == col]['value'].values[0]
+                    if col in stock_info_map and _normalize_profile_text(stock_info_map[col]):
+                        company_name = _normalize_profile_text(stock_info_map[col]) or company_name
+                        break
+                for col in ['行业', '所属行业', '证监会行业', '申万行业']:
+                    if col in stock_info_map and _normalize_profile_text(stock_info_map[col]):
+                        company_profile["industry"] = _normalize_profile_text(stock_info_map[col])
+                        if not company_profile["sector"]:
+                            company_profile["sector"] = company_profile["industry"]
+                        break
+                for col in ['网址', '公司网站', '官方网站']:
+                    if col in stock_info_map and _normalize_profile_text(stock_info_map[col]):
+                        company_profile["website"] = _normalize_profile_text(stock_info_map[col])
+                        break
+                for col in ['员工人数', '员工总数', '在职员工人数']:
+                    if col in stock_info_map and _normalize_profile_int(stock_info_map[col]) is not None:
+                        company_profile["employees"] = _normalize_profile_int(stock_info_map[col])
+                        break
+                for col in ['公司简介', '主营业务', '经营范围', '公司业务']:
+                    if col in stock_info_map and _normalize_profile_text(stock_info_map[col]):
+                        company_profile["description"] = _normalize_profile_text(stock_info_map[col])
                         break
         except Exception as e:
             logger.warning(f"AKShare individual info error for {ticker}: {e}")
+
+        try:
+            profile_df = ak.stock_profile_cninfo(symbol=ticker)
+            if profile_df is not None and not profile_df.empty:
+                row_dict = profile_df.iloc[0].to_dict()
+                for key, value in row_dict.items():
+                    key_text = str(key)
+                    normalized_value = _normalize_profile_text(value)
+                    if normalized_value is None:
+                        continue
+                    if company_profile["description"] is None and any(token in key_text for token in ("主营", "业务", "简介", "经营范围")):
+                        company_profile["description"] = normalized_value
+                    elif company_profile["website"] is None and any(token in key_text for token in ("网址", "网站", "homepage", "website")):
+                        company_profile["website"] = normalized_value
+                    elif company_profile["industry"] is None and any(token in key_text for token in ("行业", "industry")):
+                        company_profile["industry"] = normalized_value
+                        if not company_profile["sector"]:
+                            company_profile["sector"] = normalized_value
+                    elif company_profile["country"] is None and any(token in key_text for token in ("国家", "地区", "country")):
+                        company_profile["country"] = normalized_value
+                    elif company_profile["employees"] is None and any(token in key_text for token in ("员工", "雇员", "employees")):
+                        parsed_emp = _normalize_profile_int(normalized_value)
+                        if parsed_emp is not None:
+                            company_profile["employees"] = parsed_emp
+        except Exception as e:
+            logger.debug(f"AKShare profile fetch error for {ticker}: {e}")
+
+        try:
+            market_prefix = 'SH' if ticker.startswith('6') else 'SZ'
+            zygc_symbol = f"{market_prefix}{ticker}"
+            zygc_df = ak.stock_zygc_em(symbol=zygc_symbol)
+            if zygc_df is not None and not zygc_df.empty:
+                data_df = zygc_df
+                if '分类方向' in data_df.columns:
+                    product_rows = data_df[data_df['分类方向'].astype(str).str.contains('产品', na=False)]
+                    if not product_rows.empty:
+                        data_df = product_rows
+                name_col = next(
+                    (col for col in ['主营构成', '分类名称', '分类类型', '产品名称', '项目名称', '业务名称'] if col in data_df.columns),
+                    None
+                )
+                if name_col is not None:
+                    products: List[str] = []
+                    seen_products = set()
+                    for raw_value in data_df[name_col].tolist():
+                        cleaned = _normalize_profile_text(raw_value)
+                        if cleaned and cleaned not in seen_products:
+                            seen_products.add(cleaned)
+                            products.append(cleaned)
+                        if len(products) >= 8:
+                            break
+                    company_profile["products"] = products
+        except Exception as e:
+            logger.debug(f"AKShare product mix fetch error for {ticker}: {e}")
 
         inc_df = ak.stock_financial_report_sina(stock=ticker, symbol='利润表')
         bal_df = ak.stock_financial_report_sina(stock=ticker, symbol='资产负债表')
@@ -624,6 +766,8 @@ def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
         yf_ticker = ticker + ('.SS' if ticker.startswith('6') else '.SZ')
         yf_stock = yf.Ticker(yf_ticker)
         info_yf = yf_stock.info or {}
+        yf_profile = _build_company_profile_from_yfinance_info(info_yf)
+        company_profile = _merge_company_profiles(company_profile, yf_profile)
         market_cap = info_yf.get('marketCap', 0)
         
         # Only fallback to yfinance name if AKShare didn't find one
@@ -687,6 +831,7 @@ def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
         'ticker': ticker,
         'company_name': company_name,
         'market_cap': market_cap,
+        'company_profile': company_profile,
         'history': history,
     }
 
@@ -711,7 +856,7 @@ class FinancialDataFetcher:
             - Letters (e.g. AAPL)           → 美股 → yfinance
 
         Returns a dict with keys:
-            ticker, company_name, market_cap, history
+            ticker, company_name, market_cap, company_profile, history
         where history is a list of period dicts.
 
         Results are cached for 10 minutes to reduce API calls.
@@ -904,6 +1049,7 @@ class FinancialDataFetcher:
                 'ticker': ticker,
                 'company_name': info.get('longName', info.get('shortName', ticker)),
                 'market_cap': info.get('marketCap'),
+                'company_profile': _build_company_profile_from_yfinance_info(info),
                 'history': history
             }
 

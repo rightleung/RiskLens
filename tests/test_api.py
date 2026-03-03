@@ -292,6 +292,48 @@ class TestCovenantEndpoint:
         assert response.status_code == 422
 
 
+class TestPdfExportEndpoint:
+    """Tests for /api/v1/reports/pdf endpoint."""
+
+    def test_pdf_export_returns_attachment(self, client, monkeypatch):
+        monkeypatch.setattr(api, "generate_full_pdf", lambda _report, _lang: b"%PDF-1.4\n%Test\n%%EOF")
+        payload = {
+            "report": {
+                "ticker": "AAPL",
+                "company_name": "Apple Inc.",
+                "currency": "USD",
+                "history": [
+                    {
+                        "fiscal_year": "FY24",
+                        "is_quarterly": False,
+                        "assessment": {
+                            "risk_score": 10.0,
+                            "overall_rating": "Safe (S)",
+                            "implied_rating": "AAA",
+                            "strengths": [],
+                            "weaknesses": [],
+                        },
+                        "ratios": {},
+                        "raw_metrics": {},
+                        "statements": {},
+                    }
+                ],
+            },
+            "lang": "zh-CN",
+        }
+
+        response = client.post("/api/v1/reports/pdf", json=payload)
+        assert response.status_code == 200
+        assert response.headers.get("content-type", "").startswith("application/pdf")
+        assert "attachment" in response.headers.get("content-disposition", "")
+        assert "AAPL_Full_Report.pdf" in response.headers.get("content-disposition", "")
+        assert response.content.startswith(b"%PDF")
+
+    def test_pdf_export_validation_error(self, client):
+        response = client.post("/api/v1/reports/pdf", json={"lang": "zh-CN"})
+        assert response.status_code == 422
+
+
 class TestUIEndpoints:
     """Tests for UI endpoints."""
 

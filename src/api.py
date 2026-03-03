@@ -12,10 +12,11 @@ Swagger UI:
 
 import math
 import logging
+import io
 from contextlib import contextmanager
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional, Any, Dict
@@ -68,6 +69,7 @@ from data_fetcher import FinancialDataFetcher, DataFetchError, DataFetchErrorTyp
 from ratio_analyzer import RatioAnalyzer, CreditRatioAnalysis
 from covenant_monitor import FinancialCovenants, CovenantMonitor, CovenantReport
 from zscore import calculate_z_score
+from pdf_exporter import generate_full_pdf
 
 # ── FastAPI App ──────────────────────────────────────────────────────────────
 
@@ -173,6 +175,12 @@ class CovenantCheckRequest(BaseModel):
     )
 
 
+class PdfExportRequest(BaseModel):
+    """Request body for full PDF export."""
+    report: Dict[str, Any] = Field(..., description="Single-company assessment payload")
+    lang: str = Field(default="zh-CN", description="Language code")
+
+
 # ── Helper Functions ─────────────────────────────────────────────────────────
 
 def _calculate_ratios(data: dict) -> CreditRatioAnalysis:
@@ -200,6 +208,7 @@ def _analyze_single_ticker(ticker: str, fiscal_year: int, data_source: str) -> d
     company_name = data.get("company_name", ticker)
     history = data.get("history", [])
     mc = data.get('market_cap', 0)
+    company_profile = data.get("company_profile", {}) or {}
 
     # Infer currency from ticker format
     def _infer_currency(t: str) -> str:
@@ -469,6 +478,7 @@ def _analyze_single_ticker(ticker: str, fiscal_year: int, data_source: str) -> d
         "company_name": company_name,
         "company_name_localized": company_name_localized,
         "currency": currency,
+        "company_profile": company_profile,
         "history": historical_results
     }
 
@@ -777,6 +787,32 @@ def check_covenants(request: CovenantCheckRequest):
         covenants=request.covenants,
     )
     return report
+
+
+@app.post("/api/v1/reports/pdf", tags=["Reporting"])
+def export_full_pdf(request: PdfExportRequest):
+    """Export a single-company full report as a downloadable PDF."""
+    report = request.report or {}
+    lang = request.lang if request.lang in {"en", "zh-CN", "zh-TW", "ja"} else "en"
+    ticker = str(report.get("ticker") or "RiskLens").upper()
+
+    try:
+        pdf_bytes = generate_full_pdf(report, lang)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"error": str(exc), "ticker": ticker}) from exc
+    except Exception as exc:
+        logger.error("PDF export failed for %s: %s", ticker, exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "Failed to generate PDF report", "ticker": ticker},
+        ) from exc
+
+    filename = f"{ticker}_Full_Report.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 import os

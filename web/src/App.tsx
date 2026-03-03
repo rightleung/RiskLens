@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, Fragment, useMemo } from 'react'
-import { Search, Loader2, Monitor, Sun, Moon, ArrowRight, CheckCircle2, AlertTriangle, ExternalLink, Info, Palette, Download, ChevronRight, ChevronDown } from 'lucide-react'
+import { Search, Loader2, Monitor, Sun, Moon, ArrowRight, CheckCircle2, AlertTriangle, ExternalLink, Info, Palette, Download, ChevronRight, ChevronDown, FileText } from 'lucide-react'
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { Button } from '@/components/ui/button'
@@ -31,6 +31,15 @@ interface AssessmentResponse {
     company_name: string;
     company_name_localized?: Record<string, string>;
     currency?: string;
+    company_profile?: {
+      description?: string | null;
+      sector?: string | null;
+      industry?: string | null;
+      website?: string | null;
+      country?: string | null;
+      employees?: number | null;
+      products?: string[];
+    };
     history: Period[];
   }>;
   errors?: string[];
@@ -339,9 +348,8 @@ const translations = {
     varVs: 'vs',
     varPct: '%',
     exportAll: 'Export All',
+    exportPdf: 'Export PDF',
     finComparisonTab: 'Fin Comparison',
-    periodGuideTitle: 'How to Use Period Views',
-    periodGuideBody: 'Click an FY chip to open that year’s financial statements. Export Excel to review cross-year comparisons.',
     periodButtonTitle: 'Open financial statements for this period',
     companyFinder: 'Company Search',
     finderTitle: 'Search Companies',
@@ -353,6 +361,11 @@ const translations = {
     finderSelected: 'Selected',
     finderAddSelected: 'Add Selected',
     close: 'Close',
+    na: 'N/A',
+    naReasonDebtToEbitdaLoss: 'N/A because EBITDA is zero or negative in this period, so Debt/EBITDA is not meaningful.',
+    naReasonDebtToEbitdaMissing: 'N/A because EBITDA is unavailable for this period.',
+    naReasonInterestCoverageLoss: 'N/A because EBIT is zero or negative in this period, so interest coverage is not meaningful.',
+    naReasonInterestCoverageMissing: 'N/A because EBIT or interest expense is unavailable for this period.',
   },
   'zh-CN': {
     title: '机构信用风险评估',
@@ -402,9 +415,8 @@ const translations = {
     varVs: '对比',
     varPct: '%',
     exportAll: '全部导出',
+    exportPdf: '导出 PDF',
     finComparisonTab: '财报横向对比',
-    periodGuideTitle: '期间查看说明',
-    periodGuideBody: '点击 FY 年份按钮可查看对应期间的财务报表；导出 Excel 可查看跨年份对比。',
     periodButtonTitle: '打开该期间财务报表',
     companyFinder: '搜索公司',
     finderTitle: '搜索公司',
@@ -416,6 +428,11 @@ const translations = {
     finderSelected: '已选择',
     finderAddSelected: '加入输入框',
     close: '关闭',
+    na: 'N/A',
+    naReasonDebtToEbitdaLoss: '该期间 EBITDA 为 0 或负数，债务/EBITDA 不具可比意义，故显示 N/A。',
+    naReasonDebtToEbitdaMissing: '该期间缺少 EBITDA 数据，故显示 N/A。',
+    naReasonInterestCoverageLoss: '该期间 EBIT 为 0 或负数，利息保障倍数不具可比意义，故显示 N/A。',
+    naReasonInterestCoverageMissing: '该期间缺少 EBIT 或利息费用数据，故显示 N/A。',
   },
   'zh-TW': {
     title: '機構信用風險評估',
@@ -465,9 +482,8 @@ const translations = {
     varVs: '對比',
     varPct: '%',
     exportAll: '全部匯出',
+    exportPdf: '匯出 PDF',
     finComparisonTab: '財報橫向對比',
-    periodGuideTitle: '期間檢視說明',
-    periodGuideBody: '點擊 FY 年份按鈕可查看對應期間的財務報表；匯出 Excel 可查看跨年份對比。',
     periodButtonTitle: '開啟該期間財務報表',
     companyFinder: '搜尋公司',
     finderTitle: '搜尋公司',
@@ -479,6 +495,11 @@ const translations = {
     finderSelected: '已選擇',
     finderAddSelected: '加入輸入框',
     close: '關閉',
+    na: 'N/A',
+    naReasonDebtToEbitdaLoss: '該期間 EBITDA 為 0 或負數，債務/EBITDA 不具可比意義，因此顯示 N/A。',
+    naReasonDebtToEbitdaMissing: '該期間缺少 EBITDA 資料，因此顯示 N/A。',
+    naReasonInterestCoverageLoss: '該期間 EBIT 為 0 或負數，利息保障倍數不具可比意義，因此顯示 N/A。',
+    naReasonInterestCoverageMissing: '該期間缺少 EBIT 或利息費用資料，因此顯示 N/A。',
   },
   ja: {
     title: '機関的信用リスク評価',
@@ -528,9 +549,8 @@ const translations = {
     varVs: '比較',
     varPct: '%',
     exportAll: 'すべてエクスポート',
+    exportPdf: 'PDFを書き出し',
     finComparisonTab: '財務諸表比較',
-    periodGuideTitle: '期間表示の使い方',
-    periodGuideBody: 'FY ボタンをクリックすると当該期間の財務諸表を表示します。Excel をエクスポートすると期間比較を確認できます。',
     periodButtonTitle: 'この期間の財務諸表を開く',
     companyFinder: '企業を検索',
     finderTitle: '企業を検索',
@@ -542,6 +562,11 @@ const translations = {
     finderSelected: '選択済み',
     finderAddSelected: '入力欄に追加',
     close: '閉じる',
+    na: 'N/A',
+    naReasonDebtToEbitdaLoss: 'この期間は EBITDA が 0 以下のため、Debt/EBITDA は有意ではなく N/A を表示します。',
+    naReasonDebtToEbitdaMissing: 'この期間は EBITDA データが不足しているため、N/A を表示します。',
+    naReasonInterestCoverageLoss: 'この期間は EBIT が 0 以下のため、インタレスト・カバレッジは有意ではなく N/A を表示します。',
+    naReasonInterestCoverageMissing: 'この期間は EBIT または支払利息データが不足しているため、N/A を表示します。',
   }
 };
 
@@ -1615,11 +1640,43 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
   saveAs(new Blob([buffer]), `RiskLens_MultiCompany_Comparison.xlsx`);
 };
 
+const exportSingleCompanyPdf = async (result: any, _t: ReturnType<typeof getT>, lang: Language): Promise<void> => {
+  if (typeof window === 'undefined') return;
+  const ticker = String(result?.ticker ?? 'RiskLens').toUpperCase();
+
+  try {
+    const response = await fetch('/api/v1/reports/pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ report: result, lang }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`PDF export failed (${response.status})`);
+    }
+
+    const blob = await response.blob();
+    const disposition = response.headers.get('content-disposition') || '';
+    const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
+    const filename = filenameMatch?.[1] ? decodeURIComponent(filenameMatch[1]) : `${ticker}_Full_Report.pdf`;
+    saveAs(blob, filename);
+  } catch (error) {
+    console.error('PDF export failed', error);
+    const messages: Record<Language, string> = {
+      en: 'PDF export failed. Please try again.',
+      'zh-CN': 'PDF 导出失败，请重试。',
+      'zh-TW': 'PDF 匯出失敗，請重試。',
+      ja: 'PDF のエクスポートに失敗しました。再試行してください。',
+    };
+    window.alert(messages[lang] || messages.en);
+  }
+};
+
 import { translateAssessmentText, prettifyKey, getTooltip, translateRatingStatus } from './translations';
 
 
 function MetricTooltip({ metricKey, label, lang }: { metricKey: string; label: string; lang: Language }) {
-  const tip = getTooltip(metricKey, lang);
+  const tip = getTooltip(metricKey, lang, label);
   if (!tip) return <span className="min-w-0 break-words">{label}</span>;
   return (
     <Tooltip
@@ -2608,7 +2665,10 @@ export default function App() {
                 return typeof rawVal === 'number' ? rawVal : null;
               };
               const formatMetricValue = (numericVal: number | null, row: MetricRow, isDelta = false): string => {
-                if (numericVal === null) return '--';
+                if (numericVal === null) {
+                  if (row.key === 'debt_to_ebitda' || row.key === 'interest_coverage') return t('na');
+                  return '--';
+                }
                 if (row.isCurrency) return formatCurrency(numericVal, numFormat, lang);
                 if (row.format === '%') {
                   const scaled = numericVal * 100;
@@ -2616,6 +2676,21 @@ export default function App() {
                 }
                 if (row.format === 'x') return `${numericVal.toFixed(2)}x`;
                 return numericVal.toFixed(2);
+              };
+              const getMetricNaReason = (period: Period, row: MetricRow): string | null => {
+                if (row.key === 'debt_to_ebitda') {
+                  const ebitda = typeof period?.ratios?.ebitda === 'number' ? period.ratios.ebitda : null;
+                  return ebitda !== null && ebitda <= 0
+                    ? t('naReasonDebtToEbitdaLoss')
+                    : t('naReasonDebtToEbitdaMissing');
+                }
+                if (row.key === 'interest_coverage') {
+                  const ebit = typeof period?.raw_metrics?.operating_income === 'number' ? period.raw_metrics.operating_income : null;
+                  return ebit !== null && ebit <= 0
+                    ? t('naReasonInterestCoverageLoss')
+                    : t('naReasonInterestCoverageMissing');
+                }
+                return null;
               };
 
               const zZone = latest.assessment.overall_rating || 'N/A'
@@ -2658,6 +2733,15 @@ export default function App() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 ml-2 text-muted-foreground hover:text-brand-500 hover:bg-brand-500/10"
+                            onClick={() => { void exportSingleCompanyPdf(res, t, lang) }}
+                            title={t('exportPdf')}
+                          >
+                            <FileText className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-brand-500 hover:bg-brand-500/10"
                             onClick={() => exportToExcel([res], t, lang)}
                             title="Export to Excel"
                           >
@@ -2688,25 +2772,6 @@ export default function App() {
                   </CardHeader>
 
                   <CardContent className="p-0">
-                    <div className="px-4 pt-3">
-                      <Tooltip
-                        content={
-                          <div className="max-w-[18rem] space-y-1 text-xs leading-relaxed">
-                            <p className="font-semibold">{t('periodGuideTitle')}</p>
-                            <p>{t('periodGuideBody')}</p>
-                          </div>
-                        }
-                      >
-                        <button
-                          type="button"
-                          aria-label={t('periodGuideTitle')}
-                          className="inline-flex w-full items-center justify-start gap-2 rounded-md border border-brand-500/40 bg-brand-500/15 px-3 py-2 text-xs font-semibold text-brand-200 hover:bg-brand-500/25 hover:border-brand-400/60 transition-colors"
-                        >
-                          <Info className="h-4 w-4 flex-shrink-0" />
-                          <span>{t('periodGuideTitle')}</span>
-                        </button>
-                      </Tooltip>
-                    </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead className="bg-muted/40 border-b">
@@ -2746,10 +2811,28 @@ export default function App() {
                               {displayHistory.map((period, j) => {
                                 const numericVal = getMetricNumericValue(period, row);
                                 const displayVal = formatMetricValue(numericVal, row);
+                                const naReason = numericVal === null ? getMetricNaReason(period, row) : null;
 
                                 return (
                                   <td key={`${row.key}-${j}`} className={`py-2.5 px-4 text-right tabular-nums font-medium ${numericVal !== null && numericVal < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`}>
-                                    {displayVal}
+                                    {naReason ? (
+                                      <span className="inline-flex items-center justify-end gap-1">
+                                        <span>{t('na')}</span>
+                                        <Tooltip
+                                          content={
+                                            <div className="max-w-[16rem] text-xs leading-relaxed">
+                                              {naReason}
+                                            </div>
+                                          }
+                                        >
+                                          <span className="inline-flex cursor-help">
+                                            <Info className="h-3.5 w-3.5 text-muted-foreground hover:text-brand-500 transition-colors" />
+                                          </span>
+                                        </Tooltip>
+                                      </span>
+                                    ) : (
+                                      displayVal
+                                    )}
                                   </td>
                                 )
                               })}
@@ -2764,7 +2847,9 @@ export default function App() {
                                       {formatMetricValue(delta, row, true)}
                                     </td>
                                     <td className={`py-2.5 px-4 text-right tabular-nums font-medium ${pct !== null && pct < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`}>
-                                      {pct === null ? '--' : `${(pct * 100).toFixed(1)}%`}
+                                      {pct === null
+                                        ? (row.key === 'debt_to_ebitda' || row.key === 'interest_coverage' ? t('na') : '--')
+                                        : `${(pct * 100).toFixed(1)}%`}
                                     </td>
                                   </Fragment>
                                 );

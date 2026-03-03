@@ -92,17 +92,19 @@ curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
 
 ## 6. Documentation Layers
 
-Keep these three docs because each has a different ownership boundary:
+Keep these docs because each has a different ownership boundary:
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md): runtime boundaries and component ownership
 - [METHODOLOGY.md](./METHODOLOGY.md): scoring and risk-layer methodology
 - [REPORT_WORKBOOK_SPEC.md](./REPORT_WORKBOOK_SPEC.md): Excel output contract and field rules
+- [REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md](./REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md): Full PDF desktop-first draft template and wireframe
 
 Responsibilities:
 - README: onboarding and runbook
 - Architecture: system design and deployment/runtime truth
 - Methodology: risk/scoring policy
 - Workbook Spec: reporting contract between frontend and business users
+- PDF Template Draft: full-report page structure and export layout baseline
 
 ## 7. Documentation Maintenance Policy
 
