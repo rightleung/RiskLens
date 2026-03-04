@@ -126,7 +126,7 @@ export const prettifyKey = (key: string, lang: Language): string => {
             'en': 'Net Income (Continuing Operations)', 'zh-CN': '持续经营净利润', 'zh-TW': '持續經營淨利潤', 'ja': '継続事業純利益'
         },
         'ebitda': {
-            'en': 'EBITDA', 'zh-CN': 'EBITDA (息税折旧摊销前利润)', 'zh-TW': 'EBITDA (息稅折舊攤銷前利潤)', 'ja': 'EBITDA'
+            'en': 'EBITDA', 'zh-CN': '息税折旧摊销前利润 (EBITDA)', 'zh-TW': '息稅折舊攤銷前利潤 (EBITDA)', 'ja': 'EBITDA'
         },
         'pretax_income': {
             'en': 'Pretax Income', 'zh-CN': '税前利润', 'zh-TW': '稅前利潤', 'ja': '税引前利益'
