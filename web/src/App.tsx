@@ -169,11 +169,30 @@ const buildDisplayHistoryForCard = (history: Period[]): Period[] => {
   });
 };
 
-function formatCurrency(val: number | null | undefined, format: 'compact' | 'full' = 'compact', lang: Language = 'en') {
+type CompactMonetaryUnit = 'million' | 'thousand';
+
+const getNumberLocale = (lang: Language): string => {
+  if (lang === 'zh-CN' || lang === 'zh-TW') return 'zh-CN';
+  if (lang === 'ja') return 'ja-JP';
+  return 'en-US';
+};
+
+function formatCurrency(
+  val: number | null | undefined,
+  format: 'compact' | 'full' = 'compact',
+  lang: Language = 'en',
+  fixedUnit?: CompactMonetaryUnit
+) {
   if (val === null || val === undefined || isNaN(val)) return '--';
+  const locale = getNumberLocale(lang);
 
   if (format === 'full') {
-    return val.toLocaleString(lang === 'zh-CN' || lang === 'zh-TW' ? 'zh-CN' : 'en-US');
+    return val.toLocaleString(locale);
+  }
+
+  if (fixedUnit) {
+    const divisor = fixedUnit === 'million' ? 1e6 : 1e3;
+    return (val / divisor).toLocaleString(locale, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   }
 
   const abs = Math.abs(val);
@@ -330,6 +349,10 @@ const translations = {
     freeCf: 'Free Cash Flow',
     fcfToDebt: 'FCF / Debt',
     currentRatio: 'Current Ratio',
+    numberFormatCompact: 'Auto Unit',
+    monetaryRowsUnit: 'Monetary rows',
+    unitMillions: 'in millions',
+    unitThousands: 'in thousands',
     themeSelect: 'Theme',
     otherNames: 'Other Names:',
     tickerCol: 'Ticker',
@@ -397,6 +420,10 @@ const translations = {
     freeCf: '自由现金流',
     fcfToDebt: 'FCF / 债务',
     currentRatio: '流动比率',
+    numberFormatCompact: '自动单位',
+    monetaryRowsUnit: '货币指标单位',
+    unitMillions: '百万',
+    unitThousands: '千',
     themeSelect: '主题选择',
     otherNames: '其他名称：',
     tickerCol: '代码',
@@ -464,6 +491,10 @@ const translations = {
     freeCf: '自由現金流',
     fcfToDebt: 'FCF / 債務',
     currentRatio: '流動比率',
+    numberFormatCompact: '自動單位',
+    monetaryRowsUnit: '貨幣指標單位',
+    unitMillions: '百萬',
+    unitThousands: '千',
     themeSelect: '主題選擇',
     otherNames: '其他名稱：',
     tickerCol: '代碼',
@@ -531,6 +562,10 @@ const translations = {
     freeCf: 'フリー・キャッシュフロー',
     fcfToDebt: 'FCF / 有利子負債',
     currentRatio: '流動比率',
+    numberFormatCompact: '自動単位',
+    monetaryRowsUnit: '金額系指標の単位',
+    unitMillions: '百万単位',
+    unitThousands: '千単位',
     themeSelect: 'テーマ選択',
     otherNames: 'その他の名称：',
     tickerCol: 'ティッカー',
@@ -2072,7 +2107,7 @@ function StatementDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="w-[min(920px,94vw)] max-w-[min(920px,94vw)] max-h-[92vh] overflow-y-auto glass-panel border border-white/10 shadow-2xl">
+      <DialogContent className="w-[min(690px,70.5vw)] max-w-[min(690px,70.5vw)] max-h-[92vh] overflow-y-auto glass-panel border border-white/10 shadow-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3 flex-wrap">
             <span className="text-2xl font-semibold tracking-tight text-foreground">{companyName}</span>
@@ -2471,7 +2506,7 @@ export default function App() {
                   onClick={() => setNumFormat('compact')}
                   className={`px-2 py-1 text-[11px] font-semibold rounded-sm transition-all ${numFormat === 'compact' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 >
-                  B/M
+                  {t('numberFormatCompact')}
                 </button>
                 <button
                   onClick={() => setNumFormat('full')}
@@ -2664,12 +2699,48 @@ export default function App() {
                 const rawVal = sourceObj ? sourceObj[row.key] : null;
                 return typeof rawVal === 'number' ? rawVal : null;
               };
+              const currencyMetricRows = metricRows.filter(
+                (row): row is MetricRow & { isCurrency: true } => row.isCurrency === true
+              );
+              const currencyDisplayUnit: CompactMonetaryUnit = (() => {
+                let maxAbs = 0;
+                const collect = (value: number | null) => {
+                  if (typeof value === 'number' && Number.isFinite(value)) {
+                    maxAbs = Math.max(maxAbs, Math.abs(value));
+                  }
+                };
+
+                displayHistory.forEach((period) => {
+                  currencyMetricRows.forEach((row) => {
+                    collect(getMetricNumericValue(period, row));
+                  });
+                });
+
+                yoyMap.forEach((cmp) => {
+                  currencyMetricRows.forEach((row) => {
+                    const v1 = getMetricNumericValue(cmp.p1, row);
+                    const v2 = getMetricNumericValue(cmp.p2, row);
+                    if (v1 !== null && v2 !== null) {
+                      collect(v1 - v2);
+                    }
+                  });
+                });
+
+                return maxAbs >= 1e7 ? 'million' : 'thousand';
+              })();
               const formatMetricValue = (numericVal: number | null, row: MetricRow, isDelta = false): string => {
                 if (numericVal === null) {
                   if (row.key === 'debt_to_ebitda' || row.key === 'interest_coverage') return t('na');
                   return '--';
                 }
-                if (row.isCurrency) return formatCurrency(numericVal, numFormat, lang);
+                if (row.isCurrency) {
+                  return formatCurrency(
+                    numericVal,
+                    numFormat,
+                    lang,
+                    numFormat === 'compact' ? currencyDisplayUnit : undefined
+                  );
+                }
                 if (row.format === '%') {
                   const scaled = numericVal * 100;
                   return isDelta ? `${scaled.toFixed(1)}pp` : `${scaled.toFixed(1)}%`;
@@ -2772,6 +2843,13 @@ export default function App() {
                   </CardHeader>
 
                   <CardContent className="p-0">
+                    {numFormat === 'compact' && (
+                      <div className="flex items-center justify-end border-b border-white/10 bg-muted/20 px-6 py-2 text-[11px] font-medium text-muted-foreground">
+                        <span>
+                          {t('monetaryRowsUnit')}: {currencyDisplayUnit === 'million' ? t('unitMillions') : t('unitThousands')}
+                        </span>
+                      </div>
+                    )}
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead className="bg-muted/40 border-b">
@@ -2792,10 +2870,10 @@ export default function App() {
                             ))}
                             {hasYoY && yoyMap.map((cmp, idx) => (
                               <Fragment key={`yoy-header-${idx}`}>
-                                <th className="py-2.5 px-4 text-right font-medium min-w-[8rem] text-xs uppercase tracking-wide text-muted-foreground">
+                                <th className="py-2.5 px-4 text-center font-medium min-w-[8rem] text-xs uppercase tracking-wide text-muted-foreground">
                                   {`${cmp.yearCode} ${t('varVs')} ${cmp.prevYearCode}`}
                                 </th>
-                                <th className="py-2.5 px-4 text-right font-medium min-w-[6rem] text-xs uppercase tracking-wide text-muted-foreground">
+                                <th className="py-2.5 px-4 text-center font-medium min-w-[6rem] text-xs uppercase tracking-wide text-muted-foreground">
                                   {t('varPct')}
                                 </th>
                               </Fragment>
@@ -2843,10 +2921,10 @@ export default function App() {
                                 const pct = delta !== null && v2 !== null && Math.abs(v2) > 0 ? delta / Math.abs(v2) : null;
                                 return (
                                   <Fragment key={`${row.key}-yoy-${idx}`}>
-                                    <td className={`py-2.5 px-4 text-right tabular-nums font-medium ${delta !== null && delta < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`}>
+                                    <td className={`py-2.5 px-4 text-center tabular-nums font-medium ${delta !== null && delta < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`}>
                                       {formatMetricValue(delta, row, true)}
                                     </td>
-                                    <td className={`py-2.5 px-4 text-right tabular-nums font-medium ${pct !== null && pct < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`}>
+                                    <td className={`py-2.5 px-4 text-center tabular-nums font-medium ${pct !== null && pct < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`}>
                                       {pct === null
                                         ? (row.key === 'debt_to_ebitda' || row.key === 'interest_coverage' ? t('na') : '--')
                                         : `${(pct * 100).toFixed(1)}%`}

@@ -181,18 +181,23 @@ def _style_table(table: Any, first_col_left: bool = True, font_size: int = 8) ->
     table.auto_set_font_size(False)
     table.set_fontsize(font_size)
     for (row, col), cell in table.get_celld().items():
-        cell.set_linewidth(0.35)
-        cell.set_edgecolor("#d9dce1")
+        cell.set_linewidth(0.2)
+        cell.set_edgecolor("#e2e8f0")
         if row == 0:
-            cell.set_facecolor("#1f2937")
+            cell.set_facecolor("#111827")
             cell.get_text().set_color("#ffffff")
             cell.get_text().set_weight("bold")
+            cell.set_height(0.045)
         else:
             cell.set_facecolor("#f8fafc" if row % 2 == 0 else "#ffffff")
+            cell.set_height(0.035)
+        
         if first_col_left and col == 0:
             cell.get_text().set_ha("left")
+            cell.get_text().set_multialignment("left")
             if row != 0:
-                cell.get_text().set_weight("semibold")
+                cell.get_text().set_weight("medium")
+                cell.get_text().set_color("#1f2937")
         else:
             cell.get_text().set_ha("right")
 
@@ -208,8 +213,9 @@ def _set_table_column_widths(table: Any, col_widths: List[float]) -> None:
 def _build_col_widths(total_cols: int, first_col_width: float) -> List[float]:
     if total_cols <= 1:
         return [1.0]
-    first = max(0.18, min(0.45, first_col_width))
-    rest = max(0.55, 1.0 - first)
+    # For statements/KPIs, first column (item names) needs significantly more space
+    first = max(0.28, min(0.48, first_col_width))
+    rest = 1.0 - first
     each = rest / (total_cols - 1)
     return [first] + [each] * (total_cols - 1)
 
@@ -220,16 +226,19 @@ def _draw_brand_header(fig: Any, title: str, subtitle: str | None, page_label: s
     header_ax.set_ylim(0, 1)
     header_ax.axis("off")
 
-    header_ax.text(0.04, 0.50, "RiskLens", ha="left", va="center", color="#111111", fontsize=13, fontweight="bold")
-    header_ax.text(0.20, 0.62, title, ha="left", va="center", color="#111827", fontsize=15, fontweight="bold")
+    # RiskLens header: Plain black text only, no rounded boxes
+    header_ax.text(0.04, 0.50, "RiskLens", ha="left", va="center", color="#000000", fontsize=14, fontweight="black")
+    
+    header_ax.text(0.18, 0.65, title, ha="left", va="center", color="#111827", fontsize=15, fontweight="bold")
     if subtitle:
-        header_ax.text(0.20, 0.30, subtitle, ha="left", va="center", color="#4b5563", fontsize=8.6)
+        header_ax.text(0.18, 0.32, subtitle, ha="left", va="center", color="#4b5563", fontsize=9.0)
+    
     header_ax.text(0.96, 0.50, page_label, ha="right", va="center", color="#6b7280", fontsize=8.5)
-    header_ax.plot([0.04, 0.96], [0.08, 0.08], color="#d1d5db", linewidth=0.8)
+    header_ax.plot([0.04, 0.96], [0.08, 0.08], color="#e2e8f0", linewidth=0.8)
 
 
 def _add_footer(fig: Any, generated_at: str) -> None:
-    fig.text(0.04, 0.02, f"RiskLens Confidential · Generated {generated_at}", fontsize=7.5, color="#6b7280")
+    fig.text(0.04, 0.02, f"RiskLens Terminal · Generated {generated_at} · Confidential", fontsize=7.5, color="#94a3b8")
 
 
 def _new_figure(title: str, subtitle: str | None = None, page_label: str = "") -> Tuple[Any, Any]:
@@ -258,6 +267,55 @@ def _format_bulleted_lines(items: List[str], wrap_width: int, max_lines: int) ->
 
 
 def generate_full_pdf(report: Dict[str, Any], lang: str = "zh-CN") -> bytes:
+    # Translation map for static PDF labels
+    labels = {
+        "en": {
+            "summary": "CREDIT RISK SUMMARY",
+            "strengths": "STRENGTHS",
+            "watch": "WATCH ITEMS",
+            "covenant": "COVENANT PRE-CHECK",
+            "data_quality": "Data Quality Check",
+            "breach": "Breach Count",
+            "missing": "Missing Inputs",
+            "kpi_trends": "KPI Trends",
+            "statements": "Financial Statements Detail",
+            "figures_millions": "Figures in millions",
+            "figures_reported": "Figures in reported currency",
+            "metric": "Metric",
+            "actual": "Actual",
+            "threshold": "Threshold",
+            "status": "Status",
+            "signal": "Signal",
+            "notes": "Notes",
+            "item": "Item",
+            "no_data": "No statement data available."
+        },
+        "zh-CN": {
+            "summary": "信用风险评估摘要",
+            "strengths": "信用优势",
+            "watch": "关注事项",
+            "covenant": "财务限制条款预检 (Covenant)",
+            "data_quality": "数据质量检查",
+            "breach": "违约项数",
+            "missing": "缺失指标数",
+            "kpi_trends": "关键指标趋势",
+            "statements": "财务报表明细",
+            "figures_millions": "数值单位：百万",
+            "figures_reported": "数值单位：原始货币",
+            "metric": "指标名称",
+            "actual": "实际值",
+            "threshold": "限制阈值",
+            "status": "状态",
+            "signal": "信号",
+            "notes": "备注",
+            "item": "报表项目",
+            "no_data": "无可用财务报表数据。"
+        }
+    }
+    
+    # Use localized labels if available, fallback to English
+    t = labels.get(lang, labels["en"])
+    
     ticker = str(report.get("ticker") or "N/A")
     company_name = str(report.get("company_name") or ticker)
     currency = str(report.get("currency") or "USD")
@@ -333,7 +391,7 @@ def generate_full_pdf(report: Dict[str, Any], lang: str = "zh-CN") -> bytes:
             return f"{scaled:,.1f}"
         return f"{value:,.2f}"
 
-    kpi_headers = ["Metric"] + periods + yoy_headers
+    kpi_headers = [t["metric"]] + periods + yoy_headers
     kpi_rows: List[List[str]] = []
     for key, label, src, value_type in metrics:
         row = [label]
@@ -362,10 +420,15 @@ def generate_full_pdf(report: Dict[str, Any], lang: str = "zh-CN") -> bytes:
         kpi_rows.append(row)
 
     statement_keys = _ordered_statement_keys(history)
-    statement_headers = ["Item"] + periods + yoy_headers
+    statement_headers = [t["item"]] + periods + yoy_headers
     statement_rows: List[List[str]] = []
+
+    # Wrap text for long item names instead of shortening
     for key in statement_keys:
-        row = [textwrap.shorten(_prettify_key(key), width=36, placeholder="…")]
+        pretty_name = _prettify_key(key)
+        # Use wrap to handle long items
+        wrapped_name = "\n".join(textwrap.wrap(pretty_name, width=28))
+        row = [wrapped_name]
         for period in history:
             raw_val = _statement_value_for_key(period, key)
             row.append(_format_million_value(raw_val) if use_millions else _format_statement_value(raw_val))
@@ -394,74 +457,55 @@ def generate_full_pdf(report: Dict[str, Any], lang: str = "zh-CN") -> bytes:
         page_no = 1
 
         # Page 1: Summary + covenant/data-quality
+        unit_text = f"{t['figures_millions']} ({currency})" if use_millions else f"{t['figures_reported']} ({currency})"
         fig, ax = _new_figure(
             title=company_name,
-            subtitle=f"{ticker} · Latest Period {latest_period} · Currency {currency}",
+            subtitle=f"{ticker} · {latest_period} · {unit_text}",
             page_label=f"Page {page_no}/{total_pages}",
         )
-        ax.text(
-            0.00,
-            0.96,
-            f"Altman Z-Score  {'--' if score is None else f'{score:.2f}'}",
-            transform=ax.transAxes,
-            fontsize=11.5,
-            fontweight="bold",
-            color="#111827",
-            bbox=dict(boxstyle="round,pad=0.30", facecolor="#f3f4f6", edgecolor="#d1d5db", linewidth=0.6),
-        )
-        ax.text(
-            0.45,
-            0.96,
-            f"Zone  {z_zone}",
-            transform=ax.transAxes,
-            fontsize=10.2,
-            color="#111827",
-            bbox=dict(boxstyle="round,pad=0.30", facecolor="#f3f4f6", edgecolor="#d1d5db", linewidth=0.6),
-        )
-        ax.text(
-            0.71,
-            0.96,
-            f"Implied Rating  {rating}",
-            transform=ax.transAxes,
-            fontsize=10.2,
-            color="#111827",
-            bbox=dict(boxstyle="round,pad=0.30", facecolor="#f3f4f6", edgecolor="#d1d5db", linewidth=0.6),
-        )
 
-        strengths_ax = fig.add_axes([0.05, 0.56, 0.42, 0.26])
+        # Risk Score Section (cleaner, no background boxes)
+        ax.text(0.00, 0.98, t["summary"], transform=ax.transAxes, fontsize=11, fontweight="bold", color="#111827")
+        ax.plot([0.00, 0.95], [0.97, 0.97], transform=ax.transAxes, color="#111827", linewidth=1.2)
+
+        ax.text(0.00, 0.92, f"Altman Z-Score:  {'--' if score is None else f'{score:.2f}'}", transform=ax.transAxes, fontsize=10.5, fontweight="bold", color="#111827")
+        ax.text(0.40, 0.92, f"Zone: {z_zone}", transform=ax.transAxes, fontsize=10.5, color="#111827")
+        ax.text(0.70, 0.92, f"Implied Rating: {rating}", transform=ax.transAxes, fontsize=10.5, color="#111827")
+
+        strengths_ax = fig.add_axes([0.05, 0.58, 0.42, 0.28])
         strengths_ax.axis("off")
-        strengths_ax.set_facecolor("#ffffff")
-        strengths_ax.text(0.0, 1.0, "Strengths", transform=strengths_ax.transAxes, fontsize=11, fontweight="bold", color="#111827", va="top")
+        strengths_ax.text(0.0, 1.0, t["strengths"], transform=strengths_ax.transAxes, fontsize=10.5, fontweight="bold", color="#111827", va="top")
+        strengths_ax.plot([0.0, 1.0], [0.96, 0.96], transform=strengths_ax.transAxes, color="#10b981", linewidth=0.8)
         strengths_ax.text(
             0.0,
-            0.90,
-            _format_bulleted_lines([str(item) for item in strength_items[:8]], wrap_width=40, max_lines=10),
+            0.88,
+            _format_bulleted_lines([str(item) for item in strength_items[:8]], wrap_width=42, max_lines=10),
             transform=strengths_ax.transAxes,
-            fontsize=8.6,
+            fontsize=8.5,
             va="top",
-            color="#1f2937",
+            color="#374151",
         )
 
-        watch_ax = fig.add_axes([0.53, 0.56, 0.42, 0.26])
+        watch_ax = fig.add_axes([0.53, 0.58, 0.42, 0.28])
         watch_ax.axis("off")
-        watch_ax.set_facecolor("#ffffff")
-        watch_ax.text(0.0, 1.0, "Watch Items", transform=watch_ax.transAxes, fontsize=11, fontweight="bold", color="#111827", va="top")
+        watch_ax.text(0.0, 1.0, t["watch"], transform=watch_ax.transAxes, fontsize=10.5, fontweight="bold", color="#111827", va="top")
+        watch_ax.plot([0.0, 1.0], [0.96, 0.96], transform=watch_ax.transAxes, color="#f59e0b", linewidth=0.8)
         watch_ax.text(
             0.0,
-            0.90,
-            _format_bulleted_lines([str(item) for item in watch_items[:8]], wrap_width=36, max_lines=10),
+            0.88,
+            _format_bulleted_lines([str(item) for item in watch_items[:8]], wrap_width=38, max_lines=10),
             transform=watch_ax.transAxes,
-            fontsize=8.6,
+            fontsize=8.5,
             va="top",
-            color="#1f2937",
+            color="#374151",
         )
 
-        ax.text(0.00, 0.52, "Covenant Pre-Check", transform=ax.transAxes, fontsize=11.2, fontweight="bold", color="#111827")
-        covenant_ax = fig.add_axes([0.05, 0.18, 0.90, 0.30])
+        ax.text(0.00, 0.54, t["covenant"], transform=ax.transAxes, fontsize=10.5, fontweight="bold", color="#111827")
+        covenant_ax = fig.add_axes([0.05, 0.18, 0.90, 0.32])
         covenant_ax.axis("off")
         covenant_table = covenant_ax.table(
             cellText=covenant_rows,
-            colLabels=["Metric", "Actual", "Threshold", "Status", "Signal", "Notes"],
+            colLabels=[t["metric"], t["actual"], t["threshold"], t["status"], t["signal"], t["notes"]],
             loc="upper left",
             cellLoc="left",
             bbox=[0.0, 0.0, 1.0, 1.0],
@@ -469,10 +513,12 @@ def generate_full_pdf(report: Dict[str, Any], lang: str = "zh-CN") -> bytes:
         )
         _style_table(covenant_table, first_col_left=True, font_size=8)
 
-        missing_text = ", ".join(missing_items) if missing_items else "None"
-        ax.text(0.00, 0.10, f"Data Quality · Breach Count: {breach_count}", transform=ax.transAxes, fontsize=8.4, color="#374151")
-        ax.text(0.00, 0.065, f"Data Quality · Missing Key Inputs: {len(missing_items)}", transform=ax.transAxes, fontsize=8.4, color="#374151")
-        ax.text(0.00, 0.03, f"Data Quality · Missing Items: {missing_text}", transform=ax.transAxes, fontsize=8.4, color="#374151")
+        # Data Quality Footer
+        ax.text(0.00, 0.08, f"{t['data_quality']} · {t['breach']}: {breach_count} · {t['missing']}: {len(missing_items)}", transform=ax.transAxes, fontsize=8.4, color="#64748b")
+        if missing_items:
+            missing_text = ", ".join(missing_items)
+            ax.text(0.00, 0.05, f"{t['missing']}: {missing_text}", transform=ax.transAxes, fontsize=8.0, color="#ef4444")
+
         _add_footer(fig, generated_at)
 
         pdf.savefig(fig)
@@ -480,9 +526,8 @@ def generate_full_pdf(report: Dict[str, Any], lang: str = "zh-CN") -> bytes:
         page_no += 1
 
         # Page 2: KPI trends
-        unit_text = f"Figures in millions ({currency})" if use_millions else f"Figures in reported currency ({currency})"
         fig, _ = _new_figure(
-            title=f"{company_name} · KPI Trends",
+            title=f"{company_name} · {t['kpi_trends']}",
             subtitle=unit_text,
             page_label=f"Page {page_no}/{total_pages}",
         )
@@ -494,10 +539,11 @@ def generate_full_pdf(report: Dict[str, Any], lang: str = "zh-CN") -> bytes:
             loc="upper left",
             cellLoc="right",
             bbox=[0.0, 0.0, 1.0, 1.0],
-            colWidths=_build_col_widths(len(kpi_headers), 0.24),
+            colWidths=_build_col_widths(len(kpi_headers), 0.26),
         )
-        _style_table(kpi_table, first_col_left=True, font_size=6.0 if len(kpi_headers) > 9 else 7.1)
+        _style_table(kpi_table, first_col_left=True, font_size=6.2 if len(kpi_headers) > 9 else 7.5)
         _add_footer(fig, generated_at)
+
         pdf.savefig(fig)
         plt.close(fig)
         page_no += 1
@@ -505,11 +551,11 @@ def generate_full_pdf(report: Dict[str, Any], lang: str = "zh-CN") -> bytes:
         # Page 3+: statements detail (chunked)
         if not statement_rows:
             fig, ax = _new_figure(
-                title=f"{company_name} · Financial Statements Detail",
+                title=f"{company_name} · {t['statements']}",
                 subtitle=None,
                 page_label=f"Page {page_no}/{total_pages}",
             )
-            ax.text(0.00, 0.90, "No statement rows available.", transform=ax.transAxes, fontsize=10, color="#374151")
+            ax.text(0.00, 0.90, t["no_data"], transform=ax.transAxes, fontsize=10, color="#64748b")
             _add_footer(fig, generated_at)
             pdf.savefig(fig)
             plt.close(fig)
@@ -517,11 +563,12 @@ def generate_full_pdf(report: Dict[str, Any], lang: str = "zh-CN") -> bytes:
             for start in range(0, len(statement_rows), rows_per_page):
                 chunk = statement_rows[start:start + rows_per_page]
                 fig, _ = _new_figure(
-                    title=f"{company_name} · Financial Statements Detail",
+                    title=f"{company_name} · {t['statements']}",
                     subtitle=unit_text,
                     page_label=f"Page {page_no}/{total_pages}",
                 )
-                stmt_ax = fig.add_axes([0.05, 0.08, 0.90, 0.80])
+
+                stmt_ax = fig.add_axes([0.05, 0.08, 0.90, 0.82])
                 stmt_ax.axis("off")
                 stmt_table = stmt_ax.table(
                     cellText=chunk,
@@ -529,12 +576,15 @@ def generate_full_pdf(report: Dict[str, Any], lang: str = "zh-CN") -> bytes:
                     loc="upper left",
                     cellLoc="right",
                     bbox=[0.0, 0.0, 1.0, 1.0],
-                    colWidths=_build_col_widths(len(statement_headers), 0.30),
+                    colWidths=_build_col_widths(len(statement_headers), 0.35),
                 )
-                _style_table(stmt_table, first_col_left=True, font_size=5.6 if len(statement_headers) > 9 else 6.6)
+                # Adjust font size based on number of columns
+                f_size = 5.8 if len(statement_headers) > 9 else 6.8
+                _style_table(stmt_table, first_col_left=True, font_size=f_size)
                 _add_footer(fig, generated_at)
                 pdf.savefig(fig)
                 plt.close(fig)
                 page_no += 1
+
 
     return buffer.getvalue()
