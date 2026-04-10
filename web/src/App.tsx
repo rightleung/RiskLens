@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useEffect, Fragment, useMemo } from 'react'
-import { Search, Loader2, Monitor, Sun, Moon, ArrowRight, CheckCircle2, AlertTriangle, ExternalLink, Info, Palette, Download, ChevronRight, ChevronDown, FileText } from 'lucide-react'
+import { useState, useEffect, Fragment, useMemo, useRef } from 'react'
+import { Search, Loader2, Monitor, Sun, Moon, ArrowRight, CheckCircle2, AlertTriangle, ExternalLink, Info, Download, ChevronRight, ChevronDown, FileText } from 'lucide-react'
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { Button } from '@/components/ui/button'
@@ -43,13 +43,31 @@ interface AssessmentResponse {
     history: Period[];
   }>;
   errors?: string[];
-  suggestions?: Record<string, Array<{ symbol: string; name: string }>>;
+  suggestions?: Record<string, Array<SymbolSearchResult>>;
 }
 
 interface SymbolSearchResult {
   symbol: string;
   name: string;
+  company_name?: string;
+  company_name_localized?: Record<string, string>;
+  name_localized?: Record<string, string>;
 }
+
+type CompanyNameMap = Partial<Record<Language, string>> & {
+  en?: string;
+};
+
+type CompanyNameEntity = {
+  ticker?: string;
+  symbol?: string;
+  name?: string;
+  company_name?: string;
+  name_localized?: CompanyNameMap;
+  company_name_localized?: CompanyNameMap;
+};
+
+const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 
 // Format "Q3 '25 (U)" → "25Q3", "FY24" → "FY24"
 function formatPeriodLabel(label: string): string {
@@ -209,6 +227,33 @@ function getYahooUrl(ticker: string) {
 
 type Language = 'en' | 'zh-CN' | 'zh-TW' | 'ja';
 type ColorMode = 'system' | 'light' | 'dark';
+
+const resolveCompanyName = (entity: CompanyNameEntity | null | undefined, lang: Language): string => {
+  const localized = entity?.company_name_localized || entity?.name_localized || {};
+  const exact = localized[lang];
+  if (typeof exact === 'string' && exact.trim()) return exact.trim();
+
+  const english = localized.en || entity?.company_name || entity?.name;
+  if (typeof english === 'string' && english.trim()) return english.trim();
+
+  return String(entity?.ticker || entity?.symbol || '').trim();
+};
+
+const getCompanyNameOptions = (entity: CompanyNameEntity | null | undefined): string[] => {
+  const localized = entity?.company_name_localized || entity?.name_localized || {};
+  return Array.from(
+    new Set(
+      [
+        localized.en,
+        localized['zh-CN'],
+        localized['zh-TW'],
+        localized.ja,
+        entity?.company_name,
+        entity?.name,
+      ].filter(isNonEmptyString)
+    )
+  );
+};
 
 function localizeErrorMessage(message: string, lang: Language): string {
   const text = {
@@ -1232,7 +1277,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     const breachCount = covenantRows.filter((row) => row.isBreach).length;
     const missingItems = covenantRows.filter((row) => row.isMissing).map((row) => row.metric);
 
-    const companyDisplayName = res.company_name_localized?.[lang] || res.company_name;
+    const companyDisplayName = resolveCompanyName(res, lang);
     const titleRow = addRowWithFormat(wsRisk, [`${companyDisplayName} (${res.ticker})`]);
     styleMergedRiskTitle(wsRisk, titleRow.number, riskHeaderPalette[0]);
     addRowWithFormat(wsRisk, [riskText.ticker, res.ticker]);
@@ -1263,7 +1308,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     addRowWithFormat(ws1, [t('tickerCol'), t('companyCol'), t('zScoreCol'), t('ratingCol')]);
     addRowWithFormat(ws1, [
       res.ticker,
-      res.company_name_localized?.[lang] || res.company_name,
+      resolveCompanyName(res, lang),
       latest?.assessment?.risk_score ?? 'N/A',
       translateRatingStatus(latest?.assessment?.implied_rating || 'N/A', lang)
     ]);
@@ -1446,7 +1491,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
     const breachCount = covenantRows.filter((row) => row.isBreach).length;
     const missingItems = covenantRows.filter((row) => row.isMissing).map((row) => row.metric);
     const latestAssessment = latest?.assessment;
-    const companyDisplayName = res.company_name_localized?.[lang] || res.company_name;
+    const companyDisplayName = resolveCompanyName(res, lang);
     const sectionColor = riskHeaderPalette[idx % riskHeaderPalette.length];
 
     const titleRow = addRowWithFormat(wsRiskPortfolio, [`${companyDisplayName} (${res.ticker})`]);
@@ -1494,10 +1539,10 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
 
   const header2: any[] = [''];
   allPeriodsArr.forEach(() => {
-    const baseCName = results[0].company_name_localized?.[lang] || results[0].company_name;
+    const baseCName = resolveCompanyName(results[0], lang);
     header2.push(baseCName);
     for (let i = 1; i < results.length; i++) {
-      const cName = results[i].company_name_localized?.[lang] || results[i].company_name;
+      const cName = resolveCompanyName(results[i], lang);
       header2.push(cName);
       header2.push(`${cName} vs ${baseCName}`);
       header2.push(t('varPct'));
@@ -1559,10 +1604,10 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
 
   const compHeader2: any[] = [''];
   allPeriodsArr.forEach(() => {
-    const baseCName = results[0].company_name_localized?.[lang] || results[0].company_name;
+    const baseCName = resolveCompanyName(results[0], lang);
     compHeader2.push(baseCName);
     for (let i = 1; i < results.length; i++) {
-      const cName = results[i].company_name_localized?.[lang] || results[i].company_name;
+      const cName = resolveCompanyName(results[i], lang);
       compHeader2.push(cName);
       compHeader2.push(`${cName} vs ${baseCName}`);
       compHeader2.push(t('varPct'));
@@ -1615,7 +1660,7 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
   results.forEach((res) => {
     const companySheetSuffix = t('excelCompanySheetSuffix');
     const maxBaseLength = Math.max(1, 31 - companySheetSuffix.length - 1);
-    const shortName = (res.company_name_localized?.[lang] || res.company_name).substring(0, maxBaseLength);
+    const shortName = resolveCompanyName(res, lang).substring(0, maxBaseLength);
     const ws = wb.addWorksheet(`${shortName} ${companySheetSuffix}`, { properties: { tabColor: { argb: statementTabColor } } });
     const companyStandard = detectAccountingStandard(res.ticker);
     const orderedCompanyKeys = getOrderedStatementKeys(res.history, companyStandard);
@@ -2260,6 +2305,8 @@ export default function App() {
   const [numFormat, setNumFormat] = useState<'compact' | 'full'>(getInitialNumberFormat)
   const [activeTheme, setActiveTheme] = useState(getInitialTheme)
   const [themeMenuOpen, setThemeMenuOpen] = useState(false)
+  const themeMenuRef = useRef<HTMLDivElement | null>(null)
+
   const [finderOpen, setFinderOpen] = useState(false)
   const [finderQuery, setFinderQuery] = useState('')
   const [finderLoading, setFinderLoading] = useState(false)
@@ -2313,10 +2360,38 @@ export default function App() {
     window.localStorage.setItem(THEME_STORAGE_KEY, activeTheme);
   }, [activeTheme]);
 
+  useEffect(() => {
+    if (!themeMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (themeMenuRef.current && target && !themeMenuRef.current.contains(target)) {
+        setThemeMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setThemeMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [themeMenuOpen]);
+
   const changeTheme = (themeId: string) => {
     setActiveTheme(themeId);
-    setThemeMenuOpen(false);
   }
+
+  const selectedTheme = THEMES.find((theme) => theme.id === activeTheme) ?? THEMES[0];
 
   const openStatements = (period: Period, companyName: string, ticker: string, currency: string) => {
     setSelectedPeriod(period);
@@ -2371,7 +2446,7 @@ export default function App() {
     setFinderSelected((prev) => {
       const next = { ...prev }
       if (next[item.symbol]) delete next[item.symbol]
-      else next[item.symbol] = item.name
+      else next[item.symbol] = resolveCompanyName(item, lang)
       return next
     })
   }
@@ -2563,23 +2638,51 @@ export default function App() {
                   <Moon className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <div className="relative">
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setThemeMenuOpen(!themeMenuOpen)}>
-                  <Palette className="w-4 h-4 text-muted-foreground hover:text-brand-500" />
-                </Button>
+              <div ref={themeMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setThemeMenuOpen((prev) => !prev)}
+                  className="inline-flex items-center gap-2 rounded-md border border-input bg-muted/40 px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  aria-haspopup="menu"
+                  aria-expanded={themeMenuOpen}
+                  aria-label={t('themeSelect')}
+                >
+                  <span className={`w-3 h-3 rounded-full ${selectedTheme.color} shadow-sm`} />
+                  <span className="max-w-[7rem] truncate">
+                    {selectedTheme.name[lang] || selectedTheme.name.en}
+                  </span>
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${themeMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
                 {themeMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-48 p-2 bg-popover text-popover-foreground border border-border rounded-md shadow-xl z-50">
-                    <p className="px-2 py-1 text-xs font-semibold text-muted-foreground mb-1">{t('themeSelect')}</p>
-                    {THEMES.map(tOption => (
-                      <button
-                        key={tOption.id}
-                        onClick={() => changeTheme(tOption.id)}
-                        className={`flex items-center w-full gap-3 px-2 py-1.5 rounded-md text-sm hover:bg-muted ${activeTheme === tOption.id ? 'bg-muted font-medium' : ''}`}
-                      >
-                        <span className={`w-3 h-3 rounded-full ${tOption.color} border border-border`} />
-                        {tOption.name[lang] || tOption.name['en']}
-                      </button>
-                    ))}
+                  <div className="absolute right-0 top-full z-50 mt-2 w-48 overflow-hidden rounded-lg border border-border bg-background p-1 shadow-lg">
+                    <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                      {t('themeSelect')}
+                    </div>
+                    <div className="max-h-72 overflow-y-auto">
+                      {THEMES.map((tOption) => {
+                        const isActive = activeTheme === tOption.id;
+                        return (
+                          <button
+                            key={tOption.id}
+                            type="button"
+                            onClick={() => {
+                              changeTheme(tOption.id);
+                              setThemeMenuOpen(false);
+                            }}
+                            className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted ${
+                              isActive ? 'bg-muted/70 text-foreground' : 'text-muted-foreground'
+                            }`}
+                            aria-pressed={isActive}
+                          >
+                            <span className={`h-3.5 w-3.5 rounded-full ${tOption.color} shadow-sm`} />
+                            <span className="flex-1 truncate">
+                              {tOption.name[lang] || tOption.name.en}
+                            </span>
+                            {isActive && <CheckCircle2 className="h-4 w-4 text-brand-600" />}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
@@ -2676,7 +2779,7 @@ export default function App() {
                           }}
                         >
                           <span className="font-bold mr-1">{s.symbol}</span>
-                          <span className="text-muted-foreground">{s.name}</span>
+                          <span className="text-muted-foreground">{resolveCompanyName(s, lang)}</span>
                         </Button>
                       ))}
                     </div>
@@ -2733,20 +2836,21 @@ export default function App() {
                   if (row.key === 'debt_to_ebitda' || row.key === 'interest_coverage') return t('na');
                   return '--';
                 }
+                const applyPositiveSign = (formatted: string): string => (isDelta && numericVal > 0 ? `+${formatted}` : formatted);
                 if (row.isCurrency) {
-                  return formatCurrency(
+                  return applyPositiveSign(formatCurrency(
                     numericVal,
                     numFormat,
                     lang,
                     numFormat === 'compact' ? currencyDisplayUnit : undefined
-                  );
+                  ));
                 }
                 if (row.format === '%') {
                   const scaled = numericVal * 100;
-                  return isDelta ? `${scaled.toFixed(1)}pp` : `${scaled.toFixed(1)}%`;
+                  return applyPositiveSign(isDelta ? `${scaled.toFixed(1)}pp` : `${scaled.toFixed(1)}%`);
                 }
-                if (row.format === 'x') return `${numericVal.toFixed(2)}x`;
-                return numericVal.toFixed(2);
+                if (row.format === 'x') return applyPositiveSign(`${numericVal.toFixed(2)}x`);
+                return applyPositiveSign(numericVal.toFixed(2));
               };
               const getMetricNaReason = (period: Period, row: MetricRow): string | null => {
                 if (row.key === 'debt_to_ebitda') {
@@ -2767,10 +2871,8 @@ export default function App() {
               const zZone = latest.assessment.overall_rating || 'N/A'
               const isSafe = zZone.includes('(S)')
               const isGrey = zZone.includes('(G)')
-              const nameMap = res.company_name_localized || {};
-              const localizedName = nameMap[lang] || nameMap['en'] || nameMap['ja'] || res.company_name;
-
-              const uniqueNames = Array.from(new Set([res.company_name, ...Object.values(nameMap)].filter(Boolean)));
+              const localizedName = resolveCompanyName(res, lang);
+              const uniqueNames = getCompanyNameOptions(res);
               const otherNames = uniqueNames.filter(n => n !== localizedName);
               const hasMultipleNames = otherNames.length > 0;
 
@@ -2919,15 +3021,29 @@ export default function App() {
                                 const v2 = getMetricNumericValue(cmp.p2, row);
                                 const delta = v1 !== null && v2 !== null ? v1 - v2 : null;
                                 const pct = delta !== null && v2 !== null && Math.abs(v2) > 0 ? delta / Math.abs(v2) : null;
+                                const deltaClass = delta === null
+                                  ? 'text-muted-foreground'
+                                  : delta > 0
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : delta < 0
+                                      ? 'text-rose-600 dark:text-rose-400'
+                                      : 'text-muted-foreground';
+                                const pctClass = pct === null
+                                  ? 'text-muted-foreground'
+                                  : pct > 0
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : pct < 0
+                                      ? 'text-rose-600 dark:text-rose-400'
+                                      : 'text-muted-foreground';
                                 return (
                                   <Fragment key={`${row.key}-yoy-${idx}`}>
-                                    <td className={`py-2.5 px-4 text-center tabular-nums font-medium ${delta !== null && delta < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`}>
+                                    <td className={`py-2.5 px-4 text-center tabular-nums font-medium ${deltaClass}`}>
                                       {formatMetricValue(delta, row, true)}
                                     </td>
-                                    <td className={`py-2.5 px-4 text-center tabular-nums font-medium ${pct !== null && pct < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`}>
+                                    <td className={`py-2.5 px-4 text-center tabular-nums font-medium ${pctClass}`}>
                                       {pct === null
                                         ? (row.key === 'debt_to_ebitda' || row.key === 'interest_coverage' ? t('na') : '--')
-                                        : `${(pct * 100).toFixed(1)}%`}
+                                        : `${pct > 0 ? '+' : ''}${(pct * 100).toFixed(1)}%`}
                                     </td>
                                   </Fragment>
                                 );
@@ -2952,7 +3068,7 @@ export default function App() {
                             </li>
                           ))}
                           {latest.assessment.strengths.length === 0 && (
-                            <li className="text-muted-foreground italic">{t('noStrengths')}</li>
+                            <li className="text-muted-foreground">{t('noStrengths')}</li>
                           )}
                         </ul>
                       </div>
@@ -2969,7 +3085,7 @@ export default function App() {
                             </li>
                           ))}
                           {latest.assessment.weaknesses.length === 0 && (
-                            <li className="text-muted-foreground italic">{t('noWatchItems')}</li>
+                            <li className="text-muted-foreground">{t('noWatchItems')}</li>
                           )}
                         </ul>
                       </div>
@@ -3037,7 +3153,7 @@ export default function App() {
                         className="h-4 w-4 accent-brand-500"
                       />
                       <span className="font-semibold tabular-nums min-w-[84px]">{item.symbol}</span>
-                      <span className="text-sm text-muted-foreground truncate">{item.name}</span>
+                      <span className="text-sm text-muted-foreground truncate">{resolveCompanyName(item, lang)}</span>
                     </label>
                   ))
                 )}

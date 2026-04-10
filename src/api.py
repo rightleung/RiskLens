@@ -13,6 +13,7 @@ Swagger UI:
 import math
 import logging
 import io
+import re
 from contextlib import contextmanager
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
@@ -37,6 +38,8 @@ _PROXY_ENV_KEYS = (
     "https_proxy",
     "all_proxy",
 )
+
+_LOCALIZED_NAME_CACHE: Dict[str, Dict[str, str]] = {}
 
 # ── Error Monitoring (Sentry) ─────────────────────────────────────────────────
 # Initialize Sentry for error tracking
@@ -70,6 +73,7 @@ from ratio_analyzer import RatioAnalyzer, CreditRatioAnalysis
 from covenant_monitor import FinancialCovenants, CovenantMonitor, CovenantReport
 from zscore import calculate_z_score
 from pdf_exporter import generate_full_pdf
+from services import AssessmentServiceError, RichAssessmentService
 
 # ── FastAPI App ──────────────────────────────────────────────────────────────
 
@@ -129,6 +133,7 @@ fetcher = FinancialDataFetcher()
 analyzer = RatioAnalyzer(report_dir="/tmp/credit_api_reports")
 # NOTE: covenant_monitor is stateless (no mutable state), safe as a singleton
 covenant_monitor = CovenantMonitor()
+rich_assessment_service = RichAssessmentService(report_dir="/tmp/credit_api_reports")
 # assessor is NOT a singleton — instantiated per-request in _assess_risk()
 # to avoid race conditions on self.assessments list in concurrent requests.
 
@@ -202,6 +207,12 @@ def _analyze_single_ticker(ticker: str, fiscal_year: int, data_source: str) -> d
     Raises:
         DataFetchError: When data fetching fails with detailed error type
     """
+    return rich_assessment_service.analyze(
+        ticker=ticker,
+        data_source=data_source,
+        fiscal_year=fiscal_year,
+    )
+
     # This will now raise DataFetchError instead of returning None
     data = fetcher.get_financial_data(ticker, data_source)
 
@@ -219,59 +230,7 @@ def _analyze_single_ticker(ticker: str, fiscal_year: int, data_source: str) -> d
         return 'USD'
     currency = _infer_currency(ticker)
     
-    company_name_localized = {
-        'en': company_name, 
-        'zh-CN': company_name, 
-        'zh-TW': company_name, 
-        'ja': company_name
-    }
-    
-    # Global traditional Chinese fallback for the default fetched name
-    try:
-        import opencc
-        converter_tw = opencc.OpenCC('s2t.json')
-        company_name_localized['zh-TW'] = converter_tw.convert(company_name)
-    except ImportError:
-        pass
-    
-    # Simple logic to handle common A-Share translations without blocking
-    import re
-    if re.match(r'^\d{6}\.(SS|SZ|SH)$', ticker.upper()) or currency == 'CNY':
-        # If it's a Chinese ticker, fetch the localized name directly from Sina Finance
-        # to bypass the ProxyError caused by akshare -> EastMoney.
-        try:
-            import requests
-            stock_code = ticker.split('.')[0]
-            # Sina requires sz or sh prefix
-            prefix = 'sh' if ticker.endswith(('.SS', '.SH')) or ticker.startswith('6') else 'sz'
-            sina_ticker = f"{prefix}{stock_code}"
-            
-            # Use run_in_threadpool if needed, though this is fast enough mostly.
-            # We are already in a threadpool context from process_ticker
-            headers = {'Referer': 'http://finance.sina.com.cn/'}
-            url = f"http://hq.sinajs.cn/list={sina_ticker}"
-            response = requests.get(url, headers=headers, timeout=5)
-            response.encoding = 'gbk' # Sina uses GBK
-            content = response.text
-            
-            # Format: var hq_str_sz000002="万 科Ａ,4.990,..."
-            if '="' in content:
-                data_str = content.split('="')[1].split('";')[0]
-                if data_str:
-                    fields = data_str.split(',')
-                    if len(fields) > 0:
-                        cn_name = fields[0].replace(' ', '').replace('Ａ', 'A') # Clean up Sina's weird spacing
-                        company_name_localized['zh-CN'] = cn_name
-                        # Simple traditional conversion
-                        try:
-                            import opencc
-                            converter = opencc.OpenCC('s2t.json')
-                            company_name_localized['zh-TW'] = converter.convert(cn_name)
-                        except ImportError:
-                            company_name_localized['zh-TW'] = cn_name
-        except Exception as e:
-            logger.debug(f"Sina translation fetch failed for {ticker}: {e}")
-            pass # Fallback to original name if fetch fails
+    company_name_localized = _build_company_name_localized(company_name, ticker)
     
     historical_results = []
     
@@ -567,6 +526,18 @@ async def run_credit_assessment(request: AssessmentRequest):
                     "error_type": "timeout",
                     "sugg": sugg,
                 }
+            except AssessmentServiceError as exc:
+                sugg = await fetch_suggestions(ticker)
+                error_type = str(exc.details.get("error_type") or "business_error")
+                return {
+                    "type": "error",
+                    "ticker": ticker,
+                    "msg": exc.message,
+                    "error_type": error_type,
+                    "status_code": exc.status_code,
+                    "details": exc.details,
+                    "sugg": sugg,
+                }
             except DataFetchError as exc:
                 # Handle detailed data fetching errors with specific error types
                 sugg = await fetch_suggestions(ticker)
@@ -632,6 +603,112 @@ def _temporarily_clear_proxy_env(enabled: bool):
                 os.environ[k] = v
 
 
+def _contains_japanese_text(value: str) -> bool:
+    return bool(re.search(r"[\u3040-\u30ff]", value or ""))
+
+
+def _contains_cjk_text(value: str) -> bool:
+    return bool(re.search(r"[\u4e00-\u9fff]", value or ""))
+
+
+def _extract_company_name_from_stock_info(stock_info: Any) -> Optional[str]:
+    if stock_info is None:
+        return None
+    try:
+        if hasattr(stock_info, "empty") and stock_info.empty:
+            return None
+    except Exception:
+        pass
+
+    try:
+        if hasattr(stock_info, "columns") and {"item", "value"}.issubset(set(stock_info.columns)):
+            for column_name in ("股票简称", "公司名称", "名称", "name"):
+                matches = stock_info[stock_info["item"] == column_name]
+                if not matches.empty:
+                    value = matches.iloc[0].get("value")
+                    if value is not None:
+                        text = str(value).strip()
+                        if text:
+                            return text
+    except Exception:
+        pass
+
+    try:
+        if hasattr(stock_info, "columns") and "value" in stock_info.columns and not stock_info.empty:
+            value = stock_info.iloc[0].get("value")
+            if value is not None:
+                text = str(value).strip()
+                if text:
+                    return text
+    except Exception:
+        pass
+
+    return None
+
+
+def _convert_simplified_to_traditional(text: str) -> str:
+    try:
+        import opencc
+
+        return opencc.OpenCC("s2t.json").convert(text)
+    except Exception:
+        return text
+
+
+def _build_company_name_localized(
+    company_name: str,
+    ticker: str,
+    quote: Optional[Dict[str, Any]] = None,
+) -> Dict[str, str]:
+    normalized_ticker = str(ticker or "").strip().upper()
+    fallback_name = str(company_name or normalized_ticker or "N/A").strip() or normalized_ticker or "N/A"
+
+    cache_key = normalized_ticker or fallback_name
+    cached = _LOCALIZED_NAME_CACHE.get(cache_key)
+    if cached is not None:
+        merged = dict(cached)
+        merged.setdefault("en", fallback_name)
+        return merged
+
+    localized: Dict[str, str] = {"en": fallback_name}
+
+    source_text = ""
+    if isinstance(quote, dict):
+        for key in ("shortname", "longname", "displayName", "name"):
+            value = quote.get(key)
+            if isinstance(value, str) and value.strip():
+                source_text = value.strip()
+                break
+
+    if source_text:
+        if _contains_japanese_text(source_text):
+            localized["ja"] = source_text
+        elif _contains_cjk_text(source_text):
+            localized["zh-CN"] = source_text
+            localized["zh-TW"] = _convert_simplified_to_traditional(source_text)
+
+    lookup_symbol = normalized_ticker
+    for suffix in (".HK", ".SS", ".SZ", ".SH"):
+        if lookup_symbol.endswith(suffix):
+            lookup_symbol = lookup_symbol[: -len(suffix)]
+            break
+
+    if lookup_symbol.isdigit():
+        try:
+            import akshare as ak
+
+            stock_info = ak.stock_individual_info_em(symbol=lookup_symbol)
+            cn_name = _extract_company_name_from_stock_info(stock_info)
+            if cn_name:
+                localized["zh-CN"] = cn_name
+                localized["zh-TW"] = _convert_simplified_to_traditional(cn_name)
+        except Exception as exc:
+            logger.debug("Localized name lookup failed for %s: %s", normalized_ticker, exc)
+
+    _LOCALIZED_NAME_CACHE[cache_key] = dict(localized)
+    return localized
+
+
 def _search_tickers(query: str, limit: int = 5, strict: bool = False) -> list:
     """Search yfinance for similar tickers to suggest.
 
@@ -660,9 +737,14 @@ def _search_tickers(query: str, limit: int = 5, strict: bool = False) -> list:
                         continue
 
                     seen_symbols.add(symbol)
+                    display_name = str(q.get("shortname") or q.get("longname") or "").strip() or symbol
+                    localized_name = _build_company_name_localized(display_name, symbol, q)
                     suggestions.append({
                         "symbol": symbol,
-                        "name": q.get("shortname", q.get("longname", "")),
+                        "name": display_name,
+                        "company_name": display_name,
+                        "name_localized": dict(localized_name),
+                        "company_name_localized": dict(localized_name),
                     })
                     if len(suggestions) >= limit:
                         break

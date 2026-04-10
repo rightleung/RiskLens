@@ -10,6 +10,7 @@ import sys
 import os
 import types
 import time
+import pandas as pd
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
@@ -194,7 +195,41 @@ class TestSymbolSearch:
 
         monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Search=FakeSearch))
         suggestions = api._search_tickers("MSFLX", limit=5)
-        assert suggestions == [{"symbol": "MSFT", "name": "Microsoft Corporation"}]
+        assert len(suggestions) == 1
+        assert suggestions[0]["symbol"] == "MSFT"
+        assert suggestions[0]["name"] == "Microsoft Corporation"
+        assert suggestions[0]["company_name_localized"] == {"en": "Microsoft Corporation"}
+
+    def test_search_tickers_enriches_localized_name(self, monkeypatch):
+        class FakeSearch:
+            def __init__(self, _query):
+                self.quotes = [
+                    {"symbol": "0700.HK", "shortname": "Tencent Holdings", "quoteType": "EQUITY"},
+                ]
+
+        class FakeAk:
+            @staticmethod
+            def stock_individual_info_em(symbol):
+                assert symbol == "0700"
+                return pd.DataFrame({
+                    "item": ["股票简称"],
+                    "value": ["腾讯控股"],
+                })
+
+        monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Search=FakeSearch))
+        monkeypatch.setitem(sys.modules, "akshare", types.SimpleNamespace(stock_individual_info_em=FakeAk.stock_individual_info_em))
+        monkeypatch.setattr(api, "_convert_simplified_to_traditional", lambda text: f"TW:{text}")
+        api._LOCALIZED_NAME_CACHE.clear()
+
+        suggestions = api._search_tickers("0700", limit=5)
+        assert len(suggestions) == 1
+        suggestion = suggestions[0]
+        assert suggestion["symbol"] == "0700.HK"
+        assert suggestion["name"] == "Tencent Holdings"
+        assert suggestion["company_name_localized"]["en"] == "Tencent Holdings"
+        assert suggestion["company_name_localized"]["zh-CN"] == "腾讯控股"
+        assert suggestion["company_name_localized"]["zh-TW"] == "TW:腾讯控股"
+        assert suggestion["name_localized"] == suggestion["company_name_localized"]
 
     def test_symbol_search_timeout_returns_504(self, client, monkeypatch):
         def _slow_search(*_args, **_kwargs):

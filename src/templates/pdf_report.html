@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #f8f6ff;
+      --panel: rgba(255, 255, 255, 0.94);
+      --ink: #1f2430;
+      --muted: #667085;
+      --accent: #5b21b6;
+      --accent-soft: #ede9fe;
+      --line: #d9d7ea;
+      --danger: #b42318;
+      --positive: #067647;
+    }
+    @page { size: A4 landscape; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: radial-gradient(circle at top left, rgba(91, 33, 182, 0.1), transparent 28%), var(--bg);
+      font-family: Inter, 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.35;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page { page-break-after: always; break-after: page; }
+    .page:last-child { page-break-after: auto; break-after: auto; }
+    .hero {
+      background: linear-gradient(135deg, #2e1065, #5b21b6 50%, #0f766e 120%);
+      color: #fff;
+      border-radius: 20px;
+      padding: 18px 20px;
+      box-shadow: 0 24px 60px rgba(35, 16, 74, 0.14);
+    }
+    .hero-top { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+    .eyebrow { text-transform: uppercase; letter-spacing: 0.16em; font-size: 8pt; opacity: 0.72; margin-bottom: 8px; }
+    .title { font-size: 26pt; line-height: 1.05; margin: 0; font-weight: 800; }
+    .subtitle { font-size: 11pt; margin-top: 8px; opacity: 0.95; }
+    .meta-strip { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .meta-pill {
+      min-width: 120px; padding: 10px 12px; border-radius: 14px;
+      background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.18);
+    }
+    .meta-label { font-size: 8pt; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.72; }
+    .meta-value { margin-top: 4px; font-size: 11pt; font-weight: 700; }
+    .summary-grid { margin-top: 14px; display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 12px; }
+    .summary-card, .panel {
+      background: var(--panel); border: 1px solid rgba(217, 215, 234, 0.82);
+      box-shadow: 0 16px 36px rgba(43, 22, 82, 0.06); border-radius: 18px;
+    }
+    .summary-card { padding: 14px 16px; min-height: 96px; }
+    .summary-label { font-size: 9pt; text-transform: uppercase; letter-spacing: 0.10em; color: var(--muted); }
+    .summary-value { margin-top: 10px; font-size: 24pt; font-weight: 800; line-height: 1; }
+    .dual-grid { margin-top: 12px; display: grid; grid-template-columns: 1.1fr 1fr; gap: 12px; }
+    .panel { padding: 14px 16px; }
+    .section-title, .panel h2 { margin: 0 0 10px 0; font-size: 14pt; font-weight: 800; }
+    .compact-table, .statement-table, .kpi-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .compact-table th, .compact-table td, .statement-table th, .statement-table td, .kpi-table th, .kpi-table td {
+      border-bottom: 1px solid var(--line); padding: 6px 8px; vertical-align: top; word-break: break-word;
+    }
+    .compact-table th, .statement-table th, .kpi-table th {
+      background: #f4f0ff; font-size: 8.5pt; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; text-align: left;
+    }
+    .compact-table tbody tr:nth-child(even), .statement-table tbody tr:nth-child(even), .kpi-table tbody tr:nth-child(even) { background: rgba(91, 33, 182, 0.03); }
+    .list-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .list-box { border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; background: #fff; }
+    .list-box h4 { margin: 0 0 8px 0; font-size: 10pt; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .list-box ul { margin: 0; padding-left: 18px; }
+    .list-box li { margin: 0 0 6px 0; }
+    .statement-section { page-break-before: always; break-before: page; }
+    .section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+    .section-badge { display: inline-flex; align-items: center; padding: 5px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 8.5pt; font-weight: 700; }
+    .negative { color: var(--danger); font-weight: 700; }
+    .positive { color: var(--positive); font-weight: 700; }
+    .muted { color: var(--muted); }
+    .footer-note { margin-top: 10px; color: var(--muted); font-size: 8.5pt; }
+  </style>
+</head>
+<body>
+  <section class="page">
+    <div class="hero">
+      <div class="hero-top">
+        <div>
+          <div class="eyebrow">{{ report_title }}</div>
+          <h1 class="title">{{ company_name }}</h1>
+          <div class="subtitle">{{ company_name_localized }} · {{ ticker }}</div>
+        </div>
+        <div class="meta-strip">
+          <div class="meta-pill"><div class="meta-label">{{ latest_period_title }}</div><div class="meta-value">{{ latest_period }}</div></div>
+          <div class="meta-pill"><div class="meta-label">{{ currency_title }}</div><div class="meta-value">{{ currency }}</div></div>
+          <div class="meta-pill"><div class="meta-label">{{ generated_at_title }}</div><div class="meta-value">{{ generated_at }}</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="summary-grid">
+      {% for card in summary_cards %}
+      <div class="summary-card">
+        <div class="summary-label">{{ card.label }}</div>
+        <div class="summary-value{% if card.value.startswith('-') %} negative{% endif %}">{{ card.value }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="dual-grid">
+      <div class="panel">
+        <h2>{{ company_profile_title }}</h2>
+        <table class="compact-table">
+          <thead><tr><th>{{ labels.metric }}</th><th>{{ labels.actual }}</th></tr></thead>
+          <tbody>
+            {% for row in company_profile_rows %}
+            <tr><td>{{ row.label }}</td><td>{{ row.value }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h2>{{ strengths_title }}</h2>
+        <div class="list-grid">
+          <div class="list-box">
+            <h4>{{ strengths_title }}</h4>
+            <ul>{% for item in strengths %}<li>{{ item }}</li>{% else %}<li>{{ labels.no_data }}</li>{% endfor %}</ul>
+          </div>
+          <div class="list-box">
+            <h4>{{ watch_items_title }}</h4>
+            <ul>{% for item in watch_items %}<li>{{ item }}</li>{% else %}<li>{{ labels.no_data }}</li>{% endfor %}</ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dual-grid">
+      <div class="panel">
+        <h2>{{ covenant_title }}</h2>
+        <table class="compact-table">
+          <thead>
+            <tr>
+              <th>{{ labels.metric }}</th><th>{{ labels.actual }}</th><th>{{ labels.threshold }}</th>
+              <th>{{ labels.status }}</th><th>{{ labels.signal }}</th><th>{{ labels.notes }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in covenant_rows %}
+            <tr>
+              <td>{{ row.metric }}</td><td class="{% if row.actual.startswith('-') %}negative{% endif %}">{{ row.actual }}</td>
+              <td>{{ row.threshold }}</td><td>{{ row.status }}</td><td>{{ row.signal }}</td><td>{{ row.notes }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="muted">{{ labels.no_data }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h2>{{ data_quality_title }}</h2>
+        <table class="compact-table">
+          <thead><tr><th>{{ labels.metric }}</th><th>{{ labels.actual }}</th><th>{{ labels.notes }}</th></tr></thead>
+          <tbody>
+            {% for row in data_quality_rows %}
+            <tr><td>{{ row.label }}</td><td>{{ row.value }}</td><td>{{ row.notes }}</td></tr>
+            {% else %}
+            <tr><td colspan="3" class="muted">{{ labels.no_data }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="panel">
+      <div class="section-head"><h2 class="section-title">{{ kpi_title }}</h2><span class="section-badge">{{ latest_period }}</span></div>
+      <table class="kpi-table">
+        <thead>
+          <tr>
+            <th>{{ labels.metric }}</th>
+            {% for period in periods %}<th>{{ period.label }}</th>{% endfor %}
+            <th>{{ labels.yoy }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in kpi_rows %}
+          <tr>
+            <td class="item">{{ row.label }}</td>
+            {% for value in row.values %}<td class="{% if value.startswith('-') %}negative{% endif %}">{{ value }}</td>{% endfor %}
+            <td class="{% if row.yoy.startswith('-') %}negative{% endif %}">{{ row.yoy }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="muted">{{ labels.no_data }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="footer-note">{{ report_title }} · {{ company_name }} · {{ generated_at }}</div>
+  </section>
+
+  {% for section in statement_sections %}
+  <section class="page statement-section">
+    <div class="section-head"><h2 class="section-title">{{ section.title }}</h2><span class="section-badge">{{ section.periods[0] if section.periods else latest_period }}</span></div>
+    <table class="statement-table">
+      <thead>
+        <tr><th>{{ labels.metric }}</th>{% for period in section.periods %}<th>{{ period }}</th>{% endfor %}<th>{{ labels.yoy }}</th></tr>
+      </thead>
+      <tbody>
+        {% for row in section.rows %}
+        <tr>
+          <td class="item">{{ row.label }}</td>
+          {% for value in row.values %}<td class="{% if value.startswith('-') %}negative{% endif %}">{{ value }}</td>{% endfor %}
+          <td class="{% if row.yoy.startswith('-') %}negative{% endif %}">{{ row.yoy }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="muted">{{ labels.no_data }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endfor %}
+</body>
+</html>
