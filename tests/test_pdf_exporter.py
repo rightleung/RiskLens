@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
+import shutil
+import subprocess
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+ROOT = os.path.join(os.path.dirname(__file__), "..")
+sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "src"))
 
+import pdf_exporter
+from reportlab_pdf_renderer import _render_reportlab_pdf
 from pdf_exporter import _build_yoy_map, _is_negative_display_value, generate_full_pdf
+
+
+REPORTLAB_AVAILABLE = importlib.util.find_spec("reportlab") is not None
 
 
 def _statement_rows(prefix: str, count: int) -> dict[str, float]:
@@ -187,12 +197,115 @@ def test_build_yoy_map_handles_quarter_and_annual_history():
 
 def test_negative_display_helper_ignores_placeholders():
     assert _is_negative_display_value("-12.3")
+    assert _is_negative_display_value(" -12.3 ")
     assert not _is_negative_display_value("--")
     assert not _is_negative_display_value("")
 
 
+def test_build_pdf_document_model_cleans_profile_labels():
+    report = _build_report()
+    report["company_profile"] = {
+        "sector.": "Technology",
+        "industry:": "Consumer Electronics",
+        "country。": "US",
+    }
+
+    model = pdf_exporter.build_pdf_document_model(report, "en")
+
+    assert [row["label"] for row in model["summary"]["company_profile_rows"]] == [
+        "Sector",
+        "Industry",
+        "Country",
+    ]
+    assert model["statements"][0]["rows"][0]["label"] == "Income 0"
+    assert model["kpi"]["headers"][2] == "Q3 FY24"
+
+
+def test_generate_full_pdf_rejects_invalid_numeric_payload():
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
+    report = _build_report()
+    report["history"][0]["raw_metrics"]["debt_ebitda"] = "18..60x"
+
+    with pytest.raises(ValueError, match="Invalid numeric value"):
+        generate_full_pdf(report, lang="en")
+
+
+def test_generate_full_pdf_rejects_inline_breaks():
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
+    report = _build_report()
+    report["history"][0]["statements"]["income"]["income\nSplit"] = 100
+
+    with pytest.raises(ValueError, match="FATAL: 渲染层拒绝接收硬合并的多行数据"):
+        pdf_exporter.build_pdf_document_model(report, lang="en")
+
+
+def test_generate_full_pdf_rejects_merged_metric_labels():
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
+    report = _build_report()
+    report["history"][0]["statements"]["income"]["income_0"] = {
+        "label": "Income 2 Income 3",
+        "value": 300,
+    }
+
+    with pytest.raises(ValueError, match="Merged metric text"):
+        pdf_exporter.build_pdf_document_model(report, lang="en")
+
+
+def test_reportlab_renderer_rejects_inline_breaks_in_sanitized_model():
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
+    model = pdf_exporter.build_pdf_document_model(_build_report(), "en")
+    model["kpi"]["rows"][0][0] = "Metric\nSplit"
+
+    with pytest.raises(ValueError, match="FATAL: Renderer rejects hard-merged multiline data"):
+        _render_reportlab_pdf(model)
+
+
+def test_reportlab_renderer_pads_cover_hero_slots():
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
+    model = pdf_exporter.build_pdf_document_model(_build_report(), "en")
+    model["cover"]["hero_summary"]["items"] = [
+        {"label": "Only Slot", "value": "1.0", "tone": "info"},
+    ]
+
+    pdf_bytes = _render_reportlab_pdf(model)
+
+    assert pdf_bytes.startswith(b"%PDF")
+    assert len(pdf_bytes) > 8000
+
+
+def test_generate_full_pdf_renders_empty_statement_pages_without_table_headers(tmp_path):
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
+
+    pdf_bytes = generate_full_pdf(_build_report(), lang="en")
+    pdf_file = tmp_path / "empty-state.pdf"
+    pdf_file.write_bytes(pdf_bytes)
+
+    if shutil.which("pdftotext"):
+        extracted = subprocess.check_output(["pdftotext", str(pdf_file), "-"], text=True)
+        pages = extracted.split("\f")
+        assert len(pages) >= 7
+        assert "RiskLens Financial Report" not in pages[0]
+        assert "Apple Inc." in pages[0]
+        assert "Contents" not in pages[0]
+        assert "Methodology Note" not in pages[0]
+        assert "Q3'25 vs Q3'24" in extracted
+        assert "FY24 vs FY23" in extracted
+        empty_pages = [page for page in pages if ("Balance Sheet" in page or "Cash Flow Statement" in page) and "[No valid data provided for this period]" in page]
+        assert len(empty_pages) >= 2
+        assert all("Metric" in page for page in empty_pages)
+        assert all("YoY" not in page for page in empty_pages)
+
+
 @pytest.mark.parametrize("lang", ["en", "zh-CN", "zh-TW", "ja"])
 def test_generate_full_pdf_supports_all_languages(lang):
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
     pdf_bytes = generate_full_pdf(_build_report(), lang=lang)
 
     assert pdf_bytes.startswith(b"%PDF")
@@ -200,7 +313,20 @@ def test_generate_full_pdf_supports_all_languages(lang):
     assert pdf_bytes.count(b"/Type /Page") >= 5
 
 
+def test_generate_full_pdf_supports_light_theme():
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
+    model = pdf_exporter.build_pdf_document_model(_build_report(), "en", "light")
+    assert model["theme"] == "light"
+    assert model["context"]["theme"] == "light"
+    pdf_bytes = generate_full_pdf(_build_report(), lang="en", theme="light")
+    assert pdf_bytes.startswith(b"%PDF")
+    assert len(pdf_bytes) > 8000
+
+
 def test_generate_full_pdf_rejects_empty_history():
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
     report = _build_report()
     report["history"] = []
 

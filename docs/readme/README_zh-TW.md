@@ -1,6 +1,6 @@
 # RiskLens
 
-語言: [English](./README.md) | [简体中文](./README_zh-CN.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md)
+語言: [English](../README.md) | [简体中文](./README_zh-CN.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md)
 
 ## 1. 執行路徑
 
@@ -119,9 +119,10 @@ curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
 
 建議保留以下三份文件，因為各自負責不同邊界：
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md)：執行邊界與元件職責
-- [METHODOLOGY.md](./METHODOLOGY.md)：評分方法與風險分層口徑
-- [REPORT_WORKBOOK_SPEC.md](./REPORT_WORKBOOK_SPEC.md)：Excel 匯出契約與欄位規則
+- [ARCHITECTURE.md](../architecture/ARCHITECTURE.md)：執行邊界與元件職責
+- [METHODOLOGY.md](../methodology/METHODOLOGY.md)：評分方法與風險分層口徑
+- [REPORT_WORKBOOK_SPEC.md](../report-workbook/REPORT_WORKBOOK_SPEC.md)：Excel 匯出契約與欄位規則
+- 其他語言版本已統一收納到對應目錄（如 `docs/readme/` 與 `docs/architecture/`），方便保持根目錄整潔。
 
 職責劃分：
 - README：上手與執行

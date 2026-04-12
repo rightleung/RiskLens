@@ -6,9 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-PYTHON_BIN="python3"
-if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
-  PYTHON_BIN="$SCRIPT_DIR/.venv/bin/python"
-fi
+export RISKLENS_ROOT="$SCRIPT_DIR"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/scripts/venv_bootstrap.sh"
 
 exec "$PYTHON_BIN" "$SCRIPT_DIR/src/risklens_cli.py" "$@"

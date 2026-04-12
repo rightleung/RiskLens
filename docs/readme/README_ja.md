@@ -1,6 +1,6 @@
 # RiskLens
 
-Language: [English](./README.md) | [简体中文](./README_zh-CN.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md)
+Language: [English](../README.md) | [简体中文](./README_zh-CN.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md)
 
 ## 1. 実行パス
 
@@ -119,9 +119,10 @@ curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
 
 以下の 3 文書は責務が異なるため、維持を推奨します。
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md)：実行境界とコンポーネント責務
-- [METHODOLOGY.md](./METHODOLOGY.md)：スコアリング手法とリスク区分
-- [REPORT_WORKBOOK_SPEC.md](./REPORT_WORKBOOK_SPEC.md)：Excel 出力契約と項目ルール
+- [ARCHITECTURE.md](../architecture/ARCHITECTURE.md)：実行境界とコンポーネント責務
+- [METHODOLOGY.md](../methodology/METHODOLOGY.md)：スコアリング手法とリスク区分
+- [REPORT_WORKBOOK_SPEC.md](../report-workbook/REPORT_WORKBOOK_SPEC.md)：Excel 出力契約と項目ルール
+- 他言語版は対応するディレクトリ（例: `docs/readme/` と `docs/architecture/`）にまとめ、ルートをすっきり保っています。
 
 責務分担：
 - README：導入と実行手順

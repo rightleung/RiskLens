@@ -6,12 +6,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-PYTHON_BIN="python3"
-if [ -d ".venv" ]; then
-  # shellcheck disable=SC1091
-  source .venv/bin/activate
-  PYTHON_BIN="$SCRIPT_DIR/.venv/bin/python"
-fi
+export RISKLENS_ROOT="$SCRIPT_DIR"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/scripts/venv_bootstrap.sh"
 
 "$PYTHON_BIN" -c "import fastapi, uvicorn" >/dev/null 2>&1 || {
   echo "[Setup] Installing dependencies..."

@@ -1,6 +1,6 @@
 # RiskLens
 
-语言: [English](./README.md) | [简体中文](./README_zh-CN.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md)
+语言: [English](../README.md) | [简体中文](./README_zh-CN.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md)
 
 ## 1. 运行路径
 
@@ -119,9 +119,10 @@ curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
 
 建议保留以下三份文档，因为它们对应不同的职责边界：
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md)：运行边界与组件职责
-- [METHODOLOGY.md](./METHODOLOGY.md)：评分方法与风险分层口径
-- [REPORT_WORKBOOK_SPEC.md](./REPORT_WORKBOOK_SPEC.md)：Excel 导出契约与字段规则
+- [ARCHITECTURE.md](../architecture/ARCHITECTURE.md)：运行边界与组件职责
+- [METHODOLOGY.md](../methodology/METHODOLOGY.md)：评分方法与风险分层口径
+- [REPORT_WORKBOOK_SPEC.md](../report-workbook/REPORT_WORKBOOK_SPEC.md)：Excel 导出契约与字段规则
+- 其他语言版本已统一收纳到对应目录（如 `docs/readme/` 与 `docs/architecture/`），便于保持根目录整洁。
 
 职责划分：
 - README：上手与运行

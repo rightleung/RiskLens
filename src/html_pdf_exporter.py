@@ -1,21 +1,16 @@
 from __future__ import annotations
 
-import asyncio
-import html as html_lib
 import re
 from datetime import datetime, timezone
-from pathlib import Path
-from threading import Thread
 from typing import Any
-
-BASE_DIR = Path(__file__).resolve().parent
-TEMPLATE_PATH = BASE_DIR / 'templates' / 'pdf_report.html'
 
 LANG = {
     'en': {
         'report_title': 'RiskLens Financial Report',
+        'credit_health_summary': 'Credit Health Summary',
         'executive_summary': 'Executive Summary',
         'company_profile': 'Company Profile',
+        'key_risk_profile': 'Key Risk Profile',
         'latest_period': 'Latest Period',
         'currency': 'Currency',
         'generated_at': 'Generated At',
@@ -25,6 +20,7 @@ LANG = {
         'data_quality': 'Data Quality',
         'kpi_trends': 'KPI Trends',
         'financial_statements': 'Financial Statements',
+        'contents': 'Contents',
         'income_statement': 'Income Statement',
         'balance_sheet': 'Balance Sheet',
         'cash_flow_statement': 'Cash Flow Statement',
@@ -32,18 +28,39 @@ LANG = {
         'actual': 'Actual',
         'threshold': 'Threshold',
         'status': 'Status',
+        'status_signal': 'Status / Signal',
         'signal': 'Signal',
+        'indicator_description': 'Indicator / Usage',
         'notes': 'Notes',
-        'yoy': 'YoY',
+        'yoy': 'FY Comparison',
         'no_data': 'No data available',
         'altman_z_score': 'Altman Z-Score',
         'zone': 'Zone',
         'implied_rating': 'Implied Rating',
+        'methodology_note_title': 'Methodology Note',
+        'covenant_note_title': 'Indicator Notes',
+        'altman_component_wc': 'Working Capital / Total Assets',
+        'altman_component_re': 'Retained Earnings / Total Assets',
+        'altman_component_ebit': 'EBIT / Total Assets',
+        'altman_status_safe': 'Safe',
+        'altman_status_watch': 'Watch',
+        'altman_status_distress': 'Distress',
+        'altman_summary_safe': 'Resilient balance-sheet profile with comfortable operating coverage.',
+        'altman_summary_watch': 'Moderate credit profile with key watch points in liquidity and leverage.',
+        'altman_summary_distress': 'Elevated balance-sheet stress and a weaker operating cushion require close monitoring.',
+        'altman_summary_neutral': 'Altman Z-Score is available for the latest period.',
+        'benchmark_note': '* Shaded columns mark the latest completed audited fiscal year (Historical Benchmark).',
+        'model_note': 'Derived from the Altman model',
+        'methodology_altman_note': 'Altman Z: weighted model based on working capital, retained earnings, EBIT, market value, and sales.',
+        'methodology_zone_note': 'Zone: >2.99 Safe, 1.81-2.99 Grey, <1.81 Distress.',
+        'methodology_rating_note': 'Rating: implied rating mapped from Z-Score and historical default rates.',
     },
     'zh-CN': {
         'report_title': 'RiskLens 风险分析报告',
+        'credit_health_summary': '信用健康摘要',
         'executive_summary': '执行摘要',
         'company_profile': '公司概况',
+        'key_risk_profile': '核心风险特征',
         'latest_period': '最新期间',
         'currency': '币种',
         'generated_at': '生成时间',
@@ -53,6 +70,7 @@ LANG = {
         'data_quality': '数据质量',
         'kpi_trends': '核心指标趋势',
         'financial_statements': '财务报表',
+        'contents': '目录',
         'income_statement': '利润表',
         'balance_sheet': '资产负债表',
         'cash_flow_statement': '现金流量表',
@@ -60,18 +78,39 @@ LANG = {
         'actual': '实际值',
         'threshold': '阈值',
         'status': '状态',
+        'status_signal': '状态/信号',
         'signal': '信号',
+        'indicator_description': '指标说明/用途',
         'notes': '备注',
-        'yoy': '同比',
+        'yoy': 'FY对比',
         'no_data': '暂无数据',
         'altman_z_score': 'Altman Z 分数',
         'zone': '区间',
         'implied_rating': '隐含评级',
+        'methodology_note_title': '方法论注解',
+        'covenant_note_title': '指标说明',
+        'altman_component_wc': '营运资本 / 总资产',
+        'altman_component_re': '留存收益 / 总资产',
+        'altman_component_ebit': 'EBIT / 总资产',
+        'altman_status_safe': '安全',
+        'altman_status_watch': '观察',
+        'altman_status_distress': '困境',
+        'altman_summary_safe': '资产负债结构稳健，营运覆盖能力充足。',
+        'altman_summary_watch': '信用状况中性偏弱，需关注流动性与杠杆。',
+        'altman_summary_distress': '资产负债压力偏高，需持续密切监控。',
+        'altman_summary_neutral': '已取得最新期间的 Altman Z 分数。',
+        'benchmark_note': '* 加深列代表最近一个完整会计年度的已审计基准数据 (Historical Benchmark)。',
+        'model_note': '基于 Altman 模型推导',
+        'methodology_altman_note': 'Altman Z：基于营运资本、留存收益、EBIT、市值、营收的加权模型。',
+        'methodology_zone_note': 'Zone：>2.99 Safe，1.81-2.99 Grey，<1.81 Distress。',
+        'methodology_rating_note': 'Rating：基于 Z 分数与历史违约率映射的隐含评级。',
     },
     'zh-TW': {
         'report_title': 'RiskLens 風險分析報告',
+        'credit_health_summary': '信用健康摘要',
         'executive_summary': '執行摘要',
         'company_profile': '公司概況',
+        'key_risk_profile': '核心風險特徵',
         'latest_period': '最新期間',
         'currency': '幣別',
         'generated_at': '產生時間',
@@ -81,6 +120,7 @@ LANG = {
         'data_quality': '資料品質',
         'kpi_trends': '核心指標趨勢',
         'financial_statements': '財務報表',
+        'contents': '目錄',
         'income_statement': '損益表',
         'balance_sheet': '資產負債表',
         'cash_flow_statement': '現金流量表',
@@ -88,18 +128,39 @@ LANG = {
         'actual': '實際值',
         'threshold': '門檻',
         'status': '狀態',
+        'status_signal': '狀態/訊號',
         'signal': '訊號',
+        'indicator_description': '指標說明/用途',
         'notes': '備註',
-        'yoy': '年增率',
+        'yoy': 'FY比較',
         'no_data': '暫無資料',
         'altman_z_score': 'Altman Z 分數',
         'zone': '區間',
         'implied_rating': '隱含評等',
+        'methodology_note_title': '方法論註解',
+        'covenant_note_title': '指標說明',
+        'altman_component_wc': '營運資本 / 總資產',
+        'altman_component_re': '保留盈餘 / 總資產',
+        'altman_component_ebit': 'EBIT / 總資產',
+        'altman_status_safe': '安全',
+        'altman_status_watch': '觀察',
+        'altman_status_distress': '困境',
+        'altman_summary_safe': '資產負債結構穩健，營運覆蓋能力充足。',
+        'altman_summary_watch': '信用狀況中性偏弱，需關注流動性與槓桿。',
+        'altman_summary_distress': '資產負債壓力偏高，需持續密切監控。',
+        'altman_summary_neutral': '已取得最新期間的 Altman Z 分數。',
+        'benchmark_note': '* 加深列代表最近一個完整會計年度的已審計基準資料 (Historical Benchmark)。',
+        'model_note': '基於 Altman 模型推導',
+        'methodology_altman_note': 'Altman Z：基於營運資本、保留盈餘、EBIT、市值、營收的加權模型。',
+        'methodology_zone_note': 'Zone：>2.99 Safe，1.81-2.99 Grey，<1.81 Distress。',
+        'methodology_rating_note': 'Rating：基於 Z 分數與歷史違約率映射的隱含評等。',
     },
     'ja': {
         'report_title': 'RiskLens 財務レポート',
+        'credit_health_summary': 'クレジット健全性サマリー',
         'executive_summary': 'エグゼクティブサマリー',
         'company_profile': '会社概要',
+        'key_risk_profile': '主要リスク特性',
         'latest_period': '最新期間',
         'currency': '通貨',
         'generated_at': '生成日時',
@@ -109,6 +170,7 @@ LANG = {
         'data_quality': 'データ品質',
         'kpi_trends': 'KPIトレンド',
         'financial_statements': '財務諸表',
+        'contents': '目次',
         'income_statement': '損益計算書',
         'balance_sheet': '貸借対照表',
         'cash_flow_statement': 'キャッシュフロー計算書',
@@ -116,13 +178,32 @@ LANG = {
         'actual': '実績',
         'threshold': '基準',
         'status': '状態',
+        'status_signal': '状態/シグナル',
         'signal': 'シグナル',
+        'indicator_description': '指標の説明/用途',
         'notes': '注記',
-        'yoy': '前年差',
+        'yoy': 'FY比較',
         'no_data': 'データなし',
         'altman_z_score': 'Altman Zスコア',
         'zone': 'ゾーン',
         'implied_rating': '推定格付け',
+        'methodology_note_title': '方法論注記',
+        'covenant_note_title': '指標の説明',
+        'altman_component_wc': '運転資本 / 総資産',
+        'altman_component_re': '利益剰余金 / 総資産',
+        'altman_component_ebit': 'EBIT / 総資産',
+        'altman_status_safe': '安全',
+        'altman_status_watch': 'ウォッチ',
+        'altman_status_distress': 'ディストレス',
+        'altman_summary_safe': '財務基盤は堅調で、営業カバー力も十分です。',
+        'altman_summary_watch': '信用プロファイルは中立からやや弱含みで、流動性とレバレッジの監視が必要です。',
+        'altman_summary_distress': '財務負担が高く、継続的な注視が必要です。',
+        'altman_summary_neutral': '最新期間の Altman Z スコアが取得されています。',
+        'benchmark_note': '* 強調列は直近の完了した監査済み年度 (Historical Benchmark) を示します。',
+        'model_note': 'Altmanモデルに基づく推定',
+        'methodology_altman_note': 'Altman Z: 運転資本、利益剰余金、EBIT、市場価値、売上高の加重モデル。',
+        'methodology_zone_note': 'Zone: >2.99 Safe、1.81-2.99 Grey、<1.81 Distress。',
+        'methodology_rating_note': 'Rating: Zスコアと歴史的デフォルト率を対応付けた推定格付け。',
     },
 }
 
@@ -136,12 +217,34 @@ KPI_SPECS = [
     ('FCF / Debt', ('fcf_debt',)),
     ('Current Ratio', ('current_ratio',)),
 ]
-
 STATEMENT_KEYS = [
-    ('income_statement', 'Income Statement', ('income', 'pnl', 'profit_and_loss')),
-    ('balance_sheet', 'Balance Sheet', ('bs', 'statement_of_financial_position')),
-    ('cash_flow_statement', 'Cash Flow Statement', ('cash_flow', 'cashflow', 'cf')),
+    ('income_statement', 'income_statement', ('income', 'pnl', 'profit_and_loss')),
+    ('balance_sheet', 'balance_sheet', ('bs', 'statement_of_financial_position')),
+    ('cash_flow_statement', 'cash_flow_statement', ('cash_flow', 'cashflow', 'cf')),
 ]
+RATIO_METRICS = {'Debt / EBITDA', 'Interest Coverage', 'FCF / Debt', 'Current Ratio'}
+
+PDF_STYLE_TOKENS = {
+    'bg': '#020617',
+    'panel': '#0f172a',
+    'panel_strong': '#111827',
+    'ink': '#e2e8f0',
+    'muted': '#94a3b8',
+    'line': '#273244',
+    'positive': '#4ade80',
+    'warning': '#f59e0b',
+    'danger': '#f87171',
+    'info': '#e2c98e',
+    'accent': '#d4b46a',
+    'shadow': '0 26px 70px rgba(2, 6, 23, 0.28)',
+    'shadow_soft': '0 18px 34px rgba(2, 6, 23, 0.24)',
+    'body_font': "'IBM Plex Sans', 'Noto Sans SC', 'Microsoft YaHei', sans-serif",
+    'heading_font': "'IBM Plex Sans', 'Noto Sans SC', 'Microsoft YaHei', sans-serif",
+}
+
+
+def _style_tokens() -> dict[str, str]:
+    return dict(PDF_STYLE_TOKENS)
 
 
 def _lang(lang: str | None) -> str:
@@ -226,6 +329,68 @@ def _format_value(value: Any) -> str:
     return f'{number:,.2f}'
 
 
+def _format_ratio_value(label: str, value: Any) -> str:
+    text = _format_value(value)
+    if text == '--':
+        return text
+    return f'{text}x' if label in RATIO_METRICS else text
+
+
+def _format_yoy_change(current: Any, previous: Any) -> str:
+    current_num = _safe_number(current)
+    previous_num = _safe_number(previous)
+    if current_num is None or previous_num is None:
+        return 'N/A'
+    if previous_num == 0:
+        return _format_number(current_num - previous_num, signed=True)
+    if current_num < 0 < previous_num or previous_num < 0 < current_num:
+        return _format_number(current_num - previous_num, signed=True)
+    if current_num < 0 and previous_num < 0:
+        pct = (abs(current_num) - abs(previous_num)) / abs(previous_num) * 100
+        return _format_number(pct, signed=True, suffix='%')
+    pct = (current_num - previous_num) / abs(previous_num) * 100
+    return _format_number(pct, signed=True, suffix='%')
+
+
+def _split_history_by_kind(history: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    buckets: dict[str, list[dict[str, Any]]] = {'quarter': [], 'annual': [], 'unknown': []}
+    for entry in history:
+        kind = _period_kind(str(entry.get('fiscal_year') or entry.get('period') or entry.get('label') or ''))
+        buckets.setdefault(kind, []).append(entry)
+    return buckets
+
+
+def _covenant_description(lang: str, metric: str) -> str:
+    key = _normalize_key(metric)
+    descriptions = {
+        'en': {
+            'debtebitda': 'Leverage and debt burden',
+            'interestcoverage': 'EBIT coverage of interest',
+            'fcfdebt': 'Cash flow support for debt',
+            'currentratio': 'Short-term liquidity',
+        },
+        'zh-CN': {
+            'debtebitda': '衡量杠杆与偿债能力',
+            'interestcoverage': '衡量利息覆盖倍数',
+            'fcfdebt': '衡量现金流偿债能力',
+            'currentratio': '衡量短期流动性',
+        },
+        'zh-TW': {
+            'debtebitda': '衡量槓桿與償債能力',
+            'interestcoverage': '衡量利息覆蓋倍數',
+            'fcfdebt': '衡量現金流償債能力',
+            'currentratio': '衡量短期流動性',
+        },
+        'ja': {
+            'debtebitda': 'レバレッジと返済負担',
+            'interestcoverage': '利息支払余力を測定',
+            'fcfdebt': '負債に対するCF余力',
+            'currentratio': '短期流動性を測定',
+        },
+    }
+    return descriptions.get(lang, descriptions['en']).get(key, '--')
+
+
 def _period_key(label: str | None) -> tuple[int, int, int]:
     if not label:
         return (0, 0, 0)
@@ -241,8 +406,19 @@ def _period_key(label: str | None) -> tuple[int, int, int]:
         year = int(annual.group('year'))
         if year < 100:
             year += 2000
-        return (year, 4, 0)
+        return (year, 0, 0)
     return (0, 0, 0)
+
+
+def _period_kind(label: str | None) -> str:
+    if not label:
+        return 'unknown'
+    text = str(label).upper()
+    if re.match(r'^(?:FY)?(?P<year>\d{2,4})Q(?P<quarter>[1-4])$', text):
+        return 'quarter'
+    if re.match(r'^FY(?P<year>\d{2,4})$', text):
+        return 'annual'
+    return 'unknown'
 
 
 def _format_period_label(label: str | None) -> str:
@@ -258,10 +434,51 @@ def _format_period_label(label: str | None) -> str:
     return str(label)
 
 
-def _build_yoy_map(periods: list[str]) -> dict[str, str]:
-    available = {str(p).upper() for p in periods if p}
+def _build_yoy_map(periods: Any) -> Any:
+    sequence = list(_sequence(periods))
+    if any(isinstance(item, dict) for item in sequence):
+        entries: list[dict[str, str]] = []
+        seen: set[str] = set()
+        seen_kind: set[str] = set()
+        raw_periods: list[str] = []
+        for item in sequence:
+            if not isinstance(item, dict):
+                continue
+            raw = str(item.get('fiscal_year') or item.get('period') or item.get('label') or '').strip()
+            if not raw or raw in seen:
+                continue
+            seen.add(raw)
+            raw_periods.append(raw)
+        available = {period.upper(): period for period in raw_periods}
+        for period in raw_periods:
+            key = str(period).upper()
+            if m := re.match(r'^(?:FY)?(?P<year>\d{2,4})Q(?P<quarter>[1-4])$', key):
+                if 'quarter' in seen_kind:
+                    continue
+                year = int(m.group('year'))
+                if year < 100:
+                    year += 2000
+                prev_candidates = (f'{(year - 1) % 100:02d}Q{m.group("quarter")}', f'{year - 1}Q{m.group("quarter")}')
+                compare = next((available[candidate] for candidate in prev_candidates if candidate in available), None)
+                if compare:
+                    entries.append({'yearCode': period, 'prevYearCode': compare})
+                    seen_kind.add('quarter')
+            elif m := re.match(r'^FY(?P<year>\d{2,4})$', key):
+                if 'annual' in seen_kind:
+                    continue
+                year = int(m.group('year'))
+                if year < 100:
+                    year += 2000
+                prev_candidates = (f'FY{(year - 1) % 100:02d}', f'FY{year - 1}')
+                compare = next((available[candidate] for candidate in prev_candidates if candidate in available), None)
+                if compare:
+                    entries.append({'yearCode': period, 'prevYearCode': compare})
+                    seen_kind.add('annual')
+        return entries
+
+    available = {str(p).upper() for p in sequence if p}
     mapping: dict[str, str] = {}
-    for period in periods:
+    for period in sequence:
         if not period:
             continue
         key = str(period).upper()
@@ -286,6 +503,62 @@ def _build_yoy_map(periods: list[str]) -> dict[str, str]:
             elif alt in available:
                 mapping[key] = alt
     return mapping
+
+
+def _format_yoy_label(lang: str, current_period: str | None, compare_period: str | None) -> str:
+    if not current_period or not compare_period:
+        return _t(lang, 'yoy')
+    def _compact(label: str) -> str:
+        text = str(label or '').strip()
+        quarter = re.match(r'^Q([1-4]) FY(\d{2,4})$', text, re.IGNORECASE)
+        if quarter:
+            year = quarter.group(2)
+            if len(year) == 4:
+                year = year[-2:]
+            return f"Q{quarter.group(1)}'{year}"
+        annual = re.match(r'^FY(\d{2,4})$', text, re.IGNORECASE)
+        if annual:
+            year = annual.group(1)
+            if len(year) == 4:
+                year = year[-2:]
+            return f'FY{year}'
+        return text
+    return f"{_compact(current_period)} vs {_compact(compare_period)}"
+
+
+def _format_yoy_short_label(lang: str, kind: str) -> str:
+    return _t(lang, 'yoy')
+
+
+def _format_yoy_note(lang: str, quarter_current: str | None, quarter_compare: str | None, annual_current: str | None, annual_compare: str | None) -> str:
+    quarter_text = _format_yoy_label(lang, quarter_current, quarter_compare) if quarter_current and quarter_compare else f'{quarter_current or "N/A"} vs {quarter_compare or "N/A"}'
+    annual_text = _format_yoy_label(lang, annual_current, annual_compare) if annual_current and annual_compare else f'{annual_current or "N/A"} vs {annual_compare or "N/A"}'
+    templates = {
+        'en': '({quarter} | {annual})',
+        'zh-CN': '（{quarter} | {annual}）',
+        'zh-TW': '（{quarter} | {annual}）',
+        'ja': '（{quarter} | {annual}）',
+    }
+    return templates.get(lang, templates['en']).format(quarter=quarter_text, annual=annual_text)
+
+
+def _normalize_signal_text(signal: Any, status: Any = None) -> str:
+    signal_text = str(signal or '').strip()
+    status_text = str(status or '').strip()
+    if signal_text.lower() in {'green', 'ok', 'pass', 'safe'} and status_text:
+        return status_text
+    return signal_text or status_text or '--'
+
+
+def _signal_tone(signal: Any, status: Any = None) -> str:
+    text = f"{signal or ''} {status or ''}".lower()
+    if any(token in text for token in ('green', 'pass', 'safe', 'ok', 'good')):
+        return 'success'
+    if any(token in text for token in ('yellow', 'amber', 'watch', 'warning', 'caution')):
+        return 'warning'
+    if any(token in text for token in ('red', 'fail', 'breach', 'bad', 'risk')):
+        return 'danger'
+    return 'neutral'
 
 
 def _pick(source: dict[str, Any], candidates: tuple[str, ...]) -> Any:
@@ -332,36 +605,49 @@ def _extract_texts(value: Any) -> list[str]:
     return items
 
 
-def _extract_summary(entry: dict[str, Any]) -> dict[str, Any]:
+def _extract_summary(entry: dict[str, Any], lang: str = 'en') -> dict[str, Any]:
     assessment = _mapping(entry.get('assessment'))
     strengths = _extract_texts(assessment.get('strengths') or entry.get('strengths'))
     watch_items = _extract_texts(assessment.get('watch_items') or assessment.get('concerns') or entry.get('watch_items') or entry.get('concerns') or entry.get('risks'))
     covenant_rows: list[dict[str, str]] = []
     for item in _sequence(assessment.get('covenant_pre_check') or assessment.get('covenants') or entry.get('covenant_pre_check') or entry.get('covenants')):
         if isinstance(item, dict):
+            status = str(item.get('status') or item.get('result') or '').strip()
+            signal = str(item.get('signal') or item.get('direction') or '--')
+            status_signal = status if status and status != '--' else _normalize_signal_text(signal, status)
+            metric_name = _normalize_label_text(item.get('metric') or item.get('label') or item.get('name') or '--')
+            description = _covenant_description(lang, metric_name)
             covenant_rows.append({
-                'metric': str(item.get('metric') or item.get('label') or item.get('name') or '--'),
+                'metric': metric_name,
                 'actual': _format_value(item.get('actual') or item.get('value')),
                 'threshold': _format_value(item.get('threshold') or item.get('limit') or item.get('target')),
-                'status': str(item.get('status') or item.get('result') or '--'),
-                'signal': str(item.get('signal') or item.get('direction') or '--'),
-                'notes': str(item.get('notes') or item.get('note') or '--'),
+                'status_signal': status_signal,
+                'status_signal_tone': _signal_tone(signal, status),
+                'notes': _clean_display_text(item.get('notes') or item.get('note') or '--'),
+                'description': description,
             })
     data_quality: list[dict[str, str]] = []
     raw_quality = assessment.get('data_quality') or entry.get('data_quality') or entry.get('quality') or {}
     if isinstance(raw_quality, dict):
         for key, value in raw_quality.items():
             if isinstance(value, dict):
-                data_quality.append({'label': str(value.get('label') or key), 'value': _format_value(value.get('value') or value.get('score') or value.get('status')), 'notes': str(value.get('notes') or value.get('note') or '--')})
+                label = _normalize_label_text(value.get('label') or key)
+                data_quality.append({'label': label, 'value': _format_data_quality_value(label, value.get('value') or value.get('score') or value.get('status')), 'notes': str(value.get('notes') or value.get('note') or '--')})
             else:
-                data_quality.append({'label': str(key), 'value': _format_value(value), 'notes': '--'})
+                label = _normalize_label_text(key)
+                data_quality.append({'label': label, 'value': _format_data_quality_value(label, value), 'notes': '--'})
     elif isinstance(raw_quality, list):
         for item in raw_quality:
             if isinstance(item, dict):
-                data_quality.append({'label': str(item.get('label') or item.get('name') or '--'), 'value': _format_value(item.get('value') or item.get('score') or item.get('status')), 'notes': str(item.get('notes') or item.get('note') or '--')})
+                label = _normalize_label_text(item.get('label') or item.get('name') or '--')
+                data_quality.append({'label': label, 'value': _format_data_quality_value(label, item.get('value') or item.get('score') or item.get('status')), 'notes': str(item.get('notes') or item.get('note') or '--')})
     if not data_quality:
         data_quality.append({'label': 'Coverage', 'value': '--', 'notes': '--'})
-
+    covenant_notes = [
+        {'metric': row['metric'], 'description': row['description']}
+        for row in covenant_rows
+        if row.get('description') and row.get('description') != '--'
+    ]
     return {
         'altman_z_score': _pick(assessment, ('altman_z_score', 'altman_score', 'z_score')),
         'zone': _pick(assessment, ('altman_zone', 'zone', 'risk_zone')),
@@ -369,8 +655,186 @@ def _extract_summary(entry: dict[str, Any]) -> dict[str, Any]:
         'strengths': strengths,
         'watch_items': watch_items,
         'covenant_rows': covenant_rows,
+        'covenant_notes': covenant_notes,
         'data_quality': data_quality,
     }
+
+
+def _altman_status_label(lang: str, z_score: Any, zone: Any) -> str:
+    number = _safe_number(z_score)
+    if number is not None:
+        if number >= 2.99:
+            return _t(lang, 'altman_status_safe')
+        if number >= 1.81:
+            return _t(lang, 'altman_status_watch')
+        return _t(lang, 'altman_status_distress')
+    zone_text = str(zone or '').lower()
+    if not zone_text:
+        return _t(lang, 'altman_status_watch')
+    if 'safe' in zone_text:
+        return _t(lang, 'altman_status_safe')
+    if 'grey' in zone_text or 'watch' in zone_text:
+        return _t(lang, 'altman_status_watch')
+    return _t(lang, 'altman_status_distress')
+
+
+def _altman_summary_text(lang: str, z_score: Any, zone: Any) -> str:
+    number = _safe_number(z_score)
+    if number is not None:
+        if number >= 2.99:
+            return _t(lang, 'altman_summary_safe')
+        if number >= 1.81:
+            return _t(lang, 'altman_summary_watch')
+        return _t(lang, 'altman_summary_distress')
+    zone_text = str(zone or '').lower()
+    if not zone_text:
+        return _t(lang, 'altman_summary_neutral')
+    if 'safe' in zone_text:
+        return _t(lang, 'altman_summary_safe')
+    if 'grey' in zone_text or 'watch' in zone_text:
+        return _t(lang, 'altman_summary_watch')
+    return _t(lang, 'altman_summary_distress')
+
+
+def _build_altman_breakdown(entry: dict[str, Any], lang: str) -> list[dict[str, Any]]:
+    raw_metrics = _mapping(entry.get('raw_metrics'))
+    balance = _mapping(entry.get('balance') or entry.get('balance_sheet') or entry.get('bs'))
+    income = _mapping(entry.get('income') or entry.get('income_statement') or entry.get('pnl'))
+
+    total_assets = _safe_number(_pick(raw_metrics, ('total_assets',))) or _safe_number(_pick(balance, ('total_assets',)))
+    current_assets = _safe_number(_pick(raw_metrics, ('total_current_assets',))) or _safe_number(_pick(balance, ('total_current_assets',)))
+    current_liabilities = _safe_number(_pick(raw_metrics, ('total_current_liabilities',))) or _safe_number(_pick(balance, ('total_current_liabilities',)))
+    retained_earnings = _safe_number(_pick(raw_metrics, ('retained_earnings',))) or _safe_number(_pick(balance, ('retained_earnings',)))
+    ebit = _safe_number(_pick(raw_metrics, ('operating_income', 'ebit'))) or _safe_number(_pick(income, ('operating_income', 'ebit')))
+
+    working_capital = None
+    if current_assets is not None and current_liabilities is not None:
+        working_capital = current_assets - current_liabilities
+
+    components = [
+        (_t(lang, 'altman_component_wc'), working_capital, 1.2),
+        (_t(lang, 'altman_component_re'), retained_earnings, 1.4),
+        (_t(lang, 'altman_component_ebit'), ebit, 3.3),
+    ]
+    breakdown: list[dict[str, Any]] = []
+    for label, numerator, weight in components:
+        ratio = None
+        if numerator is not None and total_assets is not None and total_assets > 0:
+            ratio = numerator / total_assets
+        contribution = None if ratio is None else ratio * weight
+        progress = None if ratio is None else max(0.0, min(abs(ratio) * 100.0, 100.0))
+        tone = 'neutral'
+        if ratio is not None:
+            tone = 'danger' if ratio < 0 else 'positive'
+        breakdown.append({
+            'label': label,
+            'value': '--' if ratio is None else f'{ratio * 100:.2f}%',
+            'contribution': '--' if contribution is None else f'{contribution:+.2f}',
+            'tone': tone,
+            'progress': progress,
+        })
+    return breakdown
+
+
+def _format_data_quality_value(label: Any, value: Any) -> str:
+    text_label = str(label or '').strip().lower()
+    if text_label == 'coverage':
+        number = _safe_number(value)
+        if number is not None:
+            if 0 <= number <= 1:
+                return f'{number * 100:.0f}%'
+            if 1 < number <= 100:
+                return f'{number:.0f}%'
+    return _format_value(value)
+
+
+def _clean_display_text(value: Any) -> str:
+    return re.sub(r'\s+', ' ', str(value or '')).strip()
+
+
+def _normalize_label_text(value: Any) -> str:
+    text = re.sub(r'[.\u3002\uFF0E:：\s]+$', '', _clean_display_text(value))
+    if not text:
+        return text
+    lowered = text.lower()
+    if lowered in {'--', 'n/a', 'na', 'no data available'}:
+        return text
+    if '_' in text or (text == lowered and re.fullmatch(r'[a-z0-9\s/-]+', text)):
+        text = text.replace('_', ' ')
+        text = re.sub(r'\s+', ' ', text).strip()
+        text = ' '.join(part.upper() if part.lower() in {'ebit', 'ebitda', 'fcf', 'eps', 'roi', 'roa', 'roe', 'usd', 'hkd', 'cny', 'jpy', 'fx', 'n/a'} else part[:1].upper() + part[1:] if part else part for part in text.split(' '))
+    return text
+
+
+def _wrap_cell_lines(value: Any, width_fraction: float, chars_per_full_width: int, max_lines: int = 4) -> list[str]:
+    text = _clean_display_text(value)
+    if not text:
+        return ['']
+    limit = max(8, int(round(width_fraction * chars_per_full_width)))
+    words = text.split(' ')
+    lines: list[str] = []
+    current = ''
+    for word in words:
+        if not word:
+            continue
+        if not current:
+            if len(word) <= limit:
+                current = word
+            else:
+                while len(word) > limit:
+                    lines.append(word[: max(1, limit - 3)] + '...')
+                    word = word[max(1, limit - 3):]
+                current = word
+            continue
+        trial = f'{current} {word}'
+        if len(trial) <= limit:
+            current = trial
+        else:
+            lines.append(current)
+            if len(word) <= limit:
+                current = word
+            else:
+                while len(word) > limit:
+                    lines.append(word[: max(1, limit - 3)] + '...')
+                    word = word[max(1, limit - 3):]
+                current = word
+    if current:
+        lines.append(current)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        tail = lines[-1]
+        if not tail.endswith('...'):
+            lines[-1] = tail[: max(1, limit - 3)].rstrip() + '...'
+    return lines or ['']
+
+
+def _estimate_table_row_height(row: list[str], widths: list[float], chars_per_full_width: int, font_size: float, max_lines: int = 4, min_height: float = 18.0, height_scale: float = 1.0) -> float:
+    max_wrapped_lines = 1
+    for idx, cell in enumerate(row):
+        width_fraction = widths[min(idx, len(widths) - 1)] if widths else 1.0
+        max_wrapped_lines = max(max_wrapped_lines, len(_wrap_cell_lines(cell, width_fraction, chars_per_full_width, max_lines=max_lines)))
+    line_height = max(9.5, font_size + 1.8)
+    return (max(min_height, 6.0 + max_wrapped_lines * line_height)) * height_scale
+
+
+def _paginate_table_rows(rows: list[list[str]], widths: list[float], available_height: float, chars_per_full_width: int, font_size: float, header_height: float, max_lines: int = 4, min_row_height: float = 18.0, height_scale: float = 1.0) -> list[list[list[str]]]:
+    if not rows:
+        return [[]]
+    chunks: list[list[list[str]]] = []
+    current: list[list[str]] = []
+    used = header_height
+    for row in rows:
+        row_height = _estimate_table_row_height(row, widths, chars_per_full_width, font_size, max_lines=max_lines, min_height=min_row_height, height_scale=height_scale)
+        if current and used + row_height > available_height:
+            chunks.append(current)
+            current = [row]
+            used = header_height + row_height
+        else:
+            current.append(row)
+            used += row_height
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 def _extract_profile(report: dict[str, Any], latest: dict[str, Any]) -> list[dict[str, str]]:
@@ -380,9 +844,7 @@ def _extract_profile(report: dict[str, Any], latest: dict[str, Any]) -> list[dic
         for key, value in profile.items():
             if isinstance(value, dict):
                 value = value.get('value') or value.get('text') or value.get('name') or '--'
-            rows.append({'label': str(key), 'value': _format_value(value)})
-    if not rows:
-        rows.append({'label': 'Overview', 'value': '--'})
+            rows.append({'label': _normalize_label_text(key), 'value': _format_value(value)})
     return rows
 
 
@@ -398,17 +860,21 @@ def _extract_metric_value(entry: dict[str, Any], candidates: tuple[str, ...]) ->
 
 def _build_kpi_rows(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    buckets = _split_history_by_kind(history)
+    quarter_history = buckets.get('quarter', [])
+    annual_history = buckets.get('annual', [])
     for label, candidates in KPI_SPECS:
         values = [_extract_metric_value(entry, candidates) for entry in history]
-        yoy = '--'
-        if len(values) > 1:
-            current, previous = _safe_number(values[0]), _safe_number(values[1])
-            if current is not None and previous is not None:
-                if previous == 0:
-                    yoy = _format_number(current - previous, signed=True)
-                else:
-                    yoy = _format_number((current - previous) / abs(previous) * 100, signed=True, suffix='%')
-        rows.append({'label': label, 'values': [_format_value(v) for v in values], 'yoy': yoy})
+        quarter_values = [_extract_metric_value(entry, candidates) for entry in quarter_history]
+        annual_values = [_extract_metric_value(entry, candidates) for entry in annual_history]
+        yoy_q = _format_yoy_change(quarter_values[0], quarter_values[1]) if len(quarter_values) > 1 else 'N/A'
+        yoy_fy = _format_yoy_change(annual_values[0], annual_values[1]) if len(annual_values) > 1 else 'N/A'
+        rows.append({
+            'label': label,
+            'values': [_format_ratio_value(label, v) for v in values],
+            'yoy_q': yoy_q,
+            'yoy_fy': yoy_fy,
+        })
     return rows
 
 
@@ -422,20 +888,20 @@ def _normalize_statement_rows(raw: Any) -> list[dict[str, Any]]:
                 if key in raw:
                     return _normalize_statement_rows(raw[key])
         for key, value in raw.items():
-            rows.append({'label': str(key), 'value': value})
+            rows.append({'label': _normalize_label_text(key), 'value': value})
         return rows
     for item in _sequence(raw):
         if isinstance(item, dict):
             label = item.get('label') or item.get('name') or item.get('metric') or item.get('line_item') or item.get('account')
             if label is None and len(item) == 1:
                 k, v = next(iter(item.items()))
-                rows.append({'label': str(k), 'value': v})
+                rows.append({'label': _normalize_label_text(k), 'value': v})
             else:
-                rows.append({'label': str(label or '--'), 'value': item.get('value', item.get('amount', item.get('balance', item.get('text'))))})
+                rows.append({'label': _normalize_label_text(label or '--'), 'value': item.get('value', item.get('amount', item.get('balance', item.get('text'))))})
         elif isinstance(item, (list, tuple)) and len(item) >= 2:
-            rows.append({'label': str(item[0]), 'value': item[1]})
+            rows.append({'label': _normalize_label_text(item[0]), 'value': item[1]})
         elif item is not None:
-            rows.append({'label': str(item), 'value': '--'})
+            rows.append({'label': _normalize_label_text(item), 'value': '--'})
     return rows
 
 
@@ -461,6 +927,24 @@ def _extract_statement_block(entry: dict[str, Any], statement_key: str, aliases:
 
 def _build_statement_sections(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     periods = [str(entry.get('fiscal_year') or entry.get('period') or entry.get('label') or '--') for entry in history]
+    period_entries: list[dict[str, Any]] = []
+    prev_kind: str | None = None
+    first_annual_found = False
+    for raw_period in periods:
+        label = _format_period_label(raw_period)
+        kind = _period_kind(raw_period)
+        benchmark = bool(kind == 'annual' and not first_annual_found)
+        if benchmark:
+            first_annual_found = True
+        period_entries.append({
+            'raw': raw_period,
+            'label': label,
+            'kind': kind,
+            'group_start': bool(prev_kind and kind != prev_kind),
+            'benchmark': False,
+            'benchmark_style': '',
+        })
+        prev_kind = kind
     sections: list[dict[str, Any]] = []
     for statement_key, title_key, aliases in STATEMENT_KEYS:
         labels: list[str] = []
@@ -478,313 +962,226 @@ def _build_statement_sections(history: list[dict[str, Any]]) -> list[dict[str, A
             for rows in rows_by_period:
                 matched = next((row.get('value') for row in rows if str(row.get('label') or '--') == label), None)
                 values.append(matched)
-            yoy = '--'
-            if len(values) > 1:
-                current, previous = _safe_number(values[0]), _safe_number(values[1])
-                if current is not None and previous is not None:
-                    if previous == 0:
-                        yoy = _format_number(current - previous, signed=True)
-                    else:
-                        yoy = _format_number((current - previous) / abs(previous) * 100, signed=True, suffix='%')
-            normalized_rows.append({'label': label, 'values': [_format_value(v) for v in values], 'yoy': yoy})
-        sections.append({'key': statement_key, 'title': title_key, 'periods': [_format_period_label(p) for p in periods], 'rows': normalized_rows})
+            yoy_q = 'N/A'
+            yoy_fy = 'N/A'
+            quarter_values = []
+            annual_values = []
+            for period_entry, value in zip(period_entries, values):
+                kind = period_entry.get('kind')
+                if kind == 'quarter':
+                    quarter_values.append(value)
+                elif kind == 'annual':
+                    annual_values.append(value)
+            if len(quarter_values) > 1:
+                yoy_q = _format_yoy_change(quarter_values[0], quarter_values[1])
+            if len(annual_values) > 1:
+                yoy_fy = _format_yoy_change(annual_values[0], annual_values[1])
+            normalized_rows.append({'label': label, 'values': [_format_value(v) for v in values], 'yoy_q': yoy_q, 'yoy_fy': yoy_fy})
+        quarter_entries = [entry for entry in period_entries if entry.get('kind') == 'quarter']
+        annual_entries = [entry for entry in period_entries if entry.get('kind') == 'annual']
+        sections.append({
+            'key': statement_key,
+            'title': title_key,
+            'periods': period_entries,
+            'current_quarter_period': quarter_entries[0]['label'] if quarter_entries else None,
+            'compare_quarter_period': quarter_entries[1]['label'] if len(quarter_entries) > 1 else None,
+            'current_annual_period': annual_entries[0]['label'] if annual_entries else None,
+            'compare_annual_period': annual_entries[1]['label'] if len(annual_entries) > 1 else None,
+            'rows': normalized_rows,
+        })
     return sections
 
 
-def build_pdf_context(report: dict[str, Any], lang: str = 'en') -> dict[str, Any]:
+def build_pdf_context(report: dict[str, Any], lang: str = 'en', theme: str = 'dark') -> dict[str, Any]:
     lang = _lang(lang)
+    theme = 'light' if str(theme).lower() == 'light' else 'dark'
     history = _extract_history(report)
     if not history:
-        history = [{}]
+        raise ValueError('No history available')
     latest = history[0]
     periods = [str(entry.get('fiscal_year') or entry.get('period') or entry.get('label') or '--') for entry in history]
-    summary = _extract_summary(latest)
+    period_labels = [_format_period_label(p) for p in periods]
+    summary = _extract_summary(latest, lang)
+    quarter_periods = [label for raw, label in zip(periods, period_labels) if _period_kind(raw) == 'quarter']
+    annual_periods = [label for raw, label in zip(periods, period_labels) if _period_kind(raw) == 'annual']
+    yoy_note = _format_yoy_note(
+        lang,
+        quarter_periods[0] if quarter_periods else None,
+        quarter_periods[1] if len(quarter_periods) > 1 else None,
+        annual_periods[0] if annual_periods else None,
+        annual_periods[1] if len(annual_periods) > 1 else None,
+    )
+    statement_sections = _build_statement_sections(history)
+    for section in statement_sections:
+        section['yoy_label_q'] = _format_yoy_label(lang, section.get('current_quarter_period'), section.get('compare_quarter_period'))
+        section['yoy_label_fy'] = _format_yoy_label(lang, section.get('current_annual_period'), section.get('compare_annual_period'))
+        section['yoy_note'] = yoy_note
+    benchmark_period = next((label for raw, label in zip(periods, period_labels) if _period_kind(raw) == 'annual'), None)
+    benchmark_note = ''
+    altman_z_score = summary.get('altman_z_score')
+    zone = summary.get('zone')
+    implied_rating = summary.get('implied_rating')
+    altman_status = _altman_status_label(lang, altman_z_score, zone)
+    altman_breakdown = _build_altman_breakdown(latest, lang)
+    hero_summary = {
+        'note': f"{_t(lang, 'methodology_note_title')}: " + " | ".join([
+            _t(lang, 'methodology_altman_note'),
+            _t(lang, 'methodology_zone_note'),
+            _t(lang, 'methodology_rating_note'),
+        ]),
+        'status_label': altman_status,
+        'description': _altman_summary_text(lang, altman_z_score, zone),
+        'items': [
+            {'label': _t(lang, 'altman_z_score'), 'value': _format_value(altman_z_score), 'tone': 'neutral'},
+            {'label': _t(lang, 'zone'), 'value': _format_value(zone), 'tone': 'success'},
+            {'label': _t(lang, 'implied_rating'), 'value': _format_value(implied_rating), 'tone': 'info'},
+        ],
+        'breakdown': altman_breakdown,
+    }
     return {
         'lang': lang,
+        'theme': theme,
         'labels': LANG[lang],
         'report_title': _t(lang, 'report_title'),
+        'credit_health_summary_title': _t(lang, 'credit_health_summary'),
+        'company_profile_title': _t(lang, 'company_profile'),
+        'key_risk_profile_title': _t(lang, 'key_risk_profile'),
+        'strengths_title': _t(lang, 'strengths'),
+        'watch_items_title': _t(lang, 'watch_items'),
+        'covenant_title': _t(lang, 'covenant_pre_check'),
+        'data_quality_title': _t(lang, 'data_quality'),
+        'kpi_title': _t(lang, 'kpi_trends'),
+        'latest_period_title': _t(lang, 'latest_period'),
+        'currency_title': _t(lang, 'currency'),
+        'generated_at_title': _t(lang, 'generated_at'),
+        'style': _style_tokens(),
         'company_name': str(report.get('company_name') or latest.get('company_name') or latest.get('name') or 'Unknown Company'),
-        'company_name_localized': str(report.get('company_name_localized') or latest.get('company_name_localized') or report.get('company_name') or latest.get('company_name') or 'Unknown Company'),
+        'company_name_localized': '' if lang == 'en' else str(report.get('company_name_localized') or latest.get('company_name_localized') or report.get('company_name') or latest.get('company_name') or 'Unknown Company'),
         'ticker': str(report.get('ticker') or latest.get('ticker') or '--'),
         'currency': str(report.get('currency') or latest.get('currency') or latest.get('reporting_currency') or '--'),
-        'latest_period': _format_period_label(periods[0]),
+        'latest_period': period_labels[0],
         'generated_at': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'),
-        'periods': [{'raw': p, 'label': _format_period_label(p)} for p in periods],
-        'summary_cards': [
-            {'label': _t(lang, 'altman_z_score'), 'value': _format_value(summary['altman_z_score'])},
-            {'label': _t(lang, 'zone'), 'value': _format_value(summary['zone'])},
-            {'label': _t(lang, 'implied_rating'), 'value': _format_value(summary['implied_rating'])},
+        'periods': [
+            {
+                'raw': raw,
+                'label': label,
+                'display_label': label,
+                'kind': _period_kind(raw),
+                'group_start': idx > 0 and _period_kind(raw) != _period_kind(periods[idx - 1]),
+                'benchmark': False,
+                'benchmark_style': '',
+            }
+            for idx, (raw, label) in enumerate(zip(periods, period_labels))
         ],
+        'hero_summary': hero_summary,
+        'zone_text': _format_value(summary['zone']) if summary['zone'] is not None else None,
         'company_profile_rows': _extract_profile(report, latest),
-        'strengths': summary['strengths'],
-        'watch_items': summary['watch_items'],
-        'covenant_rows': summary['covenant_rows'],
-        'data_quality_rows': summary['data_quality'],
+        'strengths': summary.get('strengths', []),
+        'watch_items': summary.get('watch_items', []),
+        'covenant_rows': summary.get('covenant_rows', []),
+        'covenant_notes': summary.get('covenant_notes', []),
+        'data_quality_rows': summary.get('data_quality', []),
         'kpi_rows': _build_kpi_rows(history),
-        'statement_sections': _build_statement_sections(history),
+        'kpi_yoy_label_q': _format_yoy_label(lang, quarter_periods[0] if quarter_periods else None, quarter_periods[1] if len(quarter_periods) > 1 else None),
+        'kpi_yoy_label_fy': _format_yoy_label(lang, annual_periods[0] if annual_periods else None, annual_periods[1] if len(annual_periods) > 1 else None),
+        'yoy_note': yoy_note,
+        'benchmark_note': benchmark_note,
+        'methodology_notes': [
+            _t(lang, 'methodology_altman_note'),
+            _t(lang, 'methodology_zone_note'),
+            _t(lang, 'methodology_rating_note'),
+        ],
+        'covenant_note_title': _t(lang, 'covenant_note_title'),
+        'statement_sections': statement_sections,
     }
 
 
-def _render_html_fallback(ctx: dict[str, Any]) -> str:
-    def esc(value: Any) -> str:
-        return html_lib.escape(str(value))
-
-    summary_cards = ''.join(f'<div class="summary-card"><div class="summary-label">{esc(card["label"])}</div><div class="summary-value">{esc(card["value"])}</div></div>' for card in ctx['summary_cards'])
-    profile = ''.join(f'<tr><td>{esc(row["label"])}</td><td>{esc(row["value"])}</td></tr>' for row in ctx['company_profile_rows'])
-    strengths = ''.join(f'<li>{esc(item)}</li>' for item in ctx['strengths']) or '<li>--</li>'
-    watches = ''.join(f'<li>{esc(item)}</li>' for item in ctx['watch_items']) or '<li>--</li>'
-    covenant = ''.join(f'<tr><td>{esc(row["metric"])}</td><td>{esc(row["actual"])}</td><td>{esc(row["threshold"])}</td><td>{esc(row["status"])}</td><td>{esc(row["signal"])}</td><td>{esc(row["notes"])}</td></tr>' for row in ctx['covenant_rows']) or '<tr><td colspan="6">--</td></tr>'
-    quality = ''.join(f'<tr><td>{esc(row["label"])}</td><td>{esc(row["value"])}</td><td>{esc(row["notes"])}</td></tr>' for row in ctx['data_quality_rows']) or '<tr><td colspan="3">--</td></tr>'
-    kpi_rows = ''.join('<tr><td class="item">%s</td>%s<td>%s</td></tr>' % (esc(row['label']), ''.join(f'<td>{esc(v)}</td>' for v in row['values']), esc(row['yoy'])) for row in ctx['kpi_rows']) or '<tr><td colspan="10">--</td></tr>'
-    statement_pages = []
+def build_pdf_document_model(report: dict[str, Any], lang: str = 'en', theme: str = 'dark') -> dict[str, Any]:
+    ctx = build_pdf_context(report, lang, theme)
+    sections: list[dict[str, Any]] = []
     for section in ctx['statement_sections']:
-        rows = ''.join('<tr><td class="item">%s</td>%s<td>%s</td></tr>' % (esc(row['label']), ''.join(f'<td>{esc(v)}</td>' for v in row['values']), esc(row['yoy'])) for row in section['rows']) or '<tr><td colspan="10">--</td></tr>'
-        statement_pages.append(f'''
-        <section class="page statement-section">
-          <div class="section-head"><h2 class="section-title">{esc(_t(ctx['lang'], section['title']))}</h2><span class="section-badge">{esc(section['periods'][0] if section['periods'] else ctx['latest_period'])}</span></div>
-          <table class="statement-table">
-            <thead><tr><th>{_t(ctx['lang'], 'metric')}</th>{''.join(f'<th>{esc(p)}</th>' for p in section['periods'])}<th>{_t(ctx['lang'], 'yoy')}</th></tr></thead>
-            <tbody>{rows}</tbody>
-          </table>
-        </section>''')
-    return f'''
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <style>
-        @page {{ size: A4 landscape; margin: 12mm; }}
-        body {{ font-family: Arial, "Noto Sans SC", sans-serif; background: #f8f6ff; color: #1f2430; }}
-        .page {{ page-break-after: always; }}
-        .hero {{ background: linear-gradient(135deg, #2e1065, #5b21b6); color: #fff; border-radius: 18px; padding: 18px; }}
-        .summary-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px; }}
-        .summary-card, .panel {{ background: #fff; border: 1px solid #d9d7ea; border-radius: 14px; padding: 12px; }}
-        table {{ width: 100%; border-collapse: collapse; font-size: 10px; }}
-        th, td {{ border-bottom: 1px solid #d9d7ea; padding: 6px 8px; }}
-        th {{ background: #f4f0ff; text-align: left; }}
-      </style>
-    </head>
-    <body>
-      <section class="page">
-        <div class="hero"><h1>{esc(ctx['company_name'])}</h1><div>{esc(ctx['ticker'])} · {esc(ctx['latest_period'])} · {esc(ctx['currency'])}</div></div>
-        <div class="summary-grid">{summary_cards}</div>
-        <div class="panel"><h2>{_t(ctx['lang'], 'company_profile')}</h2><table><tbody>{profile}</tbody></table></div>
-        <div class="panel"><h2>{_t(ctx['lang'], 'strengths')}</h2><ul>{strengths}</ul><h2>{_t(ctx['lang'], 'watch_items')}</h2><ul>{watches}</ul></div>
-        <div class="panel"><h2>{_t(ctx['lang'], 'covenant_pre_check')}</h2><table><thead><tr><th>{_t(ctx['lang'], 'metric')}</th><th>{_t(ctx['lang'], 'actual')}</th><th>{_t(ctx['lang'], 'threshold')}</th><th>{_t(ctx['lang'], 'status')}</th><th>{_t(ctx['lang'], 'signal')}</th><th>{_t(ctx['lang'], 'notes')}</th></tr></thead><tbody>{covenant}</tbody></table></div>
-        <div class="panel"><h2>{_t(ctx['lang'], 'data_quality')}</h2><table><thead><tr><th>{_t(ctx['lang'], 'metric')}</th><th>{_t(ctx['lang'], 'actual')}</th><th>{_t(ctx['lang'], 'notes')}</th></tr></thead><tbody>{quality}</tbody></table></div>
-      </section>
-      <section class="page"><div class="panel"><h2>{_t(ctx['lang'], 'kpi_trends')}</h2><table><thead><tr><th>{_t(ctx['lang'], 'metric')}</th>{''.join(f'<th>{esc(p["label"])}</th>' for p in ctx['periods'])}<th>{_t(ctx['lang'], 'yoy')}</th></tr></thead><tbody>{kpi_rows}</tbody></table></div></section>
-      {''.join(statement_pages)}
-    </body></html>
-    '''
+        widths = [0.20] + [0.085] * len(section['periods']) + [0.16, 0.16]
+        sections.append({
+            'key': section['key'],
+            'title': section['title'],
+            'display_title': ctx['labels'][section['title']],
+            'periods': section['periods'],
+            'headers': [_t(lang, 'metric')] + [p['label'] for p in section['periods']] + [section['yoy_label_q'], section['yoy_label_fy']],
+            'rows': section['rows'],
+            'widths': widths,
+            'benchmark_cols': set(),
+            'group_break_cols': {1 + idx for idx, period in enumerate(section['periods']) if period.get('group_start')},
+            'yoy_label_q': section['yoy_label_q'],
+            'yoy_label_fy': section['yoy_label_fy'],
+            'yoy_note': section['yoy_note'],
+            'current_period': section['current_annual_period'] or section['current_quarter_period'] or ctx['latest_period'],
+        })
+
+    return {
+        'lang': lang,
+        'theme': ctx['theme'],
+        'context': ctx,
+        'cover': {
+            'report_title': ctx['report_title'],
+            'company_name': ctx['company_name'],
+            'company_name_localized': ctx['company_name_localized'],
+            'ticker': ctx['ticker'],
+            'currency': ctx['currency'],
+            'latest_period': ctx['latest_period'],
+            'generated_at': ctx['generated_at'],
+            'zone_text': ctx['zone_text'],
+            'hero_summary': ctx['hero_summary'],
+        },
+        'summary': {
+            'company_profile_rows': ctx['company_profile_rows'],
+            'strengths': ctx['strengths'],
+            'watch_items': ctx['watch_items'],
+            'data_quality_rows': ctx['data_quality_rows'],
+            'methodology_notes': ctx['methodology_notes'],
+        },
+        'covenant': {
+            'title': ctx['covenant_title'],
+            'rows': ctx['covenant_rows'],
+            'notes': ctx['covenant_notes'],
+            'note_title': ctx['covenant_note_title'],
+        },
+        'kpi': {
+            'title': ctx['kpi_title'],
+            'benchmark_note': ctx['benchmark_note'],
+            'yoy_note': ctx['yoy_note'],
+            'headers': [_t(lang, 'metric')] + [p['label'] for p in ctx['periods']] + [ctx['kpi_yoy_label_q'], ctx['kpi_yoy_label_fy']],
+            'rows': [[row['label'], *row['values'], row['yoy_q'], row['yoy_fy']] for row in ctx['kpi_rows']],
+            'widths': [0.18] + [0.085] * len(ctx['periods']) + [0.16, 0.16],
+            'benchmark_cols': set(),
+            'group_break_cols': {1 + idx for idx, period in enumerate(ctx['periods']) if period.get('group_start')},
+        },
+        'statements': sections,
+        'appendix': {
+            'title': _t(lang, 'methodology_note_title'),
+            'benchmark_note': ctx['benchmark_note'],
+            'notes': ctx['methodology_notes'],
+            'covenant_note_title': ctx['covenant_note_title'],
+        },
+    }
 
 
-def render_pdf_html(report: dict[str, Any], lang: str = 'en') -> str:
-    ctx = build_pdf_context(report, lang)
-    if TEMPLATE_PATH.exists():
-        try:
-            from jinja2 import Environment, FileSystemLoader, select_autoescape  # type: ignore
+def generate_full_pdf_async(report: dict[str, Any], lang: str = 'en', theme: str = 'dark') -> bytes:
+    from reportlab_pdf_exporter import generate_full_pdf_async as _generate_full_pdf_async
 
-            env = Environment(
-                loader=FileSystemLoader(str(TEMPLATE_PATH.parent)),
-                autoescape=select_autoescape(['html', 'xml']),
-                trim_blocks=True,
-                lstrip_blocks=True,
-            )
-            return env.get_template(TEMPLATE_PATH.name).render(**ctx)
-        except Exception:
-            pass
-    return _render_html_fallback(ctx)
+    return _generate_full_pdf_async(report, lang, theme)
 
 
-def _pdf_escape(text: str) -> str:
-    return text.replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
+def generate_full_pdf(report: dict[str, Any], lang: str = 'en', theme: str = 'dark') -> bytes:
+    from reportlab_pdf_exporter import generate_full_pdf as _generate_full_pdf
 
-
-def _context_pages(ctx: dict[str, Any]) -> list[list[str]]:
-    pages: list[list[str]] = []
-    summary = [f"{card['label']}: {card['value']}" for card in ctx['summary_cards']]
-    profile = [f"{row['label']}: {row['value']}" for row in ctx['company_profile_rows']]
-    strengths = [f"+ {item}" for item in ctx['strengths']] or ['+ --']
-    watches = [f"! {item}" for item in ctx['watch_items']] or ['! --']
-    covenant = [f"{r['metric']} | {r['actual']} | {r['threshold']} | {r['status']} | {r['signal']} | {r['notes']}" for r in ctx['covenant_rows']] or ['--']
-    quality = [f"{r['label']} | {r['value']} | {r['notes']}" for r in ctx['data_quality_rows']] or ['--']
-    pages.append([
-        ctx['report_title'],
-        f"{ctx['company_name']} ({ctx['ticker']})",
-        f"{ctx['latest_period']} | {ctx['currency']} | {ctx['generated_at']}",
-        '',
-        *summary,
-        '',
-        *profile,
-        '',
-        *strengths,
-        '',
-        *watches,
-        '',
-        *covenant,
-        '',
-        *quality,
-    ])
-    pages.append([
-        ctx['labels']['kpi_trends'],
-        *[p['label'] for p in ctx['periods']],
-        '',
-        *[f"{row['label']} | {' | '.join(row['values'])} | YoY {row['yoy']}" for row in ctx['kpi_rows']],
-    ])
-    for section in ctx['statement_sections']:
-        pages.append([
-            section['title'],
-            *section['periods'],
-            '',
-            *[f"{row['label']} | {' | '.join(row['values'])} | YoY {row['yoy']}" for row in section['rows']],
-        ])
-    appendix = [
-        'Data Appendix',
-        f"Periods: {', '.join(ctx['periods'][i]['label'] for i in range(len(ctx['periods'])))}",
-        f"YoY map: {ctx['labels']['yoy']} => {', '.join(f'{k}:{v}' for k, v in _build_yoy_map([p['raw'] for p in ctx['periods']]).items()) or '--'}",
-        '',
-        'KPI Detail',
-        *[f"{row['label']} | {' | '.join(row['values'])} | YoY {row['yoy']}" for row in ctx['kpi_rows']],
-        '',
-        'Statement Detail',
-        *[
-            line
-            for section in ctx['statement_sections']
-            for line in ([section['title'], *section['periods']] + [f"{row['label']} | {' | '.join(row['values'])} | YoY {row['yoy']}" for row in section['rows']])
-        ],
-    ]
-    pages.append(appendix)
-    detail = [
-        'Fallback Detail Snapshot',
-        *[f"{row['label']} | {' | '.join(row['values'])} | YoY {row['yoy']}" for row in ctx['kpi_rows']],
-        '',
-        *[
-            f"{section['title']} :: {row['label']} | {' | '.join(row['values'])} | YoY {row['yoy']}"
-            for section in ctx['statement_sections']
-            for row in section['rows']
-        ],
-        '',
-        *[f"PROFILE {row['label']} = {row['value']}" for row in ctx['company_profile_rows']],
-        *[f"COVENANT {row['metric']} => {row['actual']} / {row['threshold']} / {row['status']} / {row['signal']} / {row['notes']}" for row in ctx['covenant_rows']],
-        *[f"QUALITY {row['label']} => {row['value']} / {row['notes']}" for row in ctx['data_quality_rows']],
-    ]
-    pages.append(detail)
-    verbose = [
-        'Verbose Detail',
-        *[f"VERBOSE KPI {row['label']} :: {' | '.join(row['values'])} :: YoY {row['yoy']}" for row in ctx['kpi_rows']],
-        *[
-            f"VERBOSE STATEMENT {section['title']} :: {row['label']} :: {' | '.join(row['values'])} :: YoY {row['yoy']}"
-            for section in ctx['statement_sections']
-            for row in section['rows']
-        ],
-        *[f"VERBOSE PROFILE {row['label']} = {row['value']}" for row in ctx['company_profile_rows']],
-        *[f"VERBOSE COVENANT {row['metric']} = {row['actual']} | {row['threshold']} | {row['status']} | {row['signal']} | {row['notes']}" for row in ctx['covenant_rows']],
-        *[f"VERBOSE QUALITY {row['label']} = {row['value']} | {row['notes']}" for row in ctx['data_quality_rows']],
-    ]
-    pages.append(verbose)
-    return pages
-
-
-def _simple_pdf(pages: list[list[str]], width: int = 842, height: int = 595) -> bytes:
-    objects: list[bytes] = []
-    page_entries: list[tuple[int, int, bytes]] = []
-    next_obj = 4
-    for page in pages:
-        lines: list[str] = ['BT', '/F1 10 Tf']
-        y = height - 36
-        for line in page:
-            if not str(line).strip():
-                y -= 12
-                continue
-            lines.append(f'1 0 0 1 36 {y:.2f} Tm ({_pdf_escape(str(line))}) Tj')
-            y -= 12
-            if y < 36:
-                break
-        lines.append('ET')
-        content = '\n'.join(lines).encode('latin-1', 'replace')
-        page_entries.append((next_obj, next_obj + 1, content))
-        next_obj += 2
-    out = bytearray(b'%PDF-1.4\n')
-    offsets = [0]
-
-    def emit(obj_num: int, payload: bytes) -> None:
-        offsets.append(len(out))
-        out.extend(f'{obj_num} 0 obj\n'.encode('ascii'))
-        out.extend(payload)
-        out.extend(b'\nendobj\n')
-
-    kids = ' '.join(f'{page_obj} 0 R' for page_obj, _, _ in page_entries)
-    emit(1, b'<< /Type /Catalog /Pages 2 0 R >>')
-    emit(2, f'<< /Type /Pages /Kids [{kids}] /Count {len(page_entries)} >>'.encode('ascii'))
-    emit(3, b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
-    for page_obj, content_obj, content in page_entries:
-        emit(content_obj, b'<< /Length ' + str(len(content)).encode('ascii') + b' >>\nstream\n' + content + b'\nendstream')
-        emit(page_obj, f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] /Resources << /Font << /F1 3 0 R >> >> /Contents {content_obj} 0 R >>'.encode('ascii'))
-    xref = len(out)
-    out.extend(f'xref\n0 {len(offsets)}\n'.encode('ascii'))
-    out.extend(b'0000000000 65535 f \n')
-    for offset in offsets[1:]:
-        out.extend(f'{offset:010d} 00000 n \n'.encode('ascii'))
-    out.extend(f'trailer\n<< /Size {len(offsets)} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n'.encode('ascii'))
-    return bytes(out)
-
-
-async def _render_html_to_pdf_bytes(html_text: str, context: dict[str, Any] | None = None) -> bytes:
-    try:
-        from playwright.async_api import async_playwright  # type: ignore
-    except Exception:
-        return _simple_pdf(_context_pages(context or {}))
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            try:
-                page = await browser.new_page(viewport={'width': 1600, 'height': 1200})
-                await page.set_content(html_text, wait_until='networkidle')
-                await page.emulate_media(media='print')
-                return await page.pdf(format='A4', landscape=True, print_background=True, prefer_css_page_size=True, margin={'top': '12mm', 'right': '12mm', 'bottom': '12mm', 'left': '12mm'})
-            finally:
-                await browser.close()
-    except Exception:
-        return _simple_pdf(_context_pages(context or {}))
-
-
-async def generate_full_pdf_async(report: dict[str, Any], lang: str = 'en') -> bytes:
-    ctx = build_pdf_context(report, lang)
-    return await _render_html_to_pdf_bytes(render_pdf_html(report, lang), ctx)
-
-
-def _run_sync(coro: Any) -> Any:
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-
-    result: dict[str, Any] = {}
-    error: list[BaseException] = []
-
-    def runner() -> None:
-        try:
-            result['value'] = asyncio.run(coro)
-        except BaseException as exc:  # pragma: no cover - defensive
-            error.append(exc)
-
-    thread = Thread(target=runner, daemon=True)
-    thread.start()
-    thread.join()
-    if error:
-        raise error[0]
-    return result['value']
-
-
-def generate_full_pdf(report: dict[str, Any], lang: str = 'en') -> bytes:
-    return _run_sync(generate_full_pdf_async(report, lang))
+    return _generate_full_pdf(report, lang, theme)
 
 
 __all__ = [
     'build_pdf_context',
+    'build_pdf_document_model',
     'generate_full_pdf',
     'generate_full_pdf_async',
-    'render_pdf_html',
     '_build_yoy_map',
     '_format_period_label',
     '_is_negative_display_value',

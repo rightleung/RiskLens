@@ -7,6 +7,7 @@ yfinance==1.2.0
 akshare==1.18.30
 openpyxl==3.1.5
 python-dateutil==2.9.0.post0
+reportlab>=4.0,<5
 
 fastapi==0.133.1
 uvicorn==0.41.0

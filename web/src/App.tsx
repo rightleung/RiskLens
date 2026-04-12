@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
 
 interface Period {
@@ -416,7 +416,11 @@ const translations = {
     varVs: 'vs',
     varPct: '%',
     exportAll: 'Export All',
+    exportAllExcel: 'Export All to Excel',
+    exportAllPdf: 'Export All to PDF',
+    comingSoon: 'Coming Soon',
     exportPdf: 'Export PDF',
+    exportExcel: 'Export Excel',
     finComparisonTab: 'Fin Comparison',
     periodButtonTitle: 'Open financial statements for this period',
     companyFinder: 'Company Search',
@@ -487,7 +491,11 @@ const translations = {
     varVs: '对比',
     varPct: '%',
     exportAll: '全部导出',
+    exportAllExcel: '全部导出 Excel',
+    exportAllPdf: '全部导出 PDF',
+    comingSoon: '即将上线',
     exportPdf: '导出 PDF',
+    exportExcel: '导出 Excel',
     finComparisonTab: '财报横向对比',
     periodButtonTitle: '打开该期间财务报表',
     companyFinder: '搜索公司',
@@ -558,7 +566,11 @@ const translations = {
     varVs: '對比',
     varPct: '%',
     exportAll: '全部匯出',
+    exportAllExcel: '全部匯出 Excel',
+    exportAllPdf: '全部匯出 PDF',
+    comingSoon: '即將上線',
     exportPdf: '匯出 PDF',
+    exportExcel: '匯出 Excel',
     finComparisonTab: '財報橫向對比',
     periodButtonTitle: '開啟該期間財務報表',
     companyFinder: '搜尋公司',
@@ -629,7 +641,11 @@ const translations = {
     varVs: '比較',
     varPct: '%',
     exportAll: 'すべてエクスポート',
+    exportAllExcel: 'Excel にすべてエクスポート',
+    exportAllPdf: 'PDF にすべてエクスポート',
+    comingSoon: '近日公開',
     exportPdf: 'PDFを書き出し',
+    exportExcel: 'Excelを書き出し',
     finComparisonTab: '財務諸表比較',
     periodButtonTitle: 'この期間の財務諸表を開く',
     companyFinder: '企業を検索',
@@ -671,6 +687,21 @@ const getStatementTabs = (t: ReturnType<typeof getT>) => [
 
 type StatementTabKey = 'income' | 'balance' | 'cash';
 type AccountingStandard = 'usgaap' | 'ifrs' | 'cas';
+
+type PdfExportTarget = {
+  report: any;
+  companyName: string;
+  ticker: string;
+  currency: string;
+  latestPeriod: string;
+  periodCount: number;
+  zScore: string;
+  zone: string;
+  rating: string;
+  strengths: string[];
+  watchItems: string[];
+  sections: string[];
+};
 
 const STATEMENT_TABS_ORDER: StatementTabKey[] = ['income', 'balance', 'cash'];
 const STATEMENT_TAB_INDEX: Record<StatementTabKey, number> = {
@@ -1720,39 +1751,530 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
   saveAs(new Blob([buffer]), `RiskLens_MultiCompany_Comparison.xlsx`);
 };
 
-const exportSingleCompanyPdf = async (result: any, _t: ReturnType<typeof getT>, lang: Language): Promise<void> => {
-  if (typeof window === 'undefined') return;
+const exportSingleCompanyPdf = async (result: any, lang: Language, filenameOverride?: string): Promise<string> => {
+  if (typeof window === 'undefined') return '';
   const ticker = String(result?.ticker ?? 'RiskLens').toUpperCase();
 
-  try {
-    const response = await fetch('/api/v1/reports/pdf', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ report: result, lang }),
-    });
+  const response = await fetch('/api/v1/reports/pdf', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ report: result, lang }),
+  });
 
-    if (!response.ok) {
-      throw new Error(`PDF export failed (${response.status})`);
-    }
-
-    const blob = await response.blob();
-    const disposition = response.headers.get('content-disposition') || '';
-    const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
-    const filename = filenameMatch?.[1] ? decodeURIComponent(filenameMatch[1]) : `${ticker}_Full_Report.pdf`;
-    saveAs(blob, filename);
-  } catch (error) {
-    console.error('PDF export failed', error);
-    const messages: Record<Language, string> = {
-      en: 'PDF export failed. Please try again.',
-      'zh-CN': 'PDF 导出失败，请重试。',
-      'zh-TW': 'PDF 匯出失敗，請重試。',
-      ja: 'PDF のエクスポートに失敗しました。再試行してください。',
-    };
-    window.alert(messages[lang] || messages.en);
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const message = typeof detail?.detail?.error === 'string'
+      ? detail.detail.error
+      : typeof detail?.error === 'string'
+        ? detail.error
+        : `PDF export failed (${response.status})`;
+    throw new Error(message);
   }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get('content-disposition') || '';
+  const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
+  const serverFilename = filenameMatch?.[1] ? decodeURIComponent(filenameMatch[1]) : `${ticker}_Full_Report.pdf`;
+  const filename = (filenameOverride || serverFilename).trim() || `${ticker}_Full_Report.pdf`;
+  saveAs(blob, filename);
+  return filename;
 };
 
 import { translateAssessmentText, prettifyKey, getTooltip, translateRatingStatus } from './translations';
+
+const PDF_EXPORT_LANG_OPTIONS: Array<{ code: Language; label: string; note: string }> = [
+  { code: 'en', label: 'English', note: 'UI + report in English' },
+  { code: 'zh-CN', label: '简体中文', note: '中文导出' },
+  { code: 'zh-TW', label: '繁體中文', note: '繁中導出' },
+  { code: 'ja', label: '日本語', note: '日本語導出' },
+];
+
+const PDF_EXPORT_SECTIONS = [
+  'Cover',
+  'Risk Summary',
+  'Covenant Pre-check',
+  'KPI Trends',
+  'Statements',
+  'Appendix',
+];
+
+const PDF_EXPORT_SECTION_LABELS: Record<Language, string[]> = {
+  en: PDF_EXPORT_SECTIONS,
+  'zh-CN': ['封面', '风险摘要', '契约预检', 'KPI 趋势', '财务报表', '附录'],
+  'zh-TW': ['封面', '風險摘要', '契約預檢', 'KPI 趨勢', '財務報表', '附錄'],
+  ja: ['表紙', 'リスク要約', 'コベナンツ事前確認', 'KPIトレンド', '財務諸表', '付録'],
+};
+
+const PDF_EXPORT_TEXT: Record<Language, {
+  workspace: string;
+  structure: string;
+  structureHint: string;
+  notesTitle: string;
+  notesHint: string;
+  optionTitle: string;
+  optionHint: string;
+  language: string;
+  filename: string;
+  preview: string;
+  scopeTitle: string;
+  reportMode: string;
+  layout: string;
+  sections: string;
+  zScore: string;
+  rating: string;
+  latestPeriod: string;
+  languageMatches: string;
+  filenameEditable: string;
+  serverRender: string;
+  ready: string;
+  rendering: string;
+  close: string;
+  exportPdf: string;
+  generating: string;
+  savedAs: (name: string) => string;
+}> = {
+  en: {
+    workspace: 'PDF Export Workspace',
+    structure: 'Report Structure',
+    structureHint: 'A full desktop-first report with a fixed information hierarchy.',
+    notesTitle: 'Output Notes',
+    notesHint: 'Dark report shell, readable tables, and print-safe page structure.',
+    optionTitle: 'Export Options',
+    optionHint: 'Configure the file before generating the PDF.',
+    language: 'Language',
+    filename: 'Filename',
+    preview: 'Preview',
+    scopeTitle: 'Generate Scope',
+    reportMode: 'Report mode',
+    layout: 'Layout',
+    sections: 'Sections',
+    zScore: 'Altman Z-Score',
+    rating: 'Implied Rating',
+    latestPeriod: 'Latest Period',
+    languageMatches: 'Language follows the selected export locale.',
+    filenameEditable: 'Filename can be edited before download.',
+    serverRender: 'PDF generation runs on the server and returns a downloadable file.',
+    ready: 'Ready to generate when you are.',
+    rendering: 'Rendering PDF in the background...',
+    close: 'Close',
+    exportPdf: 'Export PDF',
+    generating: 'Generating',
+    savedAs: (name: string) => `Saved as ${name}`,
+  },
+  'zh-CN': {
+    workspace: 'PDF 导出工作台',
+    structure: '报告结构',
+    structureHint: '桌面优先的完整报告，信息层级固定。',
+    notesTitle: '导出说明',
+    notesHint: '深色报告外壳、可读表格和适合打印的页面结构。',
+    optionTitle: '导出选项',
+    optionHint: '生成前先配置文件。',
+    language: '语言',
+    filename: '文件名',
+    preview: '预览',
+    scopeTitle: '生成范围',
+    reportMode: '报告模式',
+    layout: '版式',
+    sections: '章节数',
+    zScore: 'Altman Z-Score',
+    rating: '隐含评级',
+    latestPeriod: '最新期间',
+    languageMatches: '导出语言与所选语言保持一致。',
+    filenameEditable: '文件名可在下载前修改。',
+    serverRender: 'PDF 在服务端生成并返回可下载文件。',
+    ready: '准备好后即可生成。',
+    rendering: '正在后台渲染 PDF...',
+    close: '关闭',
+    exportPdf: '导出 PDF',
+    generating: '生成中',
+    savedAs: (name: string) => `已保存为 ${name}`,
+  },
+  'zh-TW': {
+    workspace: 'PDF 匯出工作台',
+    structure: '報告結構',
+    structureHint: '桌面優先的完整報告，資訊層級固定。',
+    notesTitle: '匯出說明',
+    notesHint: '深色報告外殼、可讀表格與適合列印的頁面結構。',
+    optionTitle: '匯出選項',
+    optionHint: '生成前先設定檔案。',
+    language: '語言',
+    filename: '檔案名稱',
+    preview: '預覽',
+    scopeTitle: '生成範圍',
+    reportMode: '報告模式',
+    layout: '版式',
+    sections: '章節數',
+    zScore: 'Altman Z-Score',
+    rating: '隱含評級',
+    latestPeriod: '最新期間',
+    languageMatches: '匯出語言與所選語言保持一致。',
+    filenameEditable: '檔名可在下載前修改。',
+    serverRender: 'PDF 會在服務端生成並回傳可下載檔案。',
+    ready: '準備好後即可生成。',
+    rendering: '正在背景渲染 PDF...',
+    close: '關閉',
+    exportPdf: '匯出 PDF',
+    generating: '生成中',
+    savedAs: (name: string) => `已儲存為 ${name}`,
+  },
+  ja: {
+    workspace: 'PDF 書き出しワークスペース',
+    structure: 'レポート構成',
+    structureHint: 'デスクトップ優先の完全レポートで、情報階層を固定しています。',
+    notesTitle: '出力メモ',
+    notesHint: 'ダークなレポートシェル、読みやすい表、印刷向けのページ構成。',
+    optionTitle: '書き出し設定',
+    optionHint: 'PDF を生成する前に設定します。',
+    language: '言語',
+    filename: 'ファイル名',
+    preview: 'プレビュー',
+    scopeTitle: '生成範囲',
+    reportMode: 'レポートモード',
+    layout: 'レイアウト',
+    sections: 'セクション数',
+    zScore: 'Altman Z-スコア',
+    rating: '推定格付け',
+    latestPeriod: '最新期間',
+    languageMatches: '書き出し言語は選択したロケールに従います。',
+    filenameEditable: 'ファイル名はダウンロード前に編集できます。',
+    serverRender: 'PDF はサーバー側で生成され、ダウンロード可能なファイルとして返されます。',
+    ready: '準備できたら生成できます。',
+    rendering: 'バックグラウンドで PDF を生成中...',
+    close: '閉じる',
+    exportPdf: 'PDF を書き出す',
+    generating: '生成中',
+    savedAs: (name: string) => `${name} として保存しました`,
+  },
+};
+
+const buildPdfExportTarget = (result: any, lang: Language): PdfExportTarget => {
+  const history = Array.isArray(result?.history) ? result.history : [];
+  const latest = history[0] ?? {};
+  const assessment = latest?.assessment ?? {};
+  const ticker = String(result?.ticker ?? 'RiskLens').toUpperCase();
+  const companyName = resolveCompanyName(result, lang);
+  const latestPeriod = formatPeriodLabel(String(latest?.fiscal_year ?? '--'));
+  const scoreValue = typeof assessment?.risk_score === 'number' ? assessment.risk_score.toFixed(2) : '--';
+  const zoneValue = String(assessment?.overall_rating ?? 'N/A');
+  const ratingValue = String(assessment?.implied_rating ?? 'N/A');
+  const strengths = Array.isArray(assessment?.strengths) ? assessment.strengths.filter(isNonEmptyString).slice(0, 4) : [];
+  const watchItems = Array.isArray(assessment?.weaknesses) ? assessment.weaknesses.filter(isNonEmptyString).slice(0, 4) : [];
+
+  return {
+    report: result,
+    companyName,
+    ticker,
+    currency: String(result?.currency ?? 'USD').toUpperCase(),
+    latestPeriod,
+    periodCount: history.length,
+    zScore: scoreValue,
+    zone: zoneValue,
+    rating: ratingValue,
+    strengths,
+    watchItems,
+    sections: PDF_EXPORT_SECTIONS,
+  };
+};
+
+function PdfExportDialog({
+  open,
+  onClose,
+  target,
+  currentLang,
+}: {
+  open: boolean;
+  onClose: () => void;
+  target: PdfExportTarget | null;
+  currentLang: Language;
+}) {
+  const [exportLang, setExportLang] = useState<Language>(currentLang);
+  const [filename, setFilename] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  useEffect(() => {
+    if (!open || !target) return;
+    setExportLang(currentLang);
+    setFilename(`${target.ticker}_Full_Report.pdf`);
+    setLoading(false);
+    setError('');
+    setSuccess('');
+  }, [currentLang, open, target]);
+
+  if (!target) return null;
+
+  const pdfText = PDF_EXPORT_TEXT[currentLang] ?? PDF_EXPORT_TEXT.en;
+  const selectedLang = PDF_EXPORT_LANG_OPTIONS.find((option) => option.code === exportLang) ?? PDF_EXPORT_LANG_OPTIONS[0];
+  const sectionLabels = PDF_EXPORT_SECTION_LABELS[exportLang] ?? PDF_EXPORT_SECTION_LABELS.en;
+  const normalizedFilename = (() => {
+    const raw = filename.trim() || `${target.ticker}_Full_Report.pdf`;
+    return raw.toLowerCase().endsWith('.pdf') ? raw : `${raw}.pdf`;
+  })();
+  const themeAccent = 'hsl(var(--theme-500))';
+  const themeAccentSoft = 'hsl(var(--theme-500) / 0.12)';
+  const themeAccentBorder = 'hsl(var(--theme-500) / 0.28)';
+
+  const summaryCards = [
+    { label: pdfText.zScore, value: target.zScore, tone: 'primary' },
+    { label: pdfText.rating, value: target.rating, tone: 'primary-soft' },
+    { label: pdfText.latestPeriod, value: target.latestPeriod, tone: 'muted' },
+    { label: pdfText.sections, value: String(target.periodCount || 0), tone: 'accent' },
+  ] as const;
+
+  const handleExport = async () => {
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const savedAs = await exportSingleCompanyPdf(target.report, exportLang, normalizedFilename);
+      setSuccess(pdfText.savedAs(savedAs));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'PDF export failed';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { if (!next && !loading) onClose(); }}>
+      <DialogContent
+        className="w-[min(1080px,96vw)] max-w-[min(1080px,96vw)] max-h-[92vh] overflow-hidden border border-border bg-background p-0 text-foreground shadow-[0_30px_100px_rgba(2,6,23,0.58)]"
+      >
+        <DialogHeader className="sr-only">
+          <DialogTitle>{pdfText.workspace}</DialogTitle>
+          <DialogDescription>{pdfText.structureHint}</DialogDescription>
+        </DialogHeader>
+        <div className="h-[3px] w-full" style={{ backgroundColor: themeAccent }} />
+        <div className="grid max-h-[92vh] min-h-[520px] lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="flex flex-col gap-6 border-b border-border bg-card px-6 py-6 lg:border-b-0 lg:border-r lg:border-border">
+            <div className="flex items-start gap-4">
+              <div
+                className="flex h-14 w-14 items-center justify-center rounded-2xl border shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_18px_40px_rgba(2,6,23,0.22)]"
+                style={{ backgroundColor: themeAccentSoft, borderColor: themeAccentBorder, color: themeAccent }}
+              >
+                <FileText className="h-7 w-7" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">{pdfText.workspace}</div>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{target.companyName}</h2>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">{pdfText.structureHint}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <span className="rounded-full border border-border bg-background/70 px-3 py-1 font-medium tracking-wide text-foreground">{target.ticker}</span>
+                  <span>{target.currency}</span>
+                  <span>•</span>
+                  <span>{selectedLang.label}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {summaryCards.map((card) => (
+                <div
+                  key={card.label}
+                  className="rounded-2xl border border-border bg-background/70 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                >
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{card.label}</div>
+                  <div className="mt-3 text-lg font-semibold text-foreground">{card.value}</div>
+                  <div
+                    className="mt-2 h-1 w-16 rounded-full"
+                    style={{
+                      backgroundColor:
+                        card.tone === 'primary'
+                          ? themeAccent
+                          : card.tone === 'primary-soft'
+                            ? 'hsl(var(--theme-500) / 0.55)'
+                            : card.tone === 'muted'
+                              ? 'hsl(var(--muted-foreground) / 0.55)'
+                              : 'hsl(var(--theme-500) / 0.30)',
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Card className="border-border bg-card text-card-foreground shadow-none">
+                <CardHeader className="space-y-2 border-b border-border px-4 py-4">
+                  <CardTitle className="text-sm font-semibold uppercase tracking-[0.2em] text-foreground">{pdfText.structure}</CardTitle>
+                  <CardDescription className="text-muted-foreground">{pdfText.structureHint}</CardDescription>
+                </CardHeader>
+                <CardContent className="px-4 py-4">
+                <div className="grid gap-2 sm:grid-cols-2">
+                    {target.sections.map((section, idx) => (
+                      <div
+                        key={section}
+                        className="flex items-center gap-3 rounded-xl border border-border bg-background/60 px-3 py-2.5"
+                      >
+                        <span
+                          className="flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold text-white"
+                          style={{ backgroundColor: themeAccent }}
+                        >
+                          {idx + 1}
+                        </span>
+                        <span className="text-sm text-foreground">{sectionLabels[idx] ?? section}</span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-border bg-card text-card-foreground shadow-none">
+                <CardHeader className="space-y-2 border-b border-border px-4 py-4">
+                  <CardTitle className="text-sm font-semibold uppercase tracking-[0.2em] text-foreground">{pdfText.notesTitle}</CardTitle>
+                  <CardDescription className="text-muted-foreground">{pdfText.notesHint}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 px-4 py-4 text-sm text-muted-foreground">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4" style={{ color: themeAccent }} />
+                    <span>{pdfText.languageMatches}</span>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4" style={{ color: themeAccent }} />
+                    <span>{pdfText.filenameEditable}</span>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4" style={{ color: themeAccent }} />
+                    <span>{pdfText.serverRender}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-5 bg-muted/20 px-6 py-6">
+            <Card className="border-border bg-card text-card-foreground shadow-none">
+              <CardHeader className="space-y-2 border-b border-border px-4 py-4">
+                <CardTitle className="text-sm font-semibold uppercase tracking-[0.2em] text-foreground">{pdfText.optionTitle}</CardTitle>
+                <CardDescription className="text-muted-foreground">{pdfText.optionHint}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5 px-4 py-4">
+                <div className="space-y-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{pdfText.language}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {PDF_EXPORT_LANG_OPTIONS.map((option) => {
+                      const active = option.code === exportLang;
+                      return (
+                        <button
+                          key={option.code}
+                          type="button"
+                          onClick={() => {
+                            setExportLang(option.code);
+                            setSuccess('');
+                            setError('');
+                          }}
+                          className={`rounded-xl border px-3 py-3 text-left transition-all duration-200 ${
+                            active
+                              ? 'border-border text-foreground shadow-[0_0_0_1px_rgba(0,0,0,0.12)]'
+                              : 'border-border bg-background/60 text-muted-foreground hover:border-primary/30 hover:bg-muted/40'
+                          }`}
+                          style={active ? { backgroundColor: themeAccentSoft, borderColor: themeAccentBorder } : undefined}
+                        >
+                          <div className="text-sm font-semibold">{option.label}</div>
+                          <div className="mt-1 text-[11px] text-muted-foreground">{option.note}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{pdfText.filename}</div>
+                  <Input
+                    value={filename}
+                    onChange={(event) => {
+                      setFilename(event.target.value);
+                      setSuccess('');
+                      setError('');
+                    }}
+                    placeholder={`${target.ticker}_Full_Report.pdf`}
+                    className="h-11 border-border bg-background/70 text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
+                  />
+                  <div className="text-xs text-muted-foreground">
+                    {pdfText.preview}: <span className="font-mono text-foreground">{normalizedFilename}</span>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-background/60 p-4">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{pdfText.scopeTitle}</div>
+                  <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                    <div className="flex items-center justify-between gap-4">
+                      <span>{pdfText.reportMode}</span>
+                      <span className="font-mono text-foreground">Full Report</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span>{pdfText.layout}</span>
+                      <span className="font-mono text-foreground">Desktop / print-ready</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span>{pdfText.sections}</span>
+                      <span className="font-mono text-foreground">{target.sections.length}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {success ? (
+                  <div className="rounded-2xl border border-emerald-400/25 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">
+                    <div className="flex items-start gap-3">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4" />
+                      <div>{success}</div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {error ? (
+                  <div className="rounded-2xl border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">
+                    <div className="flex items-start gap-3">
+                      <AlertTriangle className="mt-0.5 h-4 w-4" />
+                      <div>{error}</div>
+                    </div>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+
+            <div className="mt-auto flex items-center justify-between gap-3 border-t border-border pt-4">
+              <div className="text-xs text-muted-foreground">
+                {loading ? pdfText.rendering : pdfText.ready}
+              </div>
+              <DialogFooter className="m-0 flex-row gap-2 sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onClose}
+                  disabled={loading}
+                  className="border-border bg-background/70 text-foreground hover:bg-muted/50 hover:text-foreground"
+                >
+                  {pdfText.close}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => { void handleExport(); }}
+                  disabled={loading}
+                  className="min-w-[144px] text-white shadow-[0_14px_40px_rgba(2,6,23,0.18)] transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: themeAccent }}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {pdfText.generating}
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-4 w-4" />
+                      {pdfText.exportPdf}
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 
 function MetricTooltip({ metricKey, label, lang }: { metricKey: string; label: string; lang: Language }) {
@@ -1764,7 +2286,7 @@ function MetricTooltip({ metricKey, label, lang }: { metricKey: string; label: s
         <div className="space-y-1">
           <p>{tip.def}</p>
           {tip.formula && (
-            <p className="text-brand-300 font-medium text-[11px] border-t border-white/10 pt-1 mt-1">
+            <p className="mt-1 border-t border-border pt-1 text-[11px] font-medium text-foreground">
               = {tip.formula}
             </p>
           )}
@@ -1773,7 +2295,7 @@ function MetricTooltip({ metricKey, label, lang }: { metricKey: string; label: s
     >
       <span className="group inline-flex max-w-full items-start gap-1.5 cursor-help leading-snug">
         <span className="min-w-0 break-words">{label}</span>
-        <Info className="mt-0.5 w-3.5 h-3.5 text-brand-500/70 group-hover:text-brand-400 transition-colors flex-shrink-0" />
+        <Info className="mt-0.5 w-3.5 h-3.5 text-muted-foreground transition-colors group-hover:text-foreground flex-shrink-0" />
       </span>
     </Tooltip>
   );
@@ -2323,6 +2845,10 @@ export default function App() {
   const [selectedTicker, setSelectedTicker] = useState('')
   const [selectedCurrency, setSelectedCurrency] = useState('USD')
 
+  // PDF export workspace state
+  const [pdfExportOpen, setPdfExportOpen] = useState(false)
+  const [pdfExportTarget, setPdfExportTarget] = useState<PdfExportTarget | null>(null)
+
   // Keep selected color theme and follow system light/dark mode.
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -2400,6 +2926,16 @@ export default function App() {
     setSelectedCurrency(currency);
     setDialogOpen(true);
   }
+
+  const openPdfExport = (result: any) => {
+    setPdfExportTarget(buildPdfExportTarget(result, lang));
+    setPdfExportOpen(true);
+  };
+
+  const closePdfExport = () => {
+    setPdfExportOpen(false);
+    setPdfExportTarget(null);
+  };
 
   const searchCompanyCandidates = async () => {
     const query = finderQuery.trim()
@@ -2745,10 +3281,23 @@ export default function App() {
 
           <div className="w-full space-y-6">
             {data?.results && data.results.length > 1 && (
-              <div className="flex justify-end animate-in fade-in slide-in-from-bottom-6">
-                <Button onClick={() => exportToExcel(data.results!, t, lang)} className="shadow-md bg-brand-600 hover:bg-brand-500 text-white font-bold tracking-wide">
+              <div className="flex flex-wrap justify-end gap-2 animate-in fade-in slide-in-from-bottom-6">
+                <Button
+                  onClick={() => exportToExcel(data.results!, t, lang)}
+                  className="border border-border bg-background/90 font-semibold text-foreground shadow-sm hover:bg-accent hover:text-accent-foreground"
+                >
                   <Download className="mr-2 h-4 w-4" />
-                  {t('exportAll')} ({data.results.length})
+                  {t('exportAllExcel')} ({data.results.length})
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled
+                  title={t('comingSoon')}
+                  className="border-dashed border-border bg-background/60 font-semibold text-muted-foreground shadow-none opacity-80"
+                >
+                  <FileText className="mr-2 h-4 w-4" />
+                  {t('exportAllPdf')} ({t('comingSoon')})
                 </Button>
               </div>
             )}
@@ -2902,24 +3451,28 @@ export default function App() {
                           <span className="text-muted-foreground text-sm font-medium bg-muted/30 px-2 py-1 rounded">
                             {res.ticker}
                           </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 ml-2 text-muted-foreground hover:text-brand-500 hover:bg-brand-500/10"
-                            onClick={() => { void exportSingleCompanyPdf(res, t, lang) }}
-                            title={t('exportPdf')}
-                          >
-                            <FileText className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-brand-500 hover:bg-brand-500/10"
-                            onClick={() => exportToExcel([res], t, lang)}
-                            title="Export to Excel"
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
+                          <div className="ml-2 flex items-center gap-1 rounded-full border border-border bg-background/85 p-1 shadow-sm backdrop-blur-sm">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 rounded-full px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => { openPdfExport(res); }}
+                  title={t('exportPdf')}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  {t('exportPdf')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 rounded-full px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => exportToExcel([res], t, lang)}
+                  title={t('exportExcel')}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {t('exportExcel')}
+                </Button>
+              </div>
                         </div>
                       </div>
                       <div className="flex gap-4 p-3 bg-white dark:bg-background/50 rounded-lg shadow-inner border">
@@ -3179,6 +3732,13 @@ export default function App() {
             </div>
           </DialogContent>
         </Dialog>
+
+        <PdfExportDialog
+          open={pdfExportOpen}
+          onClose={closePdfExport}
+          target={pdfExportTarget}
+          currentLang={lang}
+        />
 
         {/* Financial Statement Dialog */}
         <StatementDialog

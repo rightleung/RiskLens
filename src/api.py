@@ -72,7 +72,7 @@ from data_fetcher import FinancialDataFetcher, DataFetchError, DataFetchErrorTyp
 from ratio_analyzer import RatioAnalyzer, CreditRatioAnalysis
 from covenant_monitor import FinancialCovenants, CovenantMonitor, CovenantReport
 from zscore import calculate_z_score
-from pdf_exporter import generate_full_pdf
+from src.reportlab_pdf_exporter import generate_full_pdf, generate_full_pdf_async
 from services import AssessmentServiceError, RichAssessmentService
 
 # ── FastAPI App ──────────────────────────────────────────────────────────────
@@ -183,7 +183,8 @@ class CovenantCheckRequest(BaseModel):
 class PdfExportRequest(BaseModel):
     """Request body for full PDF export."""
     report: Dict[str, Any] = Field(..., description="Single-company assessment payload")
-    lang: str = Field(default="zh-CN", description="Language code")
+    lang: str = Field(default="en", description="Language code")
+    theme: str = Field(default="dark", description="PDF theme: 'dark' or 'light'")
 
 
 # ── Helper Functions ─────────────────────────────────────────────────────────
@@ -872,14 +873,17 @@ def check_covenants(request: CovenantCheckRequest):
 
 
 @app.post("/api/v1/reports/pdf", tags=["Reporting"])
-def export_full_pdf(request: PdfExportRequest):
+async def export_full_pdf(request: PdfExportRequest | dict[str, Any]):
     """Export a single-company full report as a downloadable PDF."""
+    if isinstance(request, dict):
+        request = PdfExportRequest(**request)
     report = request.report or {}
     lang = request.lang if request.lang in {"en", "zh-CN", "zh-TW", "ja"} else "en"
+    theme = request.theme if request.theme in {"dark", "light"} else "dark"
     ticker = str(report.get("ticker") or "RiskLens").upper()
 
     try:
-        pdf_bytes = generate_full_pdf(report, lang)
+        pdf_bytes = await generate_full_pdf_async(report, lang, theme)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail={"error": str(exc), "ticker": ticker}) from exc
     except Exception as exc:

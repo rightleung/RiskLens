@@ -1,6 +1,6 @@
 # RiskLens
 
-Language: [English](./README.md) | [简体中文](./README_zh-CN.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md)
+Language: [English](./README.md) | [简体中文](./docs/readme/README_zh-CN.md) | [繁體中文](./docs/readme/README_zh-TW.md) | [日本語](./docs/readme/README_ja.md)
 
 ## 1. Runtime Paths
 
@@ -119,10 +119,12 @@ curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
 
 Keep these docs because each has a different ownership boundary:
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md): runtime boundaries and component ownership
-- [METHODOLOGY.md](./METHODOLOGY.md): scoring and risk-layer methodology
-- [REPORT_WORKBOOK_SPEC.md](./REPORT_WORKBOOK_SPEC.md): Excel output contract and field rules
-- [REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md](./REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md): Full PDF desktop-first draft template and wireframe
+- [ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md): runtime boundaries and component ownership
+- README translations live under [docs/readme/](./docs/readme/).
+- Architecture translations live under [docs/architecture/](./docs/architecture/).
+- [METHODOLOGY.md](./docs/methodology/METHODOLOGY.md): scoring and risk-layer methodology
+- [REPORT_WORKBOOK_SPEC.md](./docs/report-workbook/REPORT_WORKBOOK_SPEC.md): Excel output contract and field rules
+- [REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md](./docs/pdf-template/REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md): Full PDF desktop-first draft template and wireframe
 
 Responsibilities:
 - README: onboarding and runbook

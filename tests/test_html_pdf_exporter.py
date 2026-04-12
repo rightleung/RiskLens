@@ -1,9 +1,23 @@
 import asyncio
+import importlib.util
 import inspect
+import re
+import subprocess
+import shutil
+import os
+import sys
+
+ROOT = os.path.join(os.path.dirname(__file__), "..")
+sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "src"))
 
 import api
 import pdf_exporter
+import pytest
 from fastapi.testclient import TestClient
+
+
+REPORTLAB_AVAILABLE = importlib.util.find_spec("reportlab") is not None
 
 
 def _sample_report():
@@ -143,8 +157,15 @@ def _sample_report():
     }
 
 
-def test_pdf_exporter_generates_pdf_bytes():
+def test_pdf_exporter_generates_pdf_bytes(tmp_path):
     report = _sample_report()
+
+    model = pdf_exporter.build_pdf_document_model(report, "zh-CN")
+    assert model["cover"]["company_name"] == "Demo Industrial Co."
+    assert model["context"]["labels"]["contents"] == "目录"
+    assert model["statements"][0]["headers"][0] == "指标"
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
 
     assert pdf_exporter._format_period_label("25Q3") == "Q3 FY25"
     assert pdf_exporter._build_yoy_map(["25Q3", "24Q3", "FY24", "FY23"]) == {
@@ -152,14 +173,70 @@ def test_pdf_exporter_generates_pdf_bytes():
         "FY24": "FY23",
     }
 
+    context = pdf_exporter.build_pdf_context(report, "zh-CN")
+    assert context["kpi_yoy_label_q"] == "Q3'25 vs Q3'24"
+    assert context["kpi_yoy_label_fy"] == "FY24 vs FY23"
+    assert "Q3'25 vs Q3'24" in context["yoy_note"]
+    assert "FY24 vs FY23" in context["yoy_note"]
+    assert context["hero_summary"]["items"] == [
+        {"label": "Altman Z 分数", "value": "2.70", "tone": "neutral"},
+        {"label": "区间", "value": "Safe", "tone": "success"},
+        {"label": "隐含评级", "value": "BBB", "tone": "info"},
+    ]
+    assert context["hero_summary"]["note"].startswith("方法论注解:")
+    assert context["zone_text"] == "Safe"
+    assert context["covenant_rows"][0]["status_signal"] == "Pass"
+    assert context["covenant_rows"][0]["description"] == "衡量杠杆与偿债能力"
+    assert context["covenant_notes"][0]["metric"] == "Debt/EBITDA"
+    assert context["covenant_note_title"] == "指标说明"
+    assert context["periods"][2]["group_start"] is True
+    assert context["periods"][2]["benchmark"] is False
+    assert context["periods"][2]["benchmark_style"] == ""
+    assert [section["title"] for section in context["statement_sections"]] == [
+        "income_statement",
+        "balance_sheet",
+        "cash_flow_statement",
+    ]
+    assert all(section["yoy_label_q"] == "Q3'25 vs Q3'24" for section in context["statement_sections"])
+    assert all(section["yoy_label_fy"] == "FY24 vs FY23" for section in context["statement_sections"])
+    assert all(section["yoy_note"] == context["yoy_note"] for section in context["statement_sections"])
+    assert context["data_quality_rows"][0]["value"] == "92%"
+    assert len(context["methodology_notes"]) == 3
+    assert context["benchmark_note"] == ""
+    assert context["kpi_rows"][3]["values"][0] == "1.90x"
+    cash_flow_section = next(section for section in context["statement_sections"] if section["title"] == "cash_flow_statement")
+    capex_row = next(row for row in cash_flow_section["rows"] if row["label"] == "Capex")
+    assert capex_row["yoy_q"] == "-16.7%"
+    assert capex_row["yoy_fy"] == "+5.3%"
+    assert not hasattr(pdf_exporter, "render_pdf_html")
+
     pdf_bytes = pdf_exporter.generate_full_pdf(report, "zh-CN")
 
     assert pdf_bytes.startswith(b"%PDF")
     assert len(pdf_bytes) > 5000
-    assert pdf_bytes.count(b"/Type /Page") >= 8
+    pdf_file = tmp_path / "report.pdf"
+    pdf_file.write_bytes(pdf_bytes)
+    pdfinfo = subprocess.check_output(["pdfinfo", str(pdf_file)], text=True)
+    assert "Pages:" in pdfinfo
+    page_count = int(pdfinfo.split("Pages:")[1].splitlines()[0].strip())
+    assert page_count >= 5
+    assert "Page size:" in pdfinfo
+    size_line = next(line for line in pdfinfo.splitlines() if line.startswith("Page size:"))
+    match = re.search(r"Page size:\s*([0-9.]+)\s*x\s*([0-9.]+)", size_line)
+    assert match is not None
+    assert float(match.group(1)) > float(match.group(2))
+    if shutil.which("pdftotext"):
+        extracted = subprocess.check_output(["pdftotext", str(pdf_file), "-"], text=True)
+        first_page = extracted.split("\f")[0]
+        assert "Demo Industrial Co." in extracted
+        assert "FY24" in extracted
+        assert "Capex" in extracted
+        assert "Page 1" not in first_page
 
 
-def test_pdf_export_api_is_async_and_returns_pdf():
+def test_pdf_export_api_is_async_and_returns_pdf(tmp_path):
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
     assert inspect.iscoroutinefunction(api.export_full_pdf)
 
     client = TestClient(api.app)
@@ -169,9 +246,17 @@ def test_pdf_export_api_is_async_and_returns_pdf():
     assert response.media_type == "application/pdf"
     assert response.content.startswith(b"%PDF")
     assert len(response.content) > 5000
+    if shutil.which("pdftotext"):
+        pdf_file = tmp_path / "api.pdf"
+        pdf_file.write_bytes(response.content)
+        extracted = subprocess.check_output(["pdftotext", str(pdf_file), "-"], text=True)
+        assert "FY24" in extracted
+        assert "Capex" in extracted
 
 
 def test_async_pdf_export_direct_call():
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
     report = _sample_report()
     pdf_bytes = asyncio.run(pdf_exporter.generate_full_pdf_async(report, "en"))
 
