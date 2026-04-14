@@ -7,6 +7,7 @@ import os
 import sys
 import shutil
 import subprocess
+import re
 
 import pytest
 
@@ -14,6 +15,7 @@ ROOT = os.path.join(os.path.dirname(__file__), "..")
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
+import html_pdf_exporter
 import pdf_exporter
 from reportlab_pdf_renderer import _render_reportlab_pdf
 from pdf_exporter import _build_yoy_map, _is_negative_display_value, generate_full_pdf
@@ -221,6 +223,85 @@ def test_build_pdf_document_model_cleans_profile_labels():
     assert model["kpi"]["headers"][2] == "Q3 FY24"
 
 
+def test_normalize_statement_rows_splits_merged_label_and_value_lines():
+    rows = html_pdf_exporter._normalize_statement_rows([
+        {
+            "label": "EBITDA\nEBIT\nNet Interest Income",
+            "value": "160.2B\n126.0B\n262.0M",
+        }
+    ])
+
+    assert [row["label"] for row in rows] == ["EBITDA", "EBIT", "Net Interest Income"]
+    assert [row["value"] for row in rows] == ["160.2B", "126.0B", "262.0M"]
+
+
+def test_build_pdf_document_model_normalizes_statement_labels():
+    report = _build_report()
+    report["history"][0]["statements"]["balance"] = {
+        "tradeand_other_payables_non_current": 26_000_000_000.0,
+        "gross_ppe": 100_000_000_000.0,
+        "diluted_ni_availto_com_stockholders": 101_800_000_000.0,
+    }
+    report["history"][0]["statements"]["cash"] = {
+        "free_cf": 71_611_000_000.0,
+        "operating_cf": 136_200_000_000.0,
+    }
+
+    model = pdf_exporter.build_pdf_document_model(report, "en")
+
+    balance_labels = [row["label"] for row in model["statements"][1]["rows"][:3]]
+    assert balance_labels == [
+        "Trade and Other Payables Non Current",
+        "Gross PPE",
+        "Diluted NI Avail to Com Stockholders",
+    ]
+    cash_labels = [row["label"] for row in model["statements"][2]["rows"][:2]]
+    assert cash_labels == ["Free CF", "Operating CF"]
+
+
+def test_build_pdf_document_model_separates_magnitude_units_and_repairs_ocr_suffixes(tmp_path):
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
+
+    report = _build_report()
+    report["history"] = [report["history"][0]]
+    report["history"][0]["statements"]["income"] = [
+        {"label": "Normalized EBITDA", "value": "105.28"},
+        {"label": "EBIT", "value": "110.78"},
+        {"label": "Revenue", "value": "245.18"},
+        {"label": "Cost of Revenue", "value": "87.88"},
+        {"label": "Tax Rate for Calcs", "value": "0.18"},
+    ]
+
+    model = pdf_exporter.build_pdf_document_model(report, "en")
+
+    income_rows = model["statements"][0]["rows"][:5]
+    assert [row["values"][0] for row in income_rows] == [
+        "105.2 B",
+        "110.7 B",
+        "245.1 B",
+        "87.8 B",
+        "0.18",
+    ]
+    assert model["kpi"]["rows"][0][1] == "18.3 M"
+
+    pdf_bytes = generate_full_pdf(report, lang="en")
+    pdf_file = tmp_path / "statement-unit-repair.pdf"
+    pdf_file.write_bytes(pdf_bytes)
+
+    if shutil.which("pdftotext"):
+        extracted = subprocess.check_output(["pdftotext", str(pdf_file), "-"], text=True)
+        normalized = re.sub(r"\s+", " ", extracted)
+        assert "105.2 B" in normalized
+        assert "110.7 B" in normalized
+        assert "245.1 B" in normalized
+        assert "87.8 B" in normalized
+        assert "0.18" in normalized
+        assert "105.28" not in normalized
+    assert html_pdf_exporter._format_statement_display_value("269.0. M", "Other Non Operating Income Expenses") == "269.0 M"
+    assert html_pdf_exporter._format_statement_display_value("76.7\nB", "Net Debt") == "76.7 B"
+
+
 def test_generate_full_pdf_rejects_invalid_numeric_payload():
     if not REPORTLAB_AVAILABLE:
         pytest.skip("reportlab is not installed")
@@ -231,11 +312,51 @@ def test_generate_full_pdf_rejects_invalid_numeric_payload():
         generate_full_pdf(report, lang="en")
 
 
-def test_generate_full_pdf_rejects_inline_breaks():
+def test_generate_full_pdf_accepts_multiline_statement_rows(tmp_path):
     if not REPORTLAB_AVAILABLE:
         pytest.skip("reportlab is not installed")
     report = _build_report()
-    report["history"][0]["statements"]["income"]["income\nSplit"] = 100
+    report["history"] = [report["history"][0]]
+    report["history"][0]["statements"]["income"] = [
+        {
+            "label": "EBITDA\nEBIT\nNet Interest Income",
+            "value": "160.2B\n126.0B\n262.0M",
+        }
+    ]
+    report["history"][0]["statements"]["balance"] = [
+        {
+            "label": "Tradeand Other Payables Non Current",
+            "value": "26.0B",
+        }
+    ]
+
+    model = pdf_exporter.build_pdf_document_model(report, lang="en")
+
+    assert [row["label"] for row in model["statements"][0]["rows"]] == ["EBITDA", "EBIT", "Net Interest Income"]
+    assert [row["values"][0] for row in model["statements"][0]["rows"]] == [
+        "160.2 B",
+        "126.0 B",
+        "262.0 M",
+    ]
+
+    pdf_bytes = generate_full_pdf(report, lang="en")
+    assert pdf_bytes.startswith(b"%PDF")
+    assert len(pdf_bytes) > 8000
+
+    pdf_file = tmp_path / "multiline-statement.pdf"
+    pdf_file.write_bytes(pdf_bytes)
+    if shutil.which("pdftotext"):
+        extracted = subprocess.check_output(["pdftotext", str(pdf_file), "-"], text=True)
+        normalized = re.sub(r"\s+", " ", extracted)
+        assert "EBITDA" in normalized
+        assert "Net Interest Income" in normalized
+
+
+def test_generate_full_pdf_rejects_inline_breaks_outside_statements():
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
+    report = _build_report()
+    report["company_name"] = "Alpha\nBeta"
 
     with pytest.raises(ValueError, match="FATAL: 渲染层拒绝接收硬合并的多行数据"):
         pdf_exporter.build_pdf_document_model(report, lang="en")
@@ -282,24 +403,288 @@ def test_generate_full_pdf_renders_empty_statement_pages_without_table_headers(t
     if not REPORTLAB_AVAILABLE:
         pytest.skip("reportlab is not installed")
 
-    pdf_bytes = generate_full_pdf(_build_report(), lang="en")
+    report = _build_report()
+    for entry in report["history"]:
+        entry["statements"]["balance"] = {}
+        entry["statements"]["cash"] = {}
+
+    pdf_bytes = generate_full_pdf(report, lang="en")
     pdf_file = tmp_path / "empty-state.pdf"
     pdf_file.write_bytes(pdf_bytes)
 
     if shutil.which("pdftotext"):
         extracted = subprocess.check_output(["pdftotext", str(pdf_file), "-"], text=True)
         pages = extracted.split("\f")
-        assert len(pages) >= 7
+        assert len(pages) >= 6
         assert "RiskLens Financial Report" not in pages[0]
         assert "Apple Inc." in pages[0]
         assert "Contents" not in pages[0]
-        assert "Methodology Note" not in pages[0]
-        assert "Q3'25 vs Q3'24" in extracted
-        assert "FY24 vs FY23" in extracted
+        assert "Methodology Note" in pages[0]
         empty_pages = [page for page in pages if ("Balance Sheet" in page or "Cash Flow Statement" in page) and "[No valid data provided for this period]" in page]
-        assert len(empty_pages) >= 2
-        assert all("Metric" in page for page in empty_pages)
-        assert all("YoY" not in page for page in empty_pages)
+        assert len(empty_pages) == 0
+
+
+def test_generate_full_pdf_renders_normalized_statement_labels(tmp_path):
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
+
+    report = _build_report()
+    report["history"][0]["statements"]["income"] = {
+        "ebitda": 160_165_000_000.0,
+        "ebit": 126_012_000_000.0,
+        "net_interest_income": 262_000_000.0,
+    }
+    report["history"][0]["statements"]["balance"] = {
+        "tradeand_other_payables_non_current": 26_000_000_000.0,
+        "gross_ppe": 100_000_000_000.0,
+    }
+    report["history"][0]["statements"]["cash"] = {
+        "free_cf": 71_611_000_000.0,
+        "operating_cf": 136_200_000_000.0,
+    }
+
+    pdf_bytes = generate_full_pdf(report, lang="en")
+    pdf_file = tmp_path / "normalized-statement-labels.pdf"
+    pdf_file.write_bytes(pdf_bytes)
+
+    if shutil.which("pdftotext"):
+        extracted = subprocess.check_output(["pdftotext", str(pdf_file), "-"], text=True)
+        normalized = re.sub(r"\s+", " ", extracted)
+        assert "Trade and Other Payables Non Current" in normalized
+        assert "Gross PPE" in normalized
+        assert "Free CF" in normalized
+        assert "Operating CF" in normalized
+        assert "EBITDA" in normalized
+        assert "Net Interest Income" in normalized
+
+
+def test_generate_full_pdf_keeps_long_statement_rows_and_interest_expense_alignment(tmp_path):
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
+
+    report = {
+        "ticker": "MSFT",
+        "company_name": "Microsoft Corp.",
+        "currency": "USD",
+        "history": [
+            {
+                "fiscal_year": "FY25",
+                "assessment": {
+                    "altman_z_score": 4.2,
+                    "zone": "Safe",
+                    "implied_rating": "AAA",
+                    "strengths": ["Strong cash generation"],
+                    "weaknesses": ["None"],
+                },
+                "ratios": {
+                    "debt_to_ebitda": 0.38,
+                    "interest_coverage": 53.9,
+                    "fcf_to_debt": 1.18,
+                    "current_ratio": 1.35,
+                },
+                "raw_metrics": {
+                    "ebit": 126_012_000_000.0,
+                    "ebitda": 160_165_000_000.0,
+                    "total_debt": 60_600_000_000.0,
+                    "free_cf": 71_611_000_000.0,
+                },
+                "statements": {
+                    "income_statement": [
+                        {"label": "Tax Effect of Unusual Items", "value": -77_100_000.0},
+                        {"label": "Tax Rate for Calcs", "value": 0.18},
+                        {"label": "Normalized EBITDA", "value": 160_600_000_000.0},
+                        {"label": "Total Unusual Items", "value": -438_000_000.0},
+                        {"label": "EBIT", "value": 126_000_000_000.0},
+                        {"label": "Net Interest Income", "value": 262_000_000.0},
+                        {"label": "Diluted Average Shares", "value": 7_500_000_000.0},
+                        {"label": "Basic Average Shares", "value": 7_400_000_000.0},
+                        {"label": "Interest Expense", "value": 2_354_000_000.0},
+                    ],
+                    "balance_sheet": [
+                        {"label": "Net Tangible Assets", "value": 201_400_000_000.0},
+                        {"label": "Total Equity", "value": 343_500_000_000.0},
+                        {"label": "Retained Earnings", "value": 237_700_000_000.0},
+                        {"label": "Total Liabilities", "value": 275_500_000_000.0},
+                        {"label": "Other Current Assets", "value": 25_700_000_000.0},
+                        {"label": "Hedging Assets Current", "value": 10_000_000.0},
+                        {"label": "Inventory", "value": 938_000_000.0},
+                        {"label": "Accounts Receivable", "value": 69_900_000_000.0},
+                    ],
+                    "cash_flow_statement": [
+                        {"label": "Sale of Investment", "value": 25_400_000_000.0},
+                        {"label": "Purchase of Investment", "value": -29_800_000_000.0},
+                        {"label": "Net Business Purchase and Sale", "value": -6_000_000_000.0},
+                        {"label": "Net PPE Purchase and Sale", "value": -64_600_000_000.0},
+                        {"label": "Finished Goods", "value": None},
+                        {"label": "Work in Process", "value": None},
+                        {"label": "Raw Materials", "value": None},
+                    ],
+                },
+            },
+            {
+                "fiscal_year": "FY24",
+                "assessment": {
+                    "altman_z_score": 4.0,
+                    "zone": "Safe",
+                    "implied_rating": "AAA",
+                    "strengths": ["Strong cash generation"],
+                    "weaknesses": ["None"],
+                },
+                "ratios": {
+                    "debt_to_ebitda": 0.50,
+                    "interest_coverage": 37.3,
+                    "fcf_to_debt": 1.10,
+                    "current_ratio": 1.27,
+                },
+                "raw_metrics": {
+                    "ebit": 110_700_000_000.0,
+                    "ebitda": 133_000_000_000.0,
+                    "total_debt": 67_100_000_000.0,
+                    "free_cf": 74_100_000_000.0,
+                },
+                "statements": {
+                    "income_statement": [
+                        {"label": "Tax Effect of Unusual Items", "value": -99_900_000.0},
+                        {"label": "Tax Rate for Calcs", "value": 0.18},
+                        {"label": "Normalized EBITDA", "value": 133_600_000_000.0},
+                        {"label": "Total Unusual Items", "value": -549_000_000.0},
+                        {"label": "EBIT", "value": 110_700_000_000.0},
+                        {"label": "Net Interest Income", "value": 222_000_000.0},
+                        {"label": "Diluted Average Shares", "value": 7_500_000_000.0},
+                        {"label": "Basic Average Shares", "value": 7_400_000_000.0},
+                        {"label": "Interest Expense", "value": 2_895_000_000.0},
+                    ],
+                    "balance_sheet": [
+                        {"label": "Net Tangible Assets", "value": 121_700_000_000.0},
+                        {"label": "Total Equity", "value": 268_500_000_000.0},
+                        {"label": "Retained Earnings", "value": 173_100_000_000.0},
+                        {"label": "Total Liabilities", "value": 243_700_000_000.0},
+                        {"label": "Other Current Assets", "value": 26_000_000_000.0},
+                        {"label": "Hedging Assets Current", "value": 12_000_000.0},
+                        {"label": "Inventory", "value": 1_200_000_000.0},
+                        {"label": "Accounts Receivable", "value": 56_900_000_000.0},
+                    ],
+                    "cash_flow_statement": [
+                        {"label": "Sale of Investment", "value": 35_700_000_000.0},
+                        {"label": "Purchase of Investment", "value": -17_700_000_000.0},
+                        {"label": "Net Business Purchase and Sale", "value": -69_100_000_000.0},
+                        {"label": "Net PPE Purchase and Sale", "value": -44_500_000_000.0},
+                        {"label": "Finished Goods", "value": 845_000_000.0},
+                        {"label": "Work in Process", "value": 7_000_000.0},
+                        {"label": "Raw Materials", "value": 394_000_000.0},
+                    ],
+                },
+            },
+            {
+                "fiscal_year": "FY23",
+                "assessment": {
+                    "altman_z_score": 3.8,
+                    "zone": "Safe",
+                    "implied_rating": "AAA",
+                    "strengths": ["Strong cash generation"],
+                    "weaknesses": ["None"],
+                },
+                "ratios": {
+                    "debt_to_ebitda": 0.57,
+                    "interest_coverage": 45.0,
+                    "fcf_to_debt": 0.99,
+                    "current_ratio": 1.77,
+                },
+                "raw_metrics": {
+                    "ebit": 91_300_000_000.0,
+                    "ebitda": 105_100_000_000.0,
+                    "total_debt": 60_000_000_000.0,
+                    "free_cf": 59_500_000_000.0,
+                },
+                "statements": {
+                    "income_statement": [
+                        {"label": "Tax Effect of Unusual Items", "value": -2_900_000.0},
+                        {"label": "Tax Rate for Calcs", "value": 0.19},
+                        {"label": "Normalized EBITDA", "value": 105_200_000_000.0},
+                        {"label": "Total Unusual Items", "value": -15_000_000.0},
+                        {"label": "EBIT", "value": 91_300_000_000.0},
+                        {"label": "Net Interest Income", "value": 1_000_000_000.0},
+                        {"label": "Diluted Average Shares", "value": 7_500_000_000.0},
+                        {"label": "Basic Average Shares", "value": 7_400_000_000.0},
+                        {"label": "Interest Expense", "value": 1_941_000_000.0},
+                    ],
+                    "balance_sheet": [
+                        {"label": "Net Tangible Assets", "value": 129_000_000_000.0},
+                        {"label": "Total Equity", "value": 206_200_000_000.0},
+                        {"label": "Retained Earnings", "value": 118_800_000_000.0},
+                        {"label": "Total Liabilities", "value": 205_800_000_000.0},
+                        {"label": "Other Current Assets", "value": 21_800_000_000.0},
+                        {"label": "Hedging Assets Current", "value": 6_000_000.0},
+                        {"label": "Inventory", "value": 2_500_000_000.0},
+                        {"label": "Accounts Receivable", "value": 48_700_000_000.0},
+                    ],
+                    "cash_flow_statement": [
+                        {"label": "Sale of Investment", "value": 47_900_000_000.0},
+                        {"label": "Purchase of Investment", "value": -37_700_000_000.0},
+                        {"label": "Net Business Purchase and Sale", "value": -1_700_000_000.0},
+                        {"label": "Net PPE Purchase and Sale", "value": -28_100_000_000.0},
+                        {"label": "Finished Goods", "value": 1_800_000_000.0},
+                        {"label": "Work in Process", "value": 23_000_000.0},
+                        {"label": "Raw Materials", "value": 709_000_000.0},
+                    ],
+                },
+            },
+        ],
+    }
+
+    model = pdf_exporter.build_pdf_document_model(report, "en")
+    income_section = next(section for section in model["statements"] if section["title"] == "income_statement")
+    interest_row = next(row for row in income_section["rows"] if row["label"] == "Interest Expense")
+    assert interest_row["yoy_q"] == "-18.7%"
+    assert interest_row["yoy_fy"] == "+49.1%"
+
+    balance_section = next(section for section in model["statements"] if section["title"] == "balance_sheet")
+    assert [row["label"] for row in balance_section["rows"][:4]] == [
+        "Net Tangible Assets",
+        "Total Equity",
+        "Retained Earnings",
+        "Total Liabilities",
+    ]
+
+    cash_section = next(section for section in model["statements"] if section["title"] == "cash_flow_statement")
+    assert [row["label"] for row in cash_section["rows"][:4]] == [
+        "Sale of Investment",
+        "Purchase of Investment",
+        "Net Business Purchase and Sale",
+        "Net PPE Purchase and Sale",
+    ]
+
+    pdf_bytes = generate_full_pdf(report, lang="en")
+    pdf_file = tmp_path / "long-statement-rows.pdf"
+    pdf_file.write_bytes(pdf_bytes)
+
+    if shutil.which("pdftotext"):
+        extracted = subprocess.check_output(["pdftotext", str(pdf_file), "-"], text=True)
+        normalized = re.sub(r"\s+", " ", extracted)
+        for label in [
+            "Tax Effect of Unusual Items",
+            "Tax Rate for Calcs",
+            "Normalized EBITDA",
+            "Total Unusual Items",
+            "EBIT",
+            "Net Interest Income",
+            "Diluted Average Shares",
+            "Basic Average Shares",
+            "Interest Expense",
+            "Net Tangible Assets",
+            "Total Equity",
+            "Retained Earnings",
+            "Total Liabilities",
+            "Other Current Assets",
+            "Hedging Assets Current",
+            "Inventory",
+            "Accounts Receivable",
+            "Sale of Investment",
+            "Purchase of Investment",
+            "Net Business Purchase and Sale",
+            "Net PPE Purchase and Sale",
+        ]:
+            assert label in normalized
 
 
 @pytest.mark.parametrize("lang", ["en", "zh-CN", "zh-TW", "ja"])

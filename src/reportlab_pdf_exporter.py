@@ -29,21 +29,23 @@ def _validate_numeric_value(value: Any, path: str) -> None:
     raise ValueError(f'Unsupported numeric value at {path}: {type(value).__name__}')
 
 
-def _validate_statement_payload(payload: Any, path: str) -> None:
+def _validate_statement_payload(payload: Any, path: str, allow_textual_values: bool = False) -> None:
     if isinstance(payload, dict):
         for key, value in payload.items():
             next_path = f'{path}.{key}'
             if key in {'value', 'amount', 'balance', 'actual', 'threshold', 'target', 'limit', 'score'} and not isinstance(value, (dict, list, tuple)):
-                _validate_numeric_value(value, next_path)
+                if not allow_textual_values:
+                    _validate_numeric_value(value, next_path)
             elif isinstance(value, (dict, list, tuple)):
-                _validate_statement_payload(value, next_path)
+                _validate_statement_payload(value, next_path, allow_textual_values=allow_textual_values)
     elif isinstance(payload, (list, tuple)):
         for idx, item in enumerate(payload):
             next_path = f'{path}[{idx}]'
             if isinstance(item, dict):
-                _validate_statement_payload(item, next_path)
+                _validate_statement_payload(item, next_path, allow_textual_values=allow_textual_values)
             elif isinstance(item, (list, tuple)) and len(item) >= 2:
-                _validate_numeric_value(item[1], f'{next_path}[1]')
+                if not allow_textual_values:
+                    _validate_numeric_value(item[1], f'{next_path}[1]')
 
 
 def _validate_report_payload(report: dict[str, Any]) -> None:
@@ -66,11 +68,12 @@ def _validate_report_payload(report: dict[str, Any]) -> None:
             payload = entry.get(key)
             if isinstance(payload, dict):
                 for metric_key, metric_value in payload.items():
-                    _validate_numeric_value(metric_value, f'history[{idx}].{key}.{metric_key}')
+                    if metric_key not in ('analysis_date', 'timestamp'):
+                        _validate_numeric_value(metric_value, f'history[{idx}].{key}.{metric_key}')
         for key in ('statements', 'financial_statements', 'statement_data'):
             payload = entry.get(key)
             if payload is not None:
-                _validate_statement_payload(payload, f'history[{idx}].{key}')
+                _validate_statement_payload(payload, f'history[{idx}].{key}', allow_textual_values=True)
 
 
 async def generate_full_pdf_async(report: dict[str, Any], lang: str = 'en', theme: str = 'dark') -> bytes:

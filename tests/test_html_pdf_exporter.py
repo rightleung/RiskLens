@@ -176,8 +176,7 @@ def test_pdf_exporter_generates_pdf_bytes(tmp_path):
     context = pdf_exporter.build_pdf_context(report, "zh-CN")
     assert context["kpi_yoy_label_q"] == "Q3'25 vs Q3'24"
     assert context["kpi_yoy_label_fy"] == "FY24 vs FY23"
-    assert "Q3'25 vs Q3'24" in context["yoy_note"]
-    assert "FY24 vs FY23" in context["yoy_note"]
+    assert context["yoy_note"] == "（截至FY24及FY23财政年度）"
     assert context["hero_summary"]["items"] == [
         {"label": "Altman Z 分数", "value": "2.70", "tone": "neutral"},
         {"label": "区间", "value": "Safe", "tone": "success"},
@@ -252,6 +251,90 @@ def test_pdf_export_api_is_async_and_returns_pdf(tmp_path):
         extracted = subprocess.check_output(["pdftotext", str(pdf_file), "-"], text=True)
         assert "FY24" in extracted
         assert "Capex" in extracted
+
+
+def test_build_pdf_context_prefers_ratio_fields_and_weakness_fallback():
+    report = _sample_report()
+    latest = report["history"][0]
+    latest["assessment"].pop("watch_items", None)
+    latest["assessment"]["weaknesses"] = ["Liquidity sensitivity"]
+    latest.setdefault("ratios", {})["debt_to_ebitda"] = 0.38
+    latest["ratios"].pop("fcf_debt", None)
+    latest["ratios"]["fcf_to_debt"] = 0.22
+    latest["raw_metrics"].pop("ebit", None)
+    latest["raw_metrics"].pop("free_cash_flow", None)
+    latest["raw_metrics"]["free_cf"] = 71_611_000_000.0
+    latest["raw_metrics"]["operating_income"] = 18_300_000.0
+    latest["raw_metrics"]["ebitda"] = 160_165_000_000.0
+
+    context = pdf_exporter.build_pdf_context(report, "en")
+
+    assert context["watch_items"] == ["Liquidity sensitivity"]
+    assert context["kpi_rows"][3]["values"][0] == "0.38x"
+    assert context["kpi_rows"][5]["values"][0] == "71.6 B"
+    assert context["kpi_rows"][6]["values"][0] == "0.22x"
+    assert context["kpi_rows"][0]["values"][0] == "18.3 M"
+
+
+def test_build_pdf_context_uses_none_state_and_covenant_fallback():
+    report = _sample_report()
+    latest = report["history"][0]
+    latest["assessment"]["watch_items"] = []
+    latest["assessment"]["concerns"] = []
+    latest["assessment"]["weaknesses"] = []
+    latest["watch_items"] = []
+    latest["concerns"] = []
+    latest["weaknesses"] = []
+    latest["assessment"].pop("covenant_pre_check", None)
+    latest.pop("covenant_pre_check", None)
+
+    context = pdf_exporter.build_pdf_context(report, "en")
+
+    assert context["watch_items"] == ["No significant watch items"]
+    assert [row["metric"] for row in context["covenant_rows"]] == [
+        "Debt/EBITDA",
+        "Interest Coverage",
+        "FCF / Debt",
+        "Current Ratio",
+    ]
+    assert all(row["description"] for row in context["covenant_rows"])
+
+
+def test_build_pdf_context_uses_period_span_note_for_annual_only_tables():
+    report = _sample_report()
+    report["history"] = [entry for entry in report["history"] if str(entry.get("fiscal_year", "")).startswith("FY")]
+
+    context = pdf_exporter.build_pdf_context(report, "en")
+
+    assert context["yoy_note"] == "(For the fiscal years ended FY24 and FY23)"
+    assert all(section["yoy_note"] == "(For the fiscal years ended FY24 and FY23)" for section in context["statement_sections"])
+
+
+def test_build_pdf_context_prefers_annual_period_span_note_in_mixed_tables():
+    report = _sample_report()
+    report["history"] = [
+        {
+            "fiscal_year": "25Q3",
+            "assessment": report["history"][0]["assessment"],
+            "raw_metrics": report["history"][0]["raw_metrics"],
+            "statements": report["history"][0]["statements"],
+        },
+        {
+            "fiscal_year": "FY24",
+            "raw_metrics": report["history"][2]["raw_metrics"],
+            "statements": report["history"][2]["statements"],
+        },
+        {
+            "fiscal_year": "FY23",
+            "raw_metrics": report["history"][3]["raw_metrics"],
+            "statements": report["history"][3]["statements"],
+        },
+    ]
+
+    context = pdf_exporter.build_pdf_context(report, "en")
+
+    assert context["yoy_note"] == "(For the fiscal years ended FY24 and FY23)"
+    assert all(section["yoy_note"] == "(For the fiscal years ended FY24 and FY23)" for section in context["statement_sections"])
 
 
 def test_async_pdf_export_direct_call():

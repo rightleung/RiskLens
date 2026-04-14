@@ -253,6 +253,32 @@ class RichAssessmentService:
             "implied_rating": z_result.implied_rating,
             "strengths": strengths,
             "weaknesses": weaknesses,
+            "covenant_pre_check": [
+                {
+                    "metric": "Debt/EBITDA",
+                    "actual": float(round(ratios.debt_to_ebitda, 2)) if ratios.debt_to_ebitda else None,
+                    "threshold": 3.5,
+                    "status": "Pass" if ratios.debt_to_ebitda and ratios.debt_to_ebitda <= 3.5 else "Fail",
+                    "signal": "Green" if ratios.debt_to_ebitda and ratios.debt_to_ebitda <= 3.5 else "Red",
+                    "notes": "Comfortable leverage" if ratios.debt_to_ebitda and ratios.debt_to_ebitda <= 3.5 else "High leverage"
+                },
+                {
+                    "metric": "Interest Coverage",
+                    "actual": float(round(ratios.interest_coverage, 2)) if ratios.interest_coverage else None,
+                    "threshold": 3.0,
+                    "status": "Pass" if ratios.interest_coverage and ratios.interest_coverage >= 3.0 else "Fail",
+                    "signal": "Green" if ratios.interest_coverage and ratios.interest_coverage >= 3.0 else "Red",
+                    "notes": "Strong coverage" if ratios.interest_coverage and ratios.interest_coverage >= 3.0 else "Weak coverage"
+                },
+                {
+                    "metric": "Current Ratio",
+                    "actual": float(round(ratios.current_ratio, 2)) if ratios.current_ratio else None,
+                    "threshold": 1.2,
+                    "status": "Pass" if ratios.current_ratio and ratios.current_ratio >= 1.2 else "Fail",
+                    "signal": "Green" if ratios.current_ratio and ratios.current_ratio >= 1.2 else "Red",
+                    "notes": "Adequate liquidity" if ratios.current_ratio and ratios.current_ratio >= 1.2 else "Poor liquidity"
+                }
+            ]
         }
         return self._json_safe(assessment)
 

@@ -16,6 +16,7 @@ LANG = {
         'generated_at': 'Generated At',
         'strengths': 'Strengths',
         'watch_items': 'Watch Items',
+        'watch_items_none': 'No significant watch items',
         'covenant_pre_check': 'Covenant Pre-Check',
         'data_quality': 'Data Quality',
         'kpi_trends': 'KPI Trends',
@@ -32,7 +33,7 @@ LANG = {
         'signal': 'Signal',
         'indicator_description': 'Indicator / Usage',
         'notes': 'Notes',
-        'yoy': 'FY Comparison',
+        'yoy': 'YoY',
         'no_data': 'No data available',
         'altman_z_score': 'Altman Z-Score',
         'zone': 'Zone',
@@ -66,6 +67,7 @@ LANG = {
         'generated_at': '生成时间',
         'strengths': '优势',
         'watch_items': '关注项',
+        'watch_items_none': '无显著风险项',
         'covenant_pre_check': '契约预检',
         'data_quality': '数据质量',
         'kpi_trends': '核心指标趋势',
@@ -82,7 +84,7 @@ LANG = {
         'signal': '信号',
         'indicator_description': '指标说明/用途',
         'notes': '备注',
-        'yoy': 'FY对比',
+        'yoy': '同比',
         'no_data': '暂无数据',
         'altman_z_score': 'Altman Z 分数',
         'zone': '区间',
@@ -116,6 +118,7 @@ LANG = {
         'generated_at': '產生時間',
         'strengths': '優勢',
         'watch_items': '關注項',
+        'watch_items_none': '無顯著風險項',
         'covenant_pre_check': '契約預檢',
         'data_quality': '資料品質',
         'kpi_trends': '核心指標趨勢',
@@ -132,7 +135,7 @@ LANG = {
         'signal': '訊號',
         'indicator_description': '指標說明/用途',
         'notes': '備註',
-        'yoy': 'FY比較',
+        'yoy': '同比',
         'no_data': '暫無資料',
         'altman_z_score': 'Altman Z 分數',
         'zone': '區間',
@@ -166,6 +169,7 @@ LANG = {
         'generated_at': '生成日時',
         'strengths': '強み',
         'watch_items': '注意項目',
+        'watch_items_none': '特記事項なし',
         'covenant_pre_check': 'コベナント事前確認',
         'data_quality': 'データ品質',
         'kpi_trends': 'KPIトレンド',
@@ -182,7 +186,7 @@ LANG = {
         'signal': 'シグナル',
         'indicator_description': '指標の説明/用途',
         'notes': '注記',
-        'yoy': 'FY比較',
+        'yoy': '前年同期比',
         'no_data': 'データなし',
         'altman_z_score': 'Altman Zスコア',
         'zone': 'ゾーン',
@@ -208,19 +212,19 @@ LANG = {
 }
 
 KPI_SPECS = [
-    ('EBIT', ('ebit',)),
+    ('EBIT', ('ebit', 'operating_income', 'operatingincome')),
     ('EBITDA', ('ebitda',)),
     ('Total Debt', ('total_debt', 'gross_debt', 'debt_total')),
     ('Debt / EBITDA', ('debt_ebitda', 'debt_to_ebitda')),
     ('Interest Coverage', ('interest_coverage', 'ebit_interest_coverage')),
-    ('Free CF', ('free_cash_flow', 'fcf')),
-    ('FCF / Debt', ('fcf_debt',)),
+    ('Free CF', ('free_cash_flow', 'fcf', 'free_cf')),
+    ('FCF / Debt', ('fcf_debt', 'fcf_to_debt')),
     ('Current Ratio', ('current_ratio',)),
 ]
 STATEMENT_KEYS = [
     ('income_statement', 'income_statement', ('income', 'pnl', 'profit_and_loss')),
-    ('balance_sheet', 'balance_sheet', ('bs', 'statement_of_financial_position')),
-    ('cash_flow_statement', 'cash_flow_statement', ('cash_flow', 'cashflow', 'cf')),
+    ('balance_sheet', 'balance_sheet', ('bs', 'statement_of_financial_position', 'balance')),
+    ('cash_flow_statement', 'cash_flow_statement', ('cash_flow', 'cashflow', 'cf', 'cash')),
 ]
 RATIO_METRICS = {'Debt / EBITDA', 'Interest Coverage', 'FCF / Debt', 'Current Ratio'}
 
@@ -324,9 +328,133 @@ def _format_value(value: Any) -> str:
     number = _safe_number(value)
     if number is None:
         return str(value)
-    if abs(number) >= 1000 or float(number).is_integer():
+
+    abs_num = abs(number)
+    if abs_num >= 1_000_000_000:
+        return f'{number / 1_000_000_000:.1f}B'
+    if abs_num >= 1_000_000:
+        return f'{number / 1_000_000:.1f}M'
+    if abs_num >= 1_000:
+        return f'{number / 1_000:.1f}K'
+
+    if float(number).is_integer():
         return f'{number:,.0f}'
     return f'{number:,.2f}'
+
+
+_STATEMENT_MAGNITUDE_LABEL_HINTS = (
+    'revenue',
+    'income',
+    'expense',
+    'ebit',
+    'ebitda',
+    'cash flow',
+    'cash',
+    'debt',
+    'asset',
+    'liabilit',
+    'equity',
+    'earnings',
+    'sale',
+    'purchase',
+    'inventory',
+    'receivable',
+    'payable',
+    'ppe',
+    'capital',
+    'interest',
+    'investment',
+    'working capital',
+    'retained earnings',
+    'total assets',
+    'total liabilities',
+    'tax effect',
+    'unusual items',
+    'operating cf',
+    'free cf',
+    'gross ppe',
+    'net ppe',
+    'normalized',
+)
+_STATEMENT_MAGNITUDE_LABEL_BLOCKERS = (
+    'rate',
+    'ratio',
+    'margin',
+    'coverage',
+    'yield',
+    'share',
+    'shares',
+    'eps',
+    'percent',
+    'pct',
+    'yoy',
+    'per share',
+)
+_MAGNITUDE_SUFFIX_RE = re.compile(r'^(?P<num>[+-]?(?:\d[\d,]*)(?:\.\d+)?)(?P<unit>[bmk])$', re.IGNORECASE)
+_OCR_MAGNITUDE_SUFFIX_RE = re.compile(r'^(?P<num>[+-]?(?:\d[\d,]*)(?:\.\d))8$', re.IGNORECASE)
+_OCR_STRAY_UNIT_PUNCT_RE = re.compile(
+    r'^(?P<num>[+-]?(?:\d[\d,]*)(?:\.\d+)?)(?:[.\u00B7]+)(?P<unit>[bmk])$',
+    re.IGNORECASE,
+)
+
+
+def _statement_label_supports_magnitude(label: Any) -> bool:
+    text = _clean_display_text(label).lower()
+    if not text or text in {'--', 'n/a', 'na', 'no data available'}:
+        return False
+    if any(blocker in text for blocker in _STATEMENT_MAGNITUDE_LABEL_BLOCKERS):
+        return False
+    return any(hint in text for hint in _STATEMENT_MAGNITUDE_LABEL_HINTS)
+
+
+def _format_magnitude_display(number: float) -> str:
+    abs_num = abs(number)
+    if abs_num >= 1_000_000_000:
+        return f'{number / 1_000_000_000:.1f} B'
+    if abs_num >= 1_000_000:
+        return f'{number / 1_000_000:.1f} M'
+    if abs_num >= 1_000:
+        return f'{number / 1_000:.1f} K'
+    if float(number).is_integer():
+        return f'{number:,.0f}'
+    return f'{number:,.2f}'
+
+
+def _format_statement_display_value(value: Any, label: Any = None) -> str:
+    text = _clean_display_text(value)
+    if not text:
+        return '--'
+    lowered = text.lower()
+    if lowered in {'--', 'n/a', 'na', 'no data available'}:
+        return text
+
+    if isinstance(value, str) and _statement_label_supports_magnitude(label):
+        compact = text.replace(' ', '')
+        unit_match = _MAGNITUDE_SUFFIX_RE.fullmatch(compact)
+        if unit_match:
+            number_text = unit_match.group('num').replace(',', '')
+            unit = unit_match.group('unit').upper()
+            return f'{number_text} {unit}'
+        ocr_match = _OCR_MAGNITUDE_SUFFIX_RE.fullmatch(compact)
+        if ocr_match:
+            number_text = ocr_match.group('num').replace(',', '')
+            try:
+                float(number_text)
+            except ValueError:
+                pass
+            else:
+                if abs(float(number_text)) >= 10:
+                    return f'{number_text} B'
+        stray_unit_match = _OCR_STRAY_UNIT_PUNCT_RE.fullmatch(compact)
+        if stray_unit_match:
+            number_text = stray_unit_match.group('num').replace(',', '')
+            unit = stray_unit_match.group('unit').upper()
+            return f'{number_text} {unit}'
+
+    number = _safe_number(value)
+    if number is None:
+        return text
+    return _format_magnitude_display(number)
 
 
 def _format_ratio_value(label: str, value: Any) -> str:
@@ -342,9 +470,9 @@ def _format_yoy_change(current: Any, previous: Any) -> str:
     if current_num is None or previous_num is None:
         return 'N/A'
     if previous_num == 0:
-        return _format_number(current_num - previous_num, signed=True)
+        return 'N/M'
     if current_num < 0 < previous_num or previous_num < 0 < current_num:
-        return _format_number(current_num - previous_num, signed=True)
+        return 'N/M'
     if current_num < 0 and previous_num < 0:
         pct = (abs(current_num) - abs(previous_num)) / abs(previous_num) * 100
         return _format_number(pct, signed=True, suffix='%')
@@ -531,15 +659,69 @@ def _format_yoy_short_label(lang: str, kind: str) -> str:
 
 
 def _format_yoy_note(lang: str, quarter_current: str | None, quarter_compare: str | None, annual_current: str | None, annual_compare: str | None) -> str:
-    quarter_text = _format_yoy_label(lang, quarter_current, quarter_compare) if quarter_current and quarter_compare else f'{quarter_current or "N/A"} vs {quarter_compare or "N/A"}'
-    annual_text = _format_yoy_label(lang, annual_current, annual_compare) if annual_current and annual_compare else f'{annual_current or "N/A"} vs {annual_compare or "N/A"}'
+    quarter_text = _format_yoy_label(lang, quarter_current, quarter_compare) if quarter_current and quarter_compare else ""
+    annual_text = _format_yoy_label(lang, annual_current, annual_compare) if annual_current and annual_compare else ""
+    
+    parts = [text for text in (quarter_text, annual_text) if text]
+    if not parts:
+        return ""
+        
+    combined = " | ".join(parts)
     templates = {
-        'en': '({quarter} | {annual})',
-        'zh-CN': '（{quarter} | {annual}）',
-        'zh-TW': '（{quarter} | {annual}）',
-        'ja': '（{quarter} | {annual}）',
+        'en': '({combined})',
+        'zh-CN': '（{combined}）',
+        'zh-TW': '（{combined}）',
+        'ja': '（{combined}）',
     }
-    return templates.get(lang, templates['en']).format(quarter=quarter_text, annual=annual_text)
+    return templates.get(lang, templates['en']).format(combined=combined)
+
+
+def _format_period_span_note(lang: str, quarter_periods: list[str], annual_periods: list[str]) -> str:
+    parts: list[str] = []
+    if len(quarter_periods) > 1:
+        quarter_labels = [_format_period_label(period) for period in quarter_periods]
+        if lang == 'zh-CN':
+            quarter_list = '、'.join(quarter_labels[:-1]) + f"及{quarter_labels[-1]}"
+        elif lang == 'zh-TW':
+            quarter_list = '、'.join(quarter_labels[:-1]) + f"及{quarter_labels[-1]}"
+        elif lang == 'ja':
+            quarter_list = '、'.join(quarter_labels[:-1]) + f"および{quarter_labels[-1]}"
+        else:
+            quarter_list = ', '.join(quarter_labels[:-1]) + f" and {quarter_labels[-1]}"
+        quarter_templates = {
+            'en': 'For the quarters ended {periods}',
+            'zh-CN': '截至{periods}季度',
+            'zh-TW': '截至{periods}季度',
+            'ja': '{periods}四半期',
+        }
+        parts.append(quarter_templates.get(lang, quarter_templates['en']).format(periods=quarter_list))
+    if len(annual_periods) > 1:
+        annual_labels = [_format_period_label(period) for period in annual_periods]
+        if lang == 'zh-CN':
+            annual_list = '、'.join(annual_labels[:-1]) + f"及{annual_labels[-1]}"
+        elif lang == 'zh-TW':
+            annual_list = '、'.join(annual_labels[:-1]) + f"及{annual_labels[-1]}"
+        elif lang == 'ja':
+            annual_list = '、'.join(annual_labels[:-1]) + f"および{annual_labels[-1]}"
+        else:
+            annual_list = ', '.join(annual_labels[:-1]) + f" and {annual_labels[-1]}"
+        annual_templates = {
+            'en': 'For the fiscal years ended {periods}',
+            'zh-CN': '截至{periods}财政年度',
+            'zh-TW': '截至{periods}財政年度',
+            'ja': '{periods}会計年度',
+        }
+        parts.append(annual_templates.get(lang, annual_templates['en']).format(periods=annual_list))
+    if not parts:
+        return ''
+    combined = ' | '.join(parts)
+    templates = {
+        'en': '({combined})',
+        'zh-CN': '（{combined}）',
+        'zh-TW': '（{combined}）',
+        'ja': '（{combined}）',
+    }
+    return templates.get(lang, templates['en']).format(combined=combined)
 
 
 def _normalize_signal_text(signal: Any, status: Any = None) -> str:
@@ -578,6 +760,17 @@ def _pick(source: dict[str, Any], candidates: tuple[str, ...]) -> Any:
     return None
 
 
+def _pick_exact(source: dict[str, Any], candidates: tuple[str, ...]) -> Any:
+    if not isinstance(source, dict):
+        return None
+    flat = {_normalize_key(str(k)): v for k, v in source.items()}
+    for candidate in candidates:
+        key = _normalize_key(candidate)
+        if key in flat:
+            return flat[key]
+    return None
+
+
 def _extract_history(report: dict[str, Any]) -> list[dict[str, Any]]:
     history = report.get('history') or report.get('histories') or []
     entries = [item for item in history if isinstance(item, dict)]
@@ -608,7 +801,15 @@ def _extract_texts(value: Any) -> list[str]:
 def _extract_summary(entry: dict[str, Any], lang: str = 'en') -> dict[str, Any]:
     assessment = _mapping(entry.get('assessment'))
     strengths = _extract_texts(assessment.get('strengths') or entry.get('strengths'))
-    watch_items = _extract_texts(assessment.get('watch_items') or assessment.get('concerns') or entry.get('watch_items') or entry.get('concerns') or entry.get('risks'))
+    watch_items = _extract_texts(
+        assessment.get('watch_items')
+        or assessment.get('concerns')
+        or assessment.get('weaknesses')
+        or entry.get('watch_items')
+        or entry.get('concerns')
+        or entry.get('weaknesses')
+        or entry.get('risks')
+    )
     covenant_rows: list[dict[str, str]] = []
     for item in _sequence(assessment.get('covenant_pre_check') or assessment.get('covenants') or entry.get('covenant_pre_check') or entry.get('covenants')):
         if isinstance(item, dict):
@@ -626,6 +827,8 @@ def _extract_summary(entry: dict[str, Any], lang: str = 'en') -> dict[str, Any]:
                 'notes': _clean_display_text(item.get('notes') or item.get('note') or '--'),
                 'description': description,
             })
+    if not covenant_rows:
+        covenant_rows = _build_covenant_fallback_rows(entry, lang)
     data_quality: list[dict[str, str]] = []
     raw_quality = assessment.get('data_quality') or entry.get('data_quality') or entry.get('quality') or {}
     if isinstance(raw_quality, dict):
@@ -648,9 +851,11 @@ def _extract_summary(entry: dict[str, Any], lang: str = 'en') -> dict[str, Any]:
         for row in covenant_rows
         if row.get('description') and row.get('description') != '--'
     ]
+    if not watch_items:
+        watch_items = [_t(lang, 'watch_items_none')]
     return {
-        'altman_z_score': _pick(assessment, ('altman_z_score', 'altman_score', 'z_score')),
-        'zone': _pick(assessment, ('altman_zone', 'zone', 'risk_zone')),
+        'altman_z_score': _pick(assessment, ('altman_z_score', 'altman_score', 'z_score', 'risk_score')),
+        'zone': _pick(assessment, ('altman_zone', 'zone', 'risk_zone', 'overall_rating')),
         'implied_rating': _pick(assessment, ('implied_rating', 'rating', 'credit_rating')),
         'strengths': strengths,
         'watch_items': watch_items,
@@ -658,6 +863,83 @@ def _extract_summary(entry: dict[str, Any], lang: str = 'en') -> dict[str, Any]:
         'covenant_notes': covenant_notes,
         'data_quality': data_quality,
     }
+
+
+def _build_covenant_fallback_rows(entry: dict[str, Any], lang: str) -> list[dict[str, str]]:
+    assessment = _mapping(entry.get('assessment'))
+    ratios = _mapping(entry.get('ratios'))
+    raw_metrics = _mapping(entry.get('raw_metrics'))
+    sources = [ratios, raw_metrics, assessment, entry]
+
+    def pick_number(candidates: tuple[str, ...]) -> float | None:
+        for source in sources:
+            if not isinstance(source, dict):
+                continue
+            picked = _pick_exact(source, candidates)
+            number = _safe_number(picked)
+            if number is not None:
+                return number
+        return None
+
+    specs = [
+        {
+            'metric': 'Debt/EBITDA',
+            'candidates': ('debt_to_ebitda', 'debt_ebitda'),
+            'threshold': 3.5,
+            'passed_note': 'Comfortable leverage',
+            'failed_note': 'High leverage',
+            'passes': lambda actual, threshold: actual is not None and actual <= threshold,
+            'signal': ('Green', 'Red'),
+        },
+        {
+            'metric': 'Interest Coverage',
+            'candidates': ('interest_coverage', 'ebit_interest_coverage'),
+            'threshold': 3.0,
+            'passed_note': 'Strong coverage',
+            'failed_note': 'Weak coverage',
+            'passes': lambda actual, threshold: actual is not None and actual >= threshold,
+            'signal': ('Green', 'Red'),
+        },
+        {
+            'metric': 'FCF / Debt',
+            'candidates': ('fcf_to_debt', 'fcf_debt'),
+            'threshold': 0.2,
+            'passed_note': 'Strong cash flow support',
+            'failed_note': 'Weak cash flow support',
+            'passes': lambda actual, threshold: actual is not None and actual >= threshold,
+            'signal': ('Green', 'Red'),
+        },
+        {
+            'metric': 'Current Ratio',
+            'candidates': ('current_ratio',),
+            'threshold': 1.5,
+            'passed_note': 'Healthy liquidity',
+            'failed_note': 'Weak liquidity',
+            'passes': lambda actual, threshold: actual is not None and actual >= threshold,
+            'signal': ('Green', 'Red'),
+        },
+    ]
+
+    rows: list[dict[str, str]] = []
+    for spec in specs:
+        actual = pick_number(spec['candidates'])
+        if actual is None:
+            continue
+        threshold = float(spec['threshold'])
+        is_pass = bool(spec['passes'](actual, threshold))
+        signal = spec['signal'][0] if is_pass else spec['signal'][1]
+        status = 'Pass' if is_pass else 'Fail'
+        metric_name = _normalize_label_text(spec['metric'])
+        rows.append({
+            'metric': metric_name,
+            'actual': _format_value(actual),
+            'threshold': _format_value(threshold),
+            'status_signal': status,
+            'status_signal_tone': _signal_tone(signal, status),
+            'notes': spec['passed_note'] if is_pass else spec['failed_note'],
+            'description': _covenant_description(lang, metric_name),
+        })
+    return rows
 
 
 def _altman_status_label(lang: str, z_score: Any, zone: Any) -> str:
@@ -697,9 +979,10 @@ def _altman_summary_text(lang: str, z_score: Any, zone: Any) -> str:
 
 
 def _build_altman_breakdown(entry: dict[str, Any], lang: str) -> list[dict[str, Any]]:
+    statements = _mapping(entry.get('statements', {}))
     raw_metrics = _mapping(entry.get('raw_metrics'))
-    balance = _mapping(entry.get('balance') or entry.get('balance_sheet') or entry.get('bs'))
-    income = _mapping(entry.get('income') or entry.get('income_statement') or entry.get('pnl'))
+    balance = _mapping(entry.get('balance') or entry.get('balance_sheet') or entry.get('bs') or statements.get('balance'))
+    income = _mapping(entry.get('income') or entry.get('income_statement') or entry.get('pnl') or statements.get('income'))
 
     total_assets = _safe_number(_pick(raw_metrics, ('total_assets',))) or _safe_number(_pick(balance, ('total_assets',)))
     current_assets = _safe_number(_pick(raw_metrics, ('total_current_assets',))) or _safe_number(_pick(balance, ('total_current_assets',)))
@@ -759,11 +1042,37 @@ def _normalize_label_text(value: Any) -> str:
     lowered = text.lower()
     if lowered in {'--', 'n/a', 'na', 'no data available'}:
         return text
-    if '_' in text or (text == lowered and re.fullmatch(r'[a-z0-9\s/-]+', text)):
-        text = text.replace('_', ' ')
-        text = re.sub(r'\s+', ' ', text).strip()
-        text = ' '.join(part.upper() if part.lower() in {'ebit', 'ebitda', 'fcf', 'eps', 'roi', 'roa', 'roe', 'usd', 'hkd', 'cny', 'jpy', 'fx', 'n/a'} else part[:1].upper() + part[1:] if part else part for part in text.split(' '))
-    return text
+    text = text.replace('_', ' ')
+    text = re.sub(r'\btradeand\b', 'trade and', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bpensionand\b', 'pension and', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bavailto\b', 'avail to', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bgand\b', 'g and', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s+', ' ', text).strip()
+    parts: list[str] = []
+    for part in text.split(' '):
+        if not part:
+            continue
+        lower_part = part.lower()
+        if lower_part in {'and', 'of', 'to', 'for', 'in', 'on', 'at', 'by', 'per'} and parts:
+            parts.append(lower_part)
+            continue
+        if lower_part in {'ebit', 'ebitda', 'fcf', 'cf', 'ni', 'ppe', 'eps', 'roi', 'roa', 'roe', 'usd', 'hkd', 'cny', 'jpy', 'fx', 'n/a'}:
+            parts.append(part.upper())
+        elif part.isdigit():
+            parts.append(part)
+        elif '/' in part:
+            segments: list[str] = []
+            for segment in part.split('/'):
+                if not segment:
+                    segments.append(segment)
+                elif segment.lower() in {'ebit', 'ebitda', 'fcf', 'cf', 'ni', 'ppe', 'eps', 'roi', 'roa', 'roe', 'usd', 'hkd', 'cny', 'jpy', 'fx', 'n/a'}:
+                    segments.append(segment.upper())
+                else:
+                    segments.append(segment[:1].upper() + segment[1:])
+            parts.append('/'.join(segments))
+        else:
+            parts.append(part[:1].upper() + part[1:])
+    return ' '.join(parts)
 
 
 def _wrap_cell_lines(value: Any, width_fraction: float, chars_per_full_width: int, max_lines: int = 4) -> list[str]:
@@ -858,20 +1167,65 @@ def _extract_metric_value(entry: dict[str, Any], candidates: tuple[str, ...]) ->
     return _pick(entry, candidates)
 
 
+def _extract_metric_value_strict(entry: dict[str, Any], candidates: tuple[str, ...]) -> Any:
+    ratios = entry.get('ratios')
+    if isinstance(ratios, dict):
+        picked = _pick_exact(ratios, candidates)
+        if picked is not None:
+            return picked
+    raw_metrics = entry.get('raw_metrics')
+    if isinstance(raw_metrics, dict):
+        picked = _pick_exact(raw_metrics, candidates)
+        if picked is not None:
+            return picked
+    metrics = entry.get('metrics')
+    if isinstance(metrics, dict):
+        picked = _pick_exact(metrics, candidates)
+        if picked is not None:
+            return picked
+    return _pick_exact(entry, candidates)
+
+
+def _statement_text_parts(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        parts: list[str] = []
+        for item in value:
+            parts.extend(_statement_text_parts(item))
+        return parts
+    text = re.sub(r'<\s*br\s*/?\s*>', '\n', str(value), flags=re.IGNORECASE)
+    parts: list[str] = []
+    for raw_part in re.split(r'[\r\n]+', text):
+        cleaned = _clean_display_text(raw_part)
+        if not cleaned or re.fullmatch(r'[,;\s]+', cleaned):
+            continue
+        parts.append(cleaned)
+    return parts
+
+
 def _build_kpi_rows(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     buckets = _split_history_by_kind(history)
     quarter_history = buckets.get('quarter', [])
     annual_history = buckets.get('annual', [])
     for label, candidates in KPI_SPECS:
-        values = [_extract_metric_value(entry, candidates) for entry in history]
-        quarter_values = [_extract_metric_value(entry, candidates) for entry in quarter_history]
-        annual_values = [_extract_metric_value(entry, candidates) for entry in annual_history]
-        yoy_q = _format_yoy_change(quarter_values[0], quarter_values[1]) if len(quarter_values) > 1 else 'N/A'
-        yoy_fy = _format_yoy_change(annual_values[0], annual_values[1]) if len(annual_values) > 1 else 'N/A'
+        values = [_extract_metric_value_strict(entry, candidates) for entry in history]
+        quarter_values = [_extract_metric_value_strict(entry, candidates) for entry in quarter_history]
+        annual_values = [_extract_metric_value_strict(entry, candidates) for entry in annual_history]
+        if not quarter_history and len(annual_values) > 1:
+            yoy_q = _format_yoy_change(annual_values[0], annual_values[1])
+            yoy_fy = _format_yoy_change(annual_values[1], annual_values[2]) if len(annual_values) > 2 else 'N/A'
+        else:
+            yoy_q = _format_yoy_change(quarter_values[0], quarter_values[1]) if len(quarter_values) > 1 else 'N/A'
+            yoy_fy = _format_yoy_change(annual_values[0], annual_values[1]) if len(annual_values) > 1 else 'N/A'
+        display_values = [
+            _format_ratio_value(label, v) if label in RATIO_METRICS else _format_statement_display_value(v, label)
+            for v in values
+        ]
         rows.append({
             'label': label,
-            'values': [_format_ratio_value(label, v) for v in values],
+            'values': display_values,
             'yoy_q': yoy_q,
             'yoy_fy': yoy_fy,
         })
@@ -895,11 +1249,54 @@ def _normalize_statement_rows(raw: Any) -> list[dict[str, Any]]:
             label = item.get('label') or item.get('name') or item.get('metric') or item.get('line_item') or item.get('account')
             if label is None and len(item) == 1:
                 k, v = next(iter(item.items()))
-                rows.append({'label': _normalize_label_text(k), 'value': v})
+                label_parts = _statement_text_parts(k)
+                value_parts = _statement_text_parts(v)
+                label_text = _normalize_label_text(' '.join(label_parts) if label_parts else k)
+                value_text = ' '.join(value_parts) if value_parts else '--'
+                if len(label_parts) > 1 and len(value_parts) > 1:
+                    if len(label_parts) == len(value_parts):
+                        for label_part, value_part in zip(label_parts, value_parts):
+                            rows.append({'label': _normalize_label_text(label_part), 'value': value_part})
+                    else:
+                        rows.append({'label': label_text, 'value': value_text})
+                elif len(label_parts) > 1:
+                    rows.append({'label': label_text, 'value': value_text})
+                elif len(value_parts) > 1:
+                    rows.append({'label': label_text, 'value': value_text})
+                else:
+                    rows.append({'label': label_text, 'value': value_text})
             else:
-                rows.append({'label': _normalize_label_text(label or '--'), 'value': item.get('value', item.get('amount', item.get('balance', item.get('text'))))})
+                value = item.get('value', item.get('amount', item.get('balance', item.get('text'))))
+                label_parts = _statement_text_parts(label or '--')
+                value_parts = _statement_text_parts(value)
+                label_text = _normalize_label_text(' '.join(label_parts) if label_parts else label or '--')
+                value_text = ' '.join(value_parts) if value_parts else '--'
+                if len(label_parts) > 1 and len(value_parts) > 1:
+                    if len(label_parts) == len(value_parts):
+                        for label_part, value_part in zip(label_parts, value_parts):
+                            rows.append({'label': _normalize_label_text(label_part), 'value': value_part})
+                    else:
+                        rows.append({'label': label_text, 'value': value_text})
+                elif len(label_parts) > 1:
+                    rows.append({'label': label_text, 'value': value_text})
+                elif len(value_parts) > 1:
+                    rows.append({'label': label_text, 'value': value_text})
+                else:
+                    rows.append({'label': label_text, 'value': value_text})
         elif isinstance(item, (list, tuple)) and len(item) >= 2:
-            rows.append({'label': _normalize_label_text(item[0]), 'value': item[1]})
+            label_parts = _statement_text_parts(item[0])
+            value_parts = _statement_text_parts(item[1])
+            label_text = _normalize_label_text(' '.join(label_parts) if label_parts else item[0])
+            value_text = ' '.join(value_parts) if value_parts else '--'
+            if len(label_parts) > 1 and len(value_parts) > 1 and len(label_parts) == len(value_parts):
+                for label_part, value_part in zip(label_parts, value_parts):
+                    rows.append({'label': _normalize_label_text(label_part), 'value': value_part})
+            elif len(label_parts) > 1:
+                rows.append({'label': label_text, 'value': value_text})
+            elif len(value_parts) > 1:
+                rows.append({'label': label_text, 'value': value_text})
+            else:
+                rows.append({'label': label_text, 'value': value_text})
         elif item is not None:
             rows.append({'label': _normalize_label_text(item), 'value': '--'})
     return rows
@@ -949,6 +1346,8 @@ def _build_statement_sections(history: list[dict[str, Any]]) -> list[dict[str, A
     for statement_key, title_key, aliases in STATEMENT_KEYS:
         labels: list[str] = []
         rows_by_period: list[list[dict[str, Any]]] = []
+        quarter_entries = [entry for entry in period_entries if entry.get('kind') == 'quarter']
+        annual_entries = [entry for entry in period_entries if entry.get('kind') == 'annual']
         for entry in history:
             rows = _extract_statement_block(entry, statement_key, aliases)
             rows_by_period.append(rows)
@@ -972,21 +1371,38 @@ def _build_statement_sections(history: list[dict[str, Any]]) -> list[dict[str, A
                     quarter_values.append(value)
                 elif kind == 'annual':
                     annual_values.append(value)
-            if len(quarter_values) > 1:
-                yoy_q = _format_yoy_change(quarter_values[0], quarter_values[1])
-            if len(annual_values) > 1:
-                yoy_fy = _format_yoy_change(annual_values[0], annual_values[1])
-            normalized_rows.append({'label': label, 'values': [_format_value(v) for v in values], 'yoy_q': yoy_q, 'yoy_fy': yoy_fy})
-        quarter_entries = [entry for entry in period_entries if entry.get('kind') == 'quarter']
-        annual_entries = [entry for entry in period_entries if entry.get('kind') == 'annual']
+            if not quarter_entries and len(annual_values) > 1:
+                yoy_q = _format_yoy_change(annual_values[0], annual_values[1])
+                yoy_fy = _format_yoy_change(annual_values[1], annual_values[2]) if len(annual_values) > 2 else 'N/A'
+            else:
+                if len(quarter_values) > 1:
+                    yoy_q = _format_yoy_change(quarter_values[0], quarter_values[1])
+                if len(annual_values) > 1:
+                    yoy_fy = _format_yoy_change(annual_values[0], annual_values[1])
+            normalized_rows.append({
+                'label': label,
+                'values': [_format_statement_display_value(v, label) for v in values],
+                'yoy_q': yoy_q,
+                'yoy_fy': yoy_fy,
+            })
+        if not quarter_entries and len(annual_entries) > 1:
+            cq = annual_entries[0]['label']
+            cmpq = annual_entries[1]['label']
+            ca = annual_entries[1]['label'] if len(annual_entries) > 1 else None
+            cmpa = annual_entries[2]['label'] if len(annual_entries) > 2 else None
+        else:
+            cq = quarter_entries[0]['label'] if quarter_entries else None
+            cmpq = quarter_entries[1]['label'] if len(quarter_entries) > 1 else None
+            ca = annual_entries[0]['label'] if annual_entries else None
+            cmpa = annual_entries[1]['label'] if len(annual_entries) > 1 else None
         sections.append({
             'key': statement_key,
             'title': title_key,
             'periods': period_entries,
-            'current_quarter_period': quarter_entries[0]['label'] if quarter_entries else None,
-            'compare_quarter_period': quarter_entries[1]['label'] if len(quarter_entries) > 1 else None,
-            'current_annual_period': annual_entries[0]['label'] if annual_entries else None,
-            'compare_annual_period': annual_entries[1]['label'] if len(annual_entries) > 1 else None,
+            'current_quarter_period': cq,
+            'compare_quarter_period': cmpq,
+            'current_annual_period': ca,
+            'compare_annual_period': cmpa,
             'rows': normalized_rows,
         })
     return sections
@@ -1004,13 +1420,18 @@ def build_pdf_context(report: dict[str, Any], lang: str = 'en', theme: str = 'da
     summary = _extract_summary(latest, lang)
     quarter_periods = [label for raw, label in zip(periods, period_labels) if _period_kind(raw) == 'quarter']
     annual_periods = [label for raw, label in zip(periods, period_labels) if _period_kind(raw) == 'annual']
-    yoy_note = _format_yoy_note(
-        lang,
-        quarter_periods[0] if quarter_periods else None,
-        quarter_periods[1] if len(quarter_periods) > 1 else None,
-        annual_periods[0] if annual_periods else None,
-        annual_periods[1] if len(annual_periods) > 1 else None,
-    )
+    if annual_periods:
+        yoy_note = _format_period_span_note(lang, [], annual_periods)
+    elif quarter_periods:
+        yoy_note = _format_period_span_note(lang, quarter_periods, [])
+    else:
+        yoy_note = _format_yoy_note(
+            lang,
+            quarter_periods[0] if quarter_periods else None,
+            quarter_periods[1] if len(quarter_periods) > 1 else None,
+            annual_periods[0] if annual_periods else None,
+            annual_periods[1] if len(annual_periods) > 1 else None,
+        )
     statement_sections = _build_statement_sections(history)
     for section in statement_sections:
         section['yoy_label_q'] = _format_yoy_label(lang, section.get('current_quarter_period'), section.get('compare_quarter_period'))
@@ -1082,8 +1503,8 @@ def build_pdf_context(report: dict[str, Any], lang: str = 'en', theme: str = 'da
         'covenant_notes': summary.get('covenant_notes', []),
         'data_quality_rows': summary.get('data_quality', []),
         'kpi_rows': _build_kpi_rows(history),
-        'kpi_yoy_label_q': _format_yoy_label(lang, quarter_periods[0] if quarter_periods else None, quarter_periods[1] if len(quarter_periods) > 1 else None),
-        'kpi_yoy_label_fy': _format_yoy_label(lang, annual_periods[0] if annual_periods else None, annual_periods[1] if len(annual_periods) > 1 else None),
+        'kpi_yoy_label_q': _format_yoy_label(lang, annual_periods[0] if len(annual_periods) > 1 else None, annual_periods[1] if len(annual_periods) > 1 else None) if not quarter_periods else _format_yoy_label(lang, quarter_periods[0] if quarter_periods else None, quarter_periods[1] if len(quarter_periods) > 1 else None),
+        'kpi_yoy_label_fy': _format_yoy_label(lang, annual_periods[1] if len(annual_periods) > 2 else None, annual_periods[2] if len(annual_periods) > 2 else None) if not quarter_periods else _format_yoy_label(lang, annual_periods[0] if annual_periods else None, annual_periods[1] if len(annual_periods) > 1 else None),
         'yoy_note': yoy_note,
         'benchmark_note': benchmark_note,
         'methodology_notes': [

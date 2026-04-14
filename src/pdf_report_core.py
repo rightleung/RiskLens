@@ -10,6 +10,7 @@ from src.html_pdf_exporter import (
     _clean_display_text as _html_clean_display_text,
     _estimate_table_row_height as _html_estimate_table_row_height,
     _format_period_label as _html_format_period_label,
+    _format_statement_display_value as _html_format_statement_display_value,
     _is_negative_display_value as _html_is_negative_display_value,
     _paginate_table_rows as _html_paginate_table_rows,
     _t as _html_t,
@@ -22,11 +23,15 @@ _INLINE_BREAK_RE = re.compile(r"<\s*br\s*/?\s*>", re.IGNORECASE)
 _MERGED_METRIC_RE = re.compile(
     r'(?i)(?:\d[\d,]*\.?\d*(?:x|%|pp)?)(?:\s*(?:vs|/|\||\+|-)\s*|\s+)(?:\d[\d,]*\.?\d*(?:x|%|pp)?|[a-z][a-z0-9_/-]*)'
 )
+_SPACED_MAGNITUDE_RE = re.compile(r'(?i)^[+-]?(?:\d[\d,]*)(?:\.\d+)?\s+[bmk]$')
 _TRAILING_LABEL_PUNCT_RE = re.compile(r"[.\u3002\uFF0E:：\s]+$")
 _ACRONYM_LABELS = {
     'ebit',
     'ebitda',
     'fcf',
+    'cf',
+    'ni',
+    'ppe',
     'eps',
     'roi',
     'roa',
@@ -38,6 +43,7 @@ _ACRONYM_LABELS = {
     'fx',
     'n/a',
 }
+_STATEMENT_PATH_MARKERS = ('.statements', '.financial_statements', '.statement_data')
 
 
 def _clean_display_text(value: Any) -> str:
@@ -122,35 +128,71 @@ def _normalize_label_text(value: Any) -> str:
     lowered = text.lower()
     if lowered in {'--', 'n/a', 'na', 'no data available'}:
         return text
-    if '_' in text or (text == lowered and re.fullmatch(r'[a-z0-9\s/-]+', text)):
-        text = text.replace('_', ' ')
-        text = re.sub(r'\s+', ' ', text).strip()
-        parts: list[str] = []
-        for part in text.split(' '):
-            if not part:
-                continue
-            if part.lower() in _ACRONYM_LABELS:
-                parts.append(part.upper())
-            elif part.isdigit():
-                parts.append(part)
-            elif '/' in part:
-                segments = []
-                for segment in part.split('/'):
-                    if not segment:
-                        segments.append(segment)
-                    elif segment.lower() in _ACRONYM_LABELS:
-                        segments.append(segment.upper())
-                    else:
-                        segments.append(segment[:1].upper() + segment[1:])
-                parts.append('/'.join(segments))
-            else:
-                parts.append(part[:1].upper() + part[1:])
-        text = ' '.join(parts)
-    return text
+    text = text.replace('_', ' ')
+    text = re.sub(r'\btradeand\b', 'trade and', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bpensionand\b', 'pension and', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bavailto\b', 'avail to', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bgand\b', 'g and', text, flags=re.IGNORECASE)
+    text = re.sub(r'\s+', ' ', text).strip()
+    parts: list[str] = []
+    for part in text.split(' '):
+        if not part:
+            continue
+        if part.lower() in {'and', 'of', 'to', 'for', 'in', 'on', 'at', 'by', 'per'} and parts:
+            parts.append(part.lower())
+            continue
+        if part.lower() in _ACRONYM_LABELS:
+            parts.append(part.upper())
+        elif part.isdigit():
+            parts.append(part)
+        elif '/' in part:
+            segments = []
+            for segment in part.split('/'):
+                if not segment:
+                    segments.append(segment)
+                elif segment.lower() in _ACRONYM_LABELS:
+                    segments.append(segment.upper())
+                else:
+                    segments.append(segment[:1].upper() + segment[1:])
+            parts.append('/'.join(segments))
+        else:
+            parts.append(part[:1].upper() + part[1:])
+    return ' '.join(parts)
 
 
-def _scan_for_inline_breaks(value: Any, path: str) -> None:
+def _normalize_statement_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        cleaned = dict(row)
+        label = _normalize_label_text(cleaned.get('label'))
+        values = cleaned.get('values', [])
+        if isinstance(values, (list, tuple)):
+            cleaned['values'] = [
+                '--' if not (text := _clean_display_text(value)) or re.fullmatch(r'[,;\s]+', text) else text
+                for value in values
+            ]
+        else:
+            text = _clean_display_text(values)
+            cleaned['values'] = ['--' if not text or re.fullmatch(r'[,;\s]+', text) else text]
+        if not label and not any(_clean_display_text(value) not in {'', '--', 'N/A', 'n/a'} for value in cleaned['values']):
+            continue
+        cleaned['label'] = label
+        cleaned['yoy_q'] = _clean_display_text(cleaned.get('yoy_q'))
+        cleaned['yoy_fy'] = _clean_display_text(cleaned.get('yoy_fy'))
+        normalized.append(cleaned)
+    return normalized
+
+
+def _path_allows_statement_text(path: str) -> bool:
+    return any(marker in path for marker in _STATEMENT_PATH_MARKERS)
+
+
+def _scan_for_inline_breaks(value: Any, path: str, allow_statement_text: bool = False) -> None:
     if isinstance(value, str):
+        if allow_statement_text and _path_allows_statement_text(path):
+            return
         if '\n' in value or '\r' in value or _INLINE_BREAK_RE.search(value):
             _raise_critical_multiline_error(value)
         return
@@ -158,10 +200,10 @@ def _scan_for_inline_breaks(value: Any, path: str) -> None:
         for key, item in value.items():
             if isinstance(key, str) and ('\n' in key or '\r' in key or _INLINE_BREAK_RE.search(key)):
                 _raise_critical_multiline_error(key)
-            _scan_for_inline_breaks(item, f'{path}.{key}')
+            _scan_for_inline_breaks(item, f'{path}.{key}', allow_statement_text=allow_statement_text)
     elif isinstance(value, (list, tuple)):
         for idx, item in enumerate(value):
-            _scan_for_inline_breaks(item, f'{path}[{idx}]')
+            _scan_for_inline_breaks(item, f'{path}[{idx}]', allow_statement_text=allow_statement_text)
 
 
 def _scan_for_merged_metric_text(value: Any, path: str) -> None:
@@ -172,6 +214,8 @@ def _scan_for_merged_metric_text(value: Any, path: str) -> None:
         return
     if _INLINE_BREAK_RE.search(text) or '\n' in text or '\r' in text:
         _raise_critical_multiline_error(value)
+    if _SPACED_MAGNITUDE_RE.fullmatch(text):
+        return
     if any(token in path for token in ('.label', '.metric', '.actual', '.threshold', '.value', '.notes', '.description')):
         if _MERGED_METRIC_RE.search(text):
             raise ValueError(f'Merged metric text is not allowed in PDF content at {path}: {text!r}.')
@@ -242,8 +286,9 @@ def _sanitize_pdf_document_model(model: dict[str, Any]) -> dict[str, Any]:
 
     summary['company_profile_rows'] = [_sanitize_text_row(row) for row in summary.get('company_profile_rows', []) if isinstance(row, dict)]
     for idx, row in enumerate(summary['company_profile_rows']):
-        _scan_for_merged_metric_text(row.get('label'), f'summary.company_profile_rows[{idx}].label')
-        _scan_for_merged_metric_text(row.get('value'), f'summary.company_profile_rows[{idx}].value')
+        if row.get('label') != 'Description':
+            _scan_for_merged_metric_text(row.get('label'), f'summary.company_profile_rows[{idx}].label')
+            _scan_for_merged_metric_text(row.get('value'), f'summary.company_profile_rows[{idx}].value')
     summary['data_quality_rows'] = [
         {
             **_sanitize_text_row(row),
@@ -305,26 +350,45 @@ def _sanitize_pdf_document_model(model: dict[str, Any]) -> dict[str, Any]:
     sanitized['summary'] = summary
     sanitized['covenant'] = covenant
     sanitized['kpi'] = kpi
-    sanitized['statements'] = [
-        {
+    statement_sections: list[dict[str, Any]] = []
+    for section in sanitized.get('statements', []):
+        if not isinstance(section, dict):
+            continue
+        section_key = _clean_display_text(section.get('key')).lower()
+        repaired_rows: list[dict[str, Any]] = []
+        for row in section.get('rows', []):
+            if not isinstance(row, dict):
+                continue
+            cleaned_row = _sanitize_text_row(row)
+            values = row.get('values', [])
+            if isinstance(values, (list, tuple)):
+                cleaned_values = [
+                    _html_format_statement_display_value(value, cleaned_row.get('label'))
+                    if section_key in {'income_statement', 'balance_sheet', 'cash_flow_statement'}
+                    else ('--' if not (text := _clean_display_text(value)) or re.fullmatch(r'[,;\s]+', text) else text)
+                    for value in values
+                ]
+            else:
+                text = _clean_display_text(values)
+                cleaned_values = [
+                    _html_format_statement_display_value(text, cleaned_row.get('label'))
+                    if section_key in {'income_statement', 'balance_sheet', 'cash_flow_statement'}
+                    else ('--' if not text or re.fullmatch(r'[,;\s]+', text) else text)
+                ]
+            repaired_rows.append({
+                **cleaned_row,
+                'values': cleaned_values,
+                'yoy_q': _clean_display_text(row.get('yoy_q')),
+                'yoy_fy': _clean_display_text(row.get('yoy_fy')),
+            })
+        statement_sections.append({
             **section,
             'display_title': _clean_display_text(section.get('display_title')),
             'headers': [_clean_display_text(header) for header in section.get('headers', [])],
-            'rows': [
-                {
-                    **_sanitize_text_row(row),
-                    'values': [_clean_display_text(value) for value in row.get('values', [])],
-                    'yoy_q': _clean_display_text(row.get('yoy_q')),
-                    'yoy_fy': _clean_display_text(row.get('yoy_fy')),
-                }
-                for row in section.get('rows', [])
-                if isinstance(row, dict)
-            ],
+            'rows': _normalize_statement_rows(repaired_rows),
             'yoy_note': _clean_display_text(section.get('yoy_note')),
-        }
-        for section in sanitized.get('statements', [])
-        if isinstance(section, dict)
-    ]
+        })
+    sanitized['statements'] = statement_sections
     for section_idx, section in enumerate(sanitized['statements']):
         for row_idx, row in enumerate(section.get('rows', [])):
             _scan_for_merged_metric_text(row.get('label'), f'statements[{section_idx}].rows[{row_idx}].label')
@@ -352,7 +416,7 @@ def build_pdf_context(report: dict[str, Any], lang: str = 'en', theme: str = 'da
 
 
 def build_pdf_document_model(report: dict[str, Any], lang: str = 'en', theme: str = 'dark') -> dict[str, Any]:
-    _scan_for_inline_breaks(report, 'report')
+    _scan_for_inline_breaks(report, 'report', allow_statement_text=True)
     model = _html_build_pdf_document_model(report, lang, theme)
     sanitized = _sanitize_pdf_document_model(model)
     _validate_pdf_document_model(sanitized)

@@ -101,19 +101,19 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
     palette_light = {
         'page': colors.HexColor('#FFFFFF'),
         'panel': colors.HexColor('#FFFFFF'),
-        'panel_soft': colors.HexColor('#F7F7F7'),
-        'ink': colors.HexColor('#000000'),
-        'muted': colors.HexColor('#666666'),
-        'line': colors.HexColor('#000000'),
-        'accent': colors.HexColor('#000000'),
-        'accent_soft': colors.HexColor('#F5F5F5'),
-        'positive': colors.HexColor('#006400'),
-        'warning': colors.HexColor('#000000'),
-        'danger': colors.HexColor('#8B0000'),
-        'bench': colors.HexColor('#F5F5F5'),
-        'header': colors.HexColor('#F5F5F5'),
-        'header_text': colors.HexColor('#000000'),
-        'panel_border': colors.HexColor('#000000'),
+        'panel_soft': colors.HexColor('#F8FAFC'),
+        'ink': colors.HexColor('#0F172A'),
+        'muted': colors.HexColor('#64748B'),
+        'line': colors.HexColor('#E2E8F0'),
+        'accent': colors.HexColor('#0F172A'),
+        'accent_soft': colors.HexColor('#F1F5F9'),
+        'positive': colors.HexColor('#16A34A'),
+        'warning': colors.HexColor('#D97706'),
+        'danger': colors.HexColor('#DC2626'),
+        'bench': colors.HexColor('#F8FAFC'),
+        'header': colors.HexColor('#F1F5F9'),
+        'header_text': colors.HexColor('#334155'),
+        'panel_border': colors.HexColor('#CBD5E1'),
     }
     palette = palette_light if theme_is_light else palette_dark
 
@@ -141,7 +141,7 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
             fontSize=14.0 if theme_is_light else 13.8,
             leading=17.5,
             textColor=palette['ink'],
-            spaceBefore=0,
+            spaceBefore=6,
             spaceAfter=8,
             keepWithNext=True,
         ),
@@ -172,6 +172,15 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
         'body': ParagraphStyle(
             'body',
             fontName=body_font,
+            fontSize=8.8,
+            leading=12.5,
+            textColor=palette['ink'],
+            splitLongWords=True,
+            wordWrap='CJK',
+        ),
+        'body_bold': ParagraphStyle(
+            'body_bold',
+            fontName=heading_font,
             fontSize=8.8,
             leading=12.5,
             textColor=palette['ink'],
@@ -220,6 +229,66 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
             splitLongWords=True,
             wordWrap='CJK',
         ),
+        'statement_body': ParagraphStyle(
+            'statement_body',
+            fontName=body_font,
+            fontSize=7.2,
+            leading=9.4,
+            textColor=palette['ink'],
+            splitLongWords=False,
+            wordWrap='LTR',
+        ),
+        'statement_body_bold': ParagraphStyle(
+            'statement_body_bold',
+            fontName=heading_font,
+            fontSize=7.2,
+            leading=9.4,
+            textColor=palette['ink'],
+            splitLongWords=False,
+            wordWrap='LTR',
+        ),
+        'statement_body_right': ParagraphStyle(
+            'statement_body_right',
+            parent=None,
+            fontName=body_font,
+            fontSize=7.2,
+            leading=9.4,
+            textColor=palette['ink'],
+            splitLongWords=False,
+            wordWrap='LTR',
+            alignment=TA_RIGHT,
+        ),
+        'statement_body_center': ParagraphStyle(
+            'statement_body_center',
+            parent=None,
+            fontName=body_font,
+            fontSize=7.2,
+            leading=9.4,
+            textColor=palette['ink'],
+            splitLongWords=False,
+            wordWrap='LTR',
+            alignment=TA_CENTER,
+        ),
+        'statement_header': ParagraphStyle(
+            'statement_header',
+            fontName=heading_font,
+            fontSize=7.4,
+            leading=9.5,
+            textColor=palette['header_text'],
+            alignment=TA_LEFT,
+            splitLongWords=False,
+            wordWrap='LTR',
+        ),
+        'statement_header_right': ParagraphStyle(
+            'statement_header_right',
+            fontName=heading_font,
+            fontSize=7.4,
+            leading=9.5,
+            textColor=palette['header_text'],
+            alignment=TA_RIGHT,
+            splitLongWords=False,
+            wordWrap='LTR',
+        ),
         'chip_label': ParagraphStyle(
             'chip_label',
             fontName=body_font,
@@ -261,15 +330,15 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
         'hero_metric_label': ParagraphStyle(
             'hero_metric_label',
             fontName=heading_font,
-            fontSize=8.2,
-            leading=10,
+            fontSize=7.2,
+            leading=8.8,
             textColor=palette['ink'],
         ),
         'hero_metric_contrib': ParagraphStyle(
             'hero_metric_contrib',
             fontName=body_font,
-            fontSize=7.1,
-            leading=8.5,
+            fontSize=6.5,
+            leading=7.7,
             textColor=palette['muted'],
         ),
         'metric_label': ParagraphStyle(
@@ -358,9 +427,9 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
             return [total_width / max(column_count, 1)] * max(column_count, 1)
         period_count = max(0, column_count - 3)
         if theme_is_light:
-            base = [156.0] + [68.0] * period_count + [88.0, 88.0]
+            base = [164.0] + [66.0] * period_count + [78.0, 78.0]
         else:
-            base = [150.0] + [61.0] * period_count + [80.0, 80.0]
+            base = [162.0] + [64.0] * period_count + [76.0, 76.0]
         minimum = sum(base)
         if minimum > total_width:
             scale = total_width / minimum
@@ -368,14 +437,14 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
         extra = total_width - minimum
         period_bonus = extra / max(period_count, 1)
         if theme_is_light:
-            return [156.0] + [68.0 + period_bonus] * period_count + [88.0, 88.0]
-        return [150.0] + [61.0 + period_bonus] * period_count + [80.0, 80.0]
+            return [164.0] + [66.0 + period_bonus] * period_count + [78.0, 78.0]
+        return [162.0] + [64.0 + period_bonus] * period_count + [76.0, 76.0]
 
     def statement_widths(total_width: float, period_count: int) -> list[float]:
         if theme_is_light:
-            base = [154.0] + [70.0] * period_count + [88.0, 88.0]
+            base = [186.0] + [64.0] * period_count + [68.0, 68.0]
         else:
-            base = [150.0] + [61.0] * period_count + [80.0, 80.0]
+            base = [190.0] + [62.0] * period_count + [66.0, 66.0]
         minimum = sum(base)
         if minimum > total_width:
             scale = total_width / minimum
@@ -383,22 +452,26 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
         extra = total_width - minimum
         period_bonus = extra / max(period_count, 1)
         if theme_is_light:
-            return [154.0] + [70.0 + period_bonus] * period_count + [88.0, 88.0]
-        return [150.0] + [61.0 + period_bonus] * period_count + [80.0, 80.0]
+            return [186.0] + [64.0 + period_bonus] * period_count + [68.0, 68.0]
+        return [190.0] + [62.0 + period_bonus] * period_count + [66.0, 66.0]
 
-    def cell(value: Any, style_name: str = 'body', align: str = 'left', color: Any | None = None) -> Paragraph:
+    def cell(value: Any, style_name: str = 'body', align: str = 'left', color: Any | None = None, statement_mode: bool = False) -> Paragraph:
         alignment = TA_LEFT if align == 'left' else TA_RIGHT if align == 'right' else TA_CENTER
         if color is None and isinstance(value, str):
             color = num_color(value)
         if style_name == 'header':
-            return p(value, 'header', color=palette['header_text'], alignment=alignment)
+            return p(value, 'statement_header' if statement_mode else 'header', color=palette['header_text'], alignment=alignment)
         if style_name == 'header_right':
-            return p(value, 'header_right', color=palette['header_text'], alignment=alignment)
+            return p(value, 'statement_header_right' if statement_mode else 'header_right', color=palette['header_text'], alignment=alignment)
         if align == 'right':
-            return p(value, 'body_right', color=color, alignment=alignment)
+            return p(value, 'statement_body_right' if statement_mode else 'body_right', color=color, alignment=alignment)
         if align == 'center':
-            return p(value, 'body_center', color=color, alignment=alignment)
-        return p(value, 'body', color=color, alignment=alignment)
+            return p(value, 'statement_body_center' if statement_mode else 'body_center', color=color, alignment=alignment)
+        if statement_mode and style_name == 'body_bold':
+            style_name = 'statement_body_bold'
+        if statement_mode and style_name == 'body':
+            style_name = 'statement_body'
+        return p(value, style_name if style_name in styles else ('statement_body' if statement_mode else 'body'), color=color, alignment=alignment)
 
     def badge_text(value: str, tone: str) -> Paragraph:
         tone_color = {
@@ -435,7 +508,8 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
             for row in source_rows:
                 body_rows.append([p(row, 'body')])
         else:
-            for row in rows:
+            source_rows = rows or [ctx['labels']['no_data']]
+            for row in source_rows:
                 body_rows.append([row if isinstance(row, Paragraph) else p(row, 'body')])
         table = Table(body_rows, colWidths=[width], repeatRows=1)
         style_cmds: list[tuple[Any, ...]] = [
@@ -504,16 +578,26 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
             notes_part = ''
         return Paragraph(f"<b>{label}</b>: {value}{notes_part}", styles['body'])
 
-    def report_table(headers: list[str], rows: list[list[Any]], widths: list[float], benchmark_cols: set[int] | None = None, group_break_cols: set[int] | None = None, alignments: list[str] | None = None, status_col_idx: int | None = None, delta_cols: set[int] | None = None) -> LongTable:
+    def report_table(headers: list[str], rows: list[list[Any]], widths: list[float], benchmark_cols: set[int] | None = None, group_break_cols: set[int] | None = None, alignments: list[str] | None = None, status_col_idx: int | None = None, delta_cols: set[int] | None = None, statement_mode: bool = False) -> LongTable:
         _ensure_no_inline_breaks(headers, 'report_table.headers')
         _ensure_no_inline_breaks(rows, 'report_table.rows')
         is_empty_state = not rows
         header_rule_width = 0.8 if not theme_is_light else 1.0
         row_rule_width = 0.25
         alignments = alignments or ['left'] + ['right'] * (len(headers) - 1)
-        table_data: list[list[Paragraph]] = [[cell(header, 'header', 'left' if idx == 0 else 'center') for idx, header in enumerate(headers)]]
+        total_pattern = re.compile(r'(?i).*(total|subtotal|category|gross profit|operating income|net income).*')
+        # Header row: left-align the label column, right-align numeric/data columns to
+        # match the right-aligned data cells and avoid a "floating" centred header over
+        # right-justified numbers — standard practice in financial statement layout.
+        header_aligns = alignments if alignments else ['left'] + ['right'] * (len(headers) - 1)
+        table_data: list[list[Paragraph]] = [[
+            cell(header, 'header', header_aligns[idx] if idx < len(header_aligns) else 'right', statement_mode=statement_mode)
+            for idx, header in enumerate(headers)
+        ]]
         for row in rows:
             row_cells: list[Paragraph] = []
+            row_label = str(_clean_display_text(row[0])) if row else ''
+            is_total = bool(total_pattern.match(row_label))
             for idx, value in enumerate(row):
                 align = alignments[idx] if idx < len(alignments) else ('left' if idx == 0 else 'right')
                 text = _clean_display_text(value)
@@ -522,21 +606,36 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
                     tone = tone_from_text(text)
                     row_cells.append(badge_text(text, tone))
                 else:
-                    row_cells.append(cell(text, 'body', align, color=color))
+                    if statement_mode:
+                        style_name = 'statement_body_bold' if is_total and idx == 0 else 'statement_body'
+                        if align == 'right':
+                            style_name = 'statement_body_right'
+                        elif align == 'center':
+                            style_name = 'statement_body_center'
+                        row_cells.append(cell(text, style_name, align, color=color, statement_mode=statement_mode))
+                    else:
+                        style_name = 'body_bold' if is_total and idx == 0 else 'body'
+                        row_cells.append(cell(text, style_name, align, color=color))
             table_data.append(row_cells)
         if is_empty_state:
             empty_label = f"({ctx['labels']['no_data']})" if theme_is_light else '[No valid data provided for this period]'
-            table_data.append([cell(empty_label, 'body_center', 'center')] + [cell('', 'body_center', 'center') for _ in range(max(len(headers) - 1, 0))])
+            table_data.append([cell(empty_label, 'body_center', 'center', statement_mode=statement_mode)] + [cell('', 'body_center', 'center', statement_mode=statement_mode) for _ in range(max(len(headers) - 1, 0))])
         table = LongTable(table_data, colWidths=widths, repeatRows=1, splitByRow=1, hAlign='LEFT')
         style_cmds: list[tuple[Any, ...]] = [
             ('BACKGROUND', (0, 0), (-1, 0), palette['header']),
             ('TEXTCOLOR', (0, 0), (-1, 0), palette['header_text']),
             ('LEFTPADDING', (0, 0), (-1, -1), 8),
             ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ]
+        if statement_mode:
+            style_cmds[2] = ('LEFTPADDING', (0, 0), (-1, -1), 5.5)
+            style_cmds[3] = ('RIGHTPADDING', (0, 0), (-1, -1), 5.5)
+            style_cmds[4] = ('TOPPADDING', (0, 0), (-1, -1), 4.5)
+            style_cmds[5] = ('BOTTOMPADDING', (0, 0), (-1, -1), 4.5)
+            style_cmds[6] = ('VALIGN', (0, 0), (-1, -1), 'TOP')
         if is_empty_state:
             style_cmds.extend([
                 ('SPAN', (0, 1), (-1, 1)),
@@ -546,14 +645,13 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
                 ('LINEBELOW', (0, 0), (-1, 0), header_rule_width, palette['line']),
             ])
         else:
-            if not theme_is_light:
-                style_cmds.append(('ROWBACKGROUNDS', (1, 1), (-1, -1), [palette['panel'], palette['panel_soft']]))
             for row_idx in range(0, len(table_data) - 1):
-                row_label = _clean_display_text(rows[row_idx - 1][0]) if row_idx > 0 and row_idx - 1 < len(rows) and rows[row_idx - 1] else ''
-                if not theme_is_light and re.fullmatch(r'(?i)(total|subtotal|category|net income)', row_label):
-                    style_cmds.append(('LINEBELOW', (0, row_idx), (-1, row_idx), 0.5, palette['accent']))
-                else:
-                    style_cmds.append(('LINEBELOW', (0, row_idx), (-1, row_idx), header_rule_width if row_idx == 0 else row_rule_width, palette['line']))
+                if row_idx == 0:
+                    style_cmds.append(('LINEBELOW', (0, row_idx), (-1, row_idx), header_rule_width, palette['line']))
+                    continue
+                row_label = str(_clean_display_text(rows[row_idx - 1][0])) if row_idx > 0 and row_idx - 1 < len(rows) and rows[row_idx - 1] else ''
+                if total_pattern.match(row_label):
+                    style_cmds.append(('LINEBELOW', (0, row_idx), (-1, row_idx), 0.8, palette['ink']))
         table.setStyle(TableStyle(style_cmds))
         return table
 
@@ -563,19 +661,29 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
         canvas.rect(0, 0, page_width, page_height, stroke=0, fill=1)
         canvas.setStrokeColor(palette['line'])
         canvas.setLineWidth(1 if theme_is_light else 0.6)
-        canvas.setStrokeColor(palette['line'])
-        canvas.setLineWidth(1 if theme_is_light else 0.6)
-        canvas.line(margin, page_height - 9, page_width - margin, page_height - 9)
-        # Fixed footer band: rule at 18 mm, text ~5.5 mm above it
-        footer_rule_y = 18 * mm
-        footer_text_y = footer_rule_y + 5.5 * mm
+        canvas.line(margin, page_height - 13, page_width - margin, page_height - 13)
+        # Footer: display methodology note on cover page as a compact footnote
+        footer_rule_y = margin - 2
+        footer_text_y = margin - 12
         canvas.setLineWidth(0.25)
         canvas.setStrokeColor(palette['line'])
         canvas.line(margin, footer_rule_y, page_width - margin, footer_rule_y)
-        canvas.setFont(body_font, 7)
+        
+        # In case methodology is in CJK, use localized font
+        methodology_text = ctx.get('hero_summary', {}).get('note', '')
+        localized_font = body_font
+        if any(ord(ch) > 127 for ch in methodology_text) and body_font in {'Helvetica', 'Helvetica-Bold'}:
+            lang = ctx.get('lang', 'en')
+            if lang == 'ja':
+                localized_font = 'HeiseiMin-W3'
+            elif lang == 'zh-TW':
+                localized_font = 'MSung-Light'
+            else:
+                localized_font = 'STSong-Light'
+        
+        canvas.setFont(localized_font, 6)
         canvas.setFillColor(palette['muted'])
-        # Footer: report title on left, no methodology text on cover
-        canvas.drawString(margin, footer_text_y, ctx['report_title'])
+        canvas.drawString(margin, footer_text_y, methodology_text)
         canvas.restoreState()
 
     def draw_content(canvas, doc):
@@ -588,8 +696,7 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
         canvas.line(margin, margin - 2, page_width - margin, margin - 2)
         canvas.setFont(body_font, 8)
         canvas.setFillColor(palette['muted'])
-        canvas.drawString(margin, page_height - 9, ctx['report_title'])
-        canvas.drawRightString(page_width - margin, 9, f"Page {canvas.getPageNumber() - 1}")
+        canvas.drawRightString(page_width - margin, margin - 12, f"Page {canvas.getPageNumber() - 1}")
         canvas.restoreState()
 
     story: list[Any] = []
@@ -598,14 +705,18 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
     hero_summary = dict(cover.get('hero_summary') or {})
 
     def status_pill(label: str, tone: str) -> Table:
-        # For warning tone in dark theme: dark background with amber border + text
-        # rather than a saturated filled chip that reads as dashboard.
-        if not theme_is_light and tone == 'warning':
-            amber = palette['warning']
-            pill = Table([[p(label, 'chip_label', color=amber, alignment=TA_CENTER)]], colWidths=[18 * mm])
+        # In dark theme: all states use outlined style (panel_soft bg + coloured border & text)
+        # to avoid saturated filled chips that read as dashboard widgets.
+        if not theme_is_light:
+            tone_color = {
+                'success': palette['positive'],
+                'warning': palette['warning'],
+                'danger': palette['danger'],
+            }.get(tone, palette['accent'])
+            pill = Table([[p(label, 'chip_label', color=tone_color, alignment=TA_CENTER)]], colWidths=[18 * mm])
             pill.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, -1), palette['panel_soft']),
-                ('BOX', (0, 0), (-1, -1), 0.8, amber),
+                ('BOX', (0, 0), (-1, -1), 0.8, tone_color),
                 ('LEFTPADDING', (0, 0), (-1, -1), 5),
                 ('RIGHTPADDING', (0, 0), (-1, -1), 5),
                 ('TOPPADDING', (0, 0), (-1, -1), 2),
@@ -642,7 +753,8 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
             fill_color = {
                 'danger': palette['danger'],
                 'warning': palette['warning'],
-            }.get(tone, palette['accent'])
+                'positive': palette['positive'],
+            }.get(tone, palette['positive'])
         bar = Table([['', '']], colWidths=[fill_width, track_width], rowHeights=[5.6])
         bar.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (0, 0), fill_color),
@@ -656,6 +768,7 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
 
     def altman_progress_row(item: dict[str, Any], width: float) -> Table:
         progress = item.get('progress')
+        row_width = max(width - 8 * mm, width * 0.78)
         top_row = [
             p(item.get('label', '--'), 'hero_metric_label'),
             p(item.get('value', '--'), 'hero_metric_label', alignment=TA_RIGHT),
@@ -663,19 +776,19 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
         row = Table(
             [
                 top_row,
-                [altman_progress_bar(progress, str(item.get('tone') or 'neutral'), width), ''],
+                [altman_progress_bar(progress, str(item.get('tone') or 'neutral'), row_width), ''],
                 [Paragraph(f"Contribution: {html_lib.escape(str(item.get('contribution') or '--'))}", styles['hero_metric_contrib']), ''],
             ],
-            colWidths=[width * 0.74, width * 0.26],
+            colWidths=[row_width * 0.60, row_width * 0.40],
             rowHeights=[None, None, None],
         )
         row.setStyle(TableStyle([
             ('SPAN', (0, 1), (-1, 1)),
             ('SPAN', (0, 2), (-1, 2)),
-            ('LEFTPADDING', (0, 0), (-1, -1), 0),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-            ('TOPPADDING', (0, 0), (-1, -1), 0),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0.5 * mm),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4.5 * mm),
+            ('TOPPADDING', (0, 0), (-1, -1), 0.5 * mm),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 0.5 * mm),
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ]))
         return row
@@ -696,9 +809,10 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
 
     def altman_factor_row(item: dict[str, Any], width: float) -> Table:
         """Compact tabular factor row: label | value | contribution (no progress bar)."""
-        label_w = width * 0.52
-        value_w = width * 0.22
-        contrib_w = width - label_w - value_w
+        row_width = max(width - 8 * mm, width * 0.78)
+        label_w = row_width * 0.58
+        value_w = row_width * 0.20
+        contrib_w = row_width - label_w - value_w
         contrib_str = _clean_display_text(item.get('contribution', '--'))
         row = Table(
             [[
@@ -709,8 +823,8 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
             colWidths=[label_w, value_w, contrib_w],
         )
         row.setStyle(TableStyle([
-            ('LEFTPADDING', (0, 0), (-1, -1), 0),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0.5 * mm),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 4.5 * mm),
             ('TOPPADDING', (0, 0), (-1, -1), 1),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
@@ -765,11 +879,23 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
     meta_line_text = '  \u2002  '.join(meta_parts) if meta_parts else '&nbsp;'
     meta_line = Paragraph(meta_line_text, styles['hero_metric_contrib'])
 
+    score_and_pill = Table(
+        [[Paragraph(esc(hero_score), styles['hero_score']), status_pill(hero_status, hero_status_tone)]],
+        colWidths=[40 * mm, left_width - 40 * mm],
+    )
+    score_and_pill.setStyle(TableStyle([
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+        ('VALIGN', (0, 0), (0, 0), 'BOTTOM'),
+        ('VALIGN', (1, 0), (1, 0), 'MIDDLE'),
+    ]))
+
     left_panel = Table(
         [
             [Paragraph(esc(_t(lang, 'altman_z_score')), styles['hero_kicker'])],
-            [Paragraph(esc(hero_score), styles['hero_score'])],
-            [status_pill(hero_status, hero_status_tone)],
+            [score_and_pill],
             [Paragraph(esc(hero_description), styles['hero_summary'])],
             [Spacer(1, 2 * mm)],
             [meta_line],
@@ -869,43 +995,49 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
     ]))
 
-    cover_story = [
+    story.extend([
         Spacer(1, 16 * mm),
         title_block,
         Spacer(1, 8 * mm),
         hero_panel,
-    ]
-    story.extend(cover_story)
-    story.append(NextPageTemplate('content'))
-    story.append(PageBreak())
+    ])
 
-    # Summary page
+    # Summary section (Page 1: Key Risk Profile)
     story.extend([
-        p(_t(lang, 'credit_health_summary'), 'section'),
+        p(ctx['key_risk_profile_title'], 'section'),
         section_rule(body_width),
         Spacer(1, 1.5 * mm),
         split_body(
-            stack_blocks([
-                subtle_section_block(_t(lang, 'strengths'), summary['strengths'], (body_width - 6 * mm) / 2, 'bullet'),
-                subtle_section_block(_t(lang, 'watch_items'), summary['watch_items'], (body_width - 6 * mm) / 2, 'bullet'),
-            ], (body_width - 6 * mm) / 2),
-            stack_blocks([
-                subtle_section_block(
-                    _t(lang, 'company_profile'),
-                    [label_value_line(row['label'], row['value']) for row in summary['company_profile_rows']],
-                    (body_width - 6 * mm) / 2,
-                    'flowables',
-                ),
-                subtle_section_block(
-                    _t(lang, 'data_quality'),
-                    [data_quality_line(row) for row in summary['data_quality_rows']],
-                    (body_width - 6 * mm) / 2,
-                    'flowables',
-                ),
-            ], (body_width - 6 * mm) / 2),
+            subtle_section_block(_t(lang, 'strengths'), summary['strengths'], (body_width - 6 * mm) / 2, 'bullet'),
+            subtle_section_block(_t(lang, 'watch_items'), summary['watch_items'], (body_width - 6 * mm) / 2, 'bullet'),
             body_width,
         ),
+        PageBreak(),
     ])
+
+    # Summary section (Page 2: Company Profile & Data Quality)
+    story.extend([
+        p(ctx['company_profile_title'], 'section'),
+        section_rule(body_width),
+        Spacer(1, 1.5 * mm),
+        split_body(
+            subtle_section_block(
+                None,
+                [label_value_line(row['label'], row['value']) for row in summary['company_profile_rows']],
+                (body_width - 6 * mm) / 2,
+                'flowables',
+            ),
+            subtle_section_block(
+                _t(lang, 'data_quality'),
+                [data_quality_line(row) for row in summary['data_quality_rows']],
+                (body_width - 6 * mm) / 2,
+                'flowables',
+            ),
+            body_width,
+        ),
+        Spacer(1, 8 * mm),
+    ])
+    story.append(NextPageTemplate('content'))
     story.append(PageBreak())
 
     # Covenant page
@@ -964,32 +1096,23 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
                 group_break_cols=section['group_break_cols'],
                 alignments=['left'] + ['right'] * (len(section['periods']) + 2),
                 delta_cols={len(section['periods']) + 1, len(section['periods']) + 2},
+                statement_mode=True,
             ),
         ])
 
-    # Appendix page — methodology notes and covenant indicator descriptions
-    appendix_notes = appendix.get('notes', [])
+    # Appendix page — covenant indicator descriptions only (methodology moved to cover)
     covenant_notes = covenant.get('notes', [])
-    if appendix_notes or covenant_notes:
+    if covenant_notes:
         story.append(PageBreak())
         story.extend([
-            p(appendix['title'], 'section'),
+            p(appendix['covenant_note_title'], 'section'),
             section_rule(body_width),
             Spacer(1, 2 * mm),
         ])
-        for note in appendix_notes:
-            story.append(p(f'• {note}', 'bullet'))
-        if covenant_notes:
-            story.append(Spacer(1, 4 * mm))
-            story.extend([
-                p(appendix['covenant_note_title'], 'section'),
-                section_rule(body_width),
-                Spacer(1, 2 * mm),
-            ])
-            for cn in covenant_notes:
-                metric = _clean_display_text(cn.get('metric', '--'))
-                desc = _clean_display_text(cn.get('description', '--'))
-                story.append(p(f'• {metric}: {desc}', 'bullet'))
+        for cn in covenant_notes:
+            metric = _clean_display_text(cn.get('metric', '--'))
+            desc = _clean_display_text(cn.get('description', '--'))
+            story.append(p(f'• {metric}: {desc}', 'bullet'))
 
     buffer = io.BytesIO()
     doc = BaseDocTemplate(
