@@ -11,6 +11,7 @@ Swagger UI:
 """
 
 import math
+import hashlib
 import logging
 import io
 import re
@@ -19,14 +20,11 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from typing import List, Optional, Any, Dict
 from datetime import datetime
 import pandas as pd
-import urllib.request
-import urllib.parse
 import json
-import concurrent.futures
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +106,7 @@ app.add_middleware(
     allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition", "X-PDF-SHA256", "X-PDF-Bytes"],
 )
 
 
@@ -213,234 +212,6 @@ def _analyze_single_ticker(ticker: str, fiscal_year: int, data_source: str) -> d
         data_source=data_source,
         fiscal_year=fiscal_year,
     )
-
-    # This will now raise DataFetchError instead of returning None
-    data = fetcher.get_financial_data(ticker, data_source)
-
-    company_name = data.get("company_name", ticker)
-    history = data.get("history", [])
-    mc = data.get('market_cap', 0)
-    company_profile = data.get("company_profile", {}) or {}
-
-    # Infer currency from ticker format
-    def _infer_currency(t: str) -> str:
-        t_up = t.upper()
-        if t_up.endswith('.HK'): return 'HKD'
-        raw = t_up.replace('.SS','').replace('.SZ','').replace('.SH','')
-        if raw.isdigit() and len(raw) == 6: return 'CNY'
-        return 'USD'
-    currency = _infer_currency(ticker)
-    
-    company_name_localized = _build_company_name_localized(company_name, ticker)
-    
-    historical_results = []
-    
-    for period in history:
-        try:
-            fy_label = period.get('year_label', str(datetime.now().year))
-            is_q = period.get('is_quarterly', False)
-            
-            # Build data object for this specific period
-            fy_string = ''.join([c for c in fy_label if c.isdigit()])
-            if len(fy_string) >= 4:
-                fy_int = int(fy_string[-4:])
-            elif len(fy_string) >= 2:
-                fy_int = int(fy_string[-2:]) + 2000
-            else:
-                fy_int = fiscal_year or datetime.now().year
-            
-            def _safe_copy(df):
-                """Safely copy a DataFrame, returning pd.DataFrame() if None/invalid."""
-                if df is None:
-                    return pd.DataFrame()
-                try:
-                    if df.empty:
-                        return pd.DataFrame()
-                    return df.copy()
-                except Exception:
-                    return pd.DataFrame()
-            
-            income_df = _safe_copy(period.get('income'))
-            cash_df = _safe_copy(period.get('cash'))
-            balance_df = _safe_copy(period.get('balance'))
-            
-            # Annualize flow statements for quarterly data
-            # A-share reports from Sina are CUMULATIVE (e.g. Q3 = Jan-Sep),
-            # while yFinance quarters are single-quarter figures.
-            if is_q:
-                annualize_factor = 4  # default for single-quarter (yFinance)
-                # Only A-share (Sina) quarters are cumulative; yfinance quarters are single-period.
-                if currency == 'CNY':
-                    # Parse quarter number to determine cumulative months
-                    q_match = None
-                    import re as _re
-                    q_match = _re.search(r'Q(\d)', fy_label)
-                    if q_match:
-                        q_num = int(q_match.group(1))
-                        # Cumulative: Q1=3mo, Q2(H1)=6mo, Q3=9mo (Q4=annual, not here)
-                        months_covered = q_num * 3
-                        annualize_factor = 12 / months_covered if months_covered > 0 else 4
-                
-                if not income_df.empty and 'Value' in income_df.columns:
-                    income_df['Value'] = income_df['Value'] * annualize_factor
-                if not cash_df.empty and 'Value' in cash_df.columns:
-                    cash_df['Value'] = cash_df['Value'] * annualize_factor
-                    
-            period_data = {
-                'balance': balance_df,
-                'income': income_df,
-                'cash': cash_df,
-                'company_name': company_name,
-                'fiscal_year': fy_int,
-            }
-            
-            ratios = _calculate_ratios(period_data)
-            
-            # ── Altman Z-Score (sole scoring model) ──────────────────────────
-            ta = analyzer._get_value(balance_df, 'total_assets')
-            tl = analyzer._get_value(balance_df, 'total_liabilities')
-            tca = analyzer._get_value(balance_df, 'total_current_assets')
-            tcl = analyzer._get_value(balance_df, 'total_current_liabilities')
-            re = analyzer._get_value(balance_df, 'retained_earnings')
-            ebit = analyzer._get_value(income_df, 'operating_income')
-            sales = ratios.revenue
-
-            z_score = None
-            z_zone = "N/A"
-            implied_rating = "N/A"
-            strengths = []
-            weaknesses = []
-
-            z_result = calculate_z_score(
-                total_assets=ta,
-                total_liabilities=tl,
-                working_capital=(tca or 0) - (tcl or 0),
-                retained_earnings=re,
-                ebit=ebit,
-                sales=sales,
-                market_cap=mc,
-            )
-            z_score = z_result.z_score
-            z_zone = z_result.zone
-            implied_rating = z_result.implied_rating
-
-            if z_score is not None:
-                # Derive strengths / weaknesses from Z-Score sub-components
-                ic = ratios.interest_coverage
-                d_e = ratios.debt_to_ebitda
-                fcf_d = ratios.fcf_to_debt
-                cr = ratios.current_ratio
-
-                if ic is not None and ic > 5:
-                    strengths.append(f"Strong interest coverage ({ic:.1f}x)")
-                elif ic is not None and ic < 2:
-                    weaknesses.append(f"Weak interest coverage ({ic:.1f}x)")
-                if d_e is not None and d_e < 3:
-                    strengths.append(f"Low leverage (Debt/EBITDA: {d_e:.1f})")
-                elif d_e is not None and d_e > 5:
-                    weaknesses.append(f"High leverage (Debt/EBITDA: {d_e:.1f})")
-                if fcf_d is not None and fcf_d > 0.2:
-                    strengths.append(f"Strong free cash flow ({fcf_d*100:.1f}% of debt)")
-                elif fcf_d is not None and fcf_d < 0:
-                    weaknesses.append("Negative free cash flow")
-                if cr is not None and cr > 1.5:
-                    strengths.append(f"Good liquidity (Current Ratio: {cr:.2f})")
-                elif cr is not None and cr < 1:
-                    weaknesses.append(f"Weak liquidity (Current Ratio: {cr:.2f})")
-
-            # Build the assessment dict (Z-Score only — no legacy model)
-            assessment = {
-                "risk_score": float(round(z_score, 2)) if z_score is not None else 0.0,
-                "overall_rating": z_zone,
-                "implied_rating": implied_rating,
-                "strengths": strengths,
-                "weaknesses": weaknesses,
-            }
-            
-            # Extract raw metrics for UI transparency
-            def _sanitize(v):
-                """Replace NaN/inf with None for JSON safety."""
-                if v is None:
-                    return None
-                try:
-                    if math.isnan(v) or math.isinf(v):
-                        return None
-                except TypeError:
-                    pass
-                return v
-            
-            raw_metrics = {
-                'total_debt': _sanitize(analyzer._get_value(balance_df, 'total_debt')),
-                'ebitda': _sanitize(ratios.ebitda),
-                'operating_income': _sanitize(ebit),
-                'interest_expense': _sanitize(analyzer._get_value(income_df, 'interest_expense')),
-                'total_current_assets': _sanitize(tca),
-                'total_current_liabilities': _sanitize(tcl),
-                'free_cf': _sanitize(analyzer._get_value(cash_df, 'free_cf')),
-            }
-            
-            def safely_to_dict(df):
-                if df is None or df.empty: return {}
-                try:
-                    return df['Value'].dropna().to_dict()
-                except Exception:
-                    return {}
-
-            historical_results.append({
-                "fiscal_year": fy_label,
-                "is_quarterly": is_q,
-                "assessment": assessment,
-                "ratios": ratios.to_dict(),
-                "raw_metrics": raw_metrics,
-                "statements": {
-                    "income": safely_to_dict(period.get('income')),
-                    "balance": safely_to_dict(period.get('balance')),
-                    "cash": safely_to_dict(period.get('cash'))
-                }
-            })
-        except Exception as exc:
-            import traceback
-            logger.warning(
-                "Skipping period %s for %s: %s\n%s",
-                period.get('year_label', '?'), ticker, exc,
-                traceback.format_exc()
-            )
-            # Append a placeholder so the frontend can show a partial-data warning
-            historical_results.append({
-                "fiscal_year": period.get('year_label', '?'),
-                "is_quarterly": period.get('is_quarterly', False),
-                "error": str(exc),
-                "assessment": None,
-                "ratios": {},
-                "raw_metrics": {},
-                "statements": {}
-            })
-            continue
-
-    # Fallback missing Quarterly Z-scores to latest FY
-    latest_fy_assessment = None
-    for res in historical_results:
-        if not res.get("is_quarterly") and res.get("assessment") and res["assessment"].get("overall_rating") != "N/A":
-            latest_fy_assessment = res["assessment"]
-            break
-            
-    for res in historical_results:
-        if res.get("assessment") and res["assessment"].get("overall_rating") == "N/A" and res.get("is_quarterly"):
-            if latest_fy_assessment:
-                res["assessment"]["risk_score"] = latest_fy_assessment["risk_score"]
-                res["assessment"]["overall_rating"] = latest_fy_assessment["overall_rating"]
-                res["assessment"]["implied_rating"] = latest_fy_assessment["implied_rating"]
-                res["assessment"]["strengths"] = latest_fy_assessment["strengths"]
-                res["assessment"]["weaknesses"] = latest_fy_assessment["weaknesses"]
-
-    return {
-        "ticker": ticker,
-        "company_name": company_name,
-        "company_name_localized": company_name_localized,
-        "currency": currency,
-        "company_profile": company_profile,
-        "history": historical_results
-    }
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -876,7 +647,13 @@ def check_covenants(request: CovenantCheckRequest):
 async def export_full_pdf(request: PdfExportRequest | dict[str, Any]):
     """Export a single-company full report as a downloadable PDF."""
     if isinstance(request, dict):
-        request = PdfExportRequest(**request)
+        try:
+            request = PdfExportRequest(**request)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "Invalid PDF export request", "details": exc.errors()},
+            ) from exc
     report = request.report or {}
     lang = request.lang if request.lang in {"en", "zh-CN", "zh-TW", "ja"} else "en"
     theme = request.theme if request.theme in {"dark", "light"} else "dark"
@@ -894,10 +671,15 @@ async def export_full_pdf(request: PdfExportRequest | dict[str, Any]):
         ) from exc
 
     filename = f"{ticker}_Full_Report.pdf"
+    pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
     return StreamingResponse(
         io.BytesIO(pdf_bytes),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-PDF-SHA256": pdf_sha256,
+            "X-PDF-Bytes": str(len(pdf_bytes)),
+        },
     )
 
 

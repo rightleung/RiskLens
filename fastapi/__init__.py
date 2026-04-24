@@ -12,10 +12,17 @@ class _Route:
     handler: Callable[..., Any]
 
 
+class Request:
+    """Minimal Request stub for compatibility."""
+    def __init__(self, scope: dict[str, Any] | None = None) -> None:
+        self.scope = scope or {}
+
+
 class FastAPI:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self.args = args
         self.kwargs = kwargs
+        self.title = kwargs.get('title', 'FastAPI')
         self.routes: dict[str, _Route] = {}
         self.middleware: list[tuple[Any, dict[str, Any]]] = []
         self.mounts: list[tuple[str, Any, str | None]] = []
@@ -71,6 +78,7 @@ __all__ = [
     "HTTPException",
     "JSONResponse",
     "Query",
+    "Request",
     "StaticFiles",
     "StreamingResponse",
 ]

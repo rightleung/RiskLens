@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 import math
 import re
-from typing import Any, Dict, Optional
+from services._utils import json_safe, safe_number
 
 import pandas as pd
 
@@ -239,25 +239,14 @@ class AssessmentService:
 
     @staticmethod
     def _safe_number(value: Any) -> Optional[float]:
-        if value is None:
-            return None
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError):
-            return None
-        if not math.isfinite(numeric):
-            return None
-        return round(numeric, 4)
+        """Wrapper for shared safe_number utility."""
+        result = safe_number(value)
+        return round(result, 4) if result is not None else None
 
     @staticmethod
     def _json_safe(value: Any) -> Any:
-        if isinstance(value, dict):
-            return {k: AssessmentService._json_safe(v) for k, v in value.items()}
-        if isinstance(value, list):
-            return [AssessmentService._json_safe(v) for v in value]
-        if isinstance(value, float):
-            return value if math.isfinite(value) else None
-        return value
+        """Wrapper for shared json_safe utility."""
+        return json_safe(value)
 
     @staticmethod
     def _build_demo_data(ticker: str) -> Dict[str, Any]:

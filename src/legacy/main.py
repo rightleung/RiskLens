@@ -1,12 +1,14 @@
 """
 Credit Analyst Toolkit — Main Module
 =====================================
-End-to-end credit analysis workflow.
 
-Usage:
-    from credit_analyst_toolkit import CreditAnalystToolkit
-    toolkit = CreditAnalystToolkit()
-    toolkit.run_full_analysis(company_data)
+⚠️ DEPRECATED — This module is non-functional and preserved for reference only.
+
+The following imports reference modules that were never implemented:
+- financial_statement_parser (FinancialStatementParser, FinancialStatement)
+- credit_visualizer (CreditVisualizer)
+
+Use src/api.py → RichAssessmentService for the active credit analysis pipeline.
 """
 
 import pandas as pd
@@ -17,11 +19,12 @@ from typing import Dict, List, Optional, Tuple
 import json
 import argparse
 
-# Import toolkit modules
-from financial_statement_parser import FinancialStatementParser, FinancialStatement
+# BROKEN IMPORTS — These modules do not exist:
+# from financial_statement_parser import FinancialStatementParser, FinancialStatement
+# from credit_visualizer import CreditVisualizer
+
 from ratio_analyzer import RatioAnalyzer, CreditRatioAnalysis
-from credit_risk_assessment import CreditRiskAssessor, CreditRiskAssessment
-from credit_visualizer import CreditVisualizer
+from legacy.credit_risk_assessment import CreditRiskAssessor, CreditRiskAssessment
 
 
 class CreditAnalystToolkit:

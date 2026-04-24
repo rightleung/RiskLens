@@ -15,11 +15,10 @@ from ratio_analyzer import CreditRatioAnalysis, RatioAnalyzer
 from zscore import calculate_z_score
 
 from .assessment_service import AssessmentServiceError
+from ._utils import CJK_PATTERN, JAPANESE_PATTERN, json_safe, safe_number
 
 logger = logging.getLogger(__name__)
 
-_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
-_JAPANESE_RE = re.compile(r"[\u3040-\u30ff]")
 
 
 class RichAssessmentService:
@@ -380,9 +379,9 @@ class RichAssessmentService:
         fallback_name = str(company_name or ticker or "N/A").strip() or ticker or "N/A"
         localized: Dict[str, str] = {"en": fallback_name}
 
-        if _JAPANESE_RE.search(fallback_name):
+        if JAPANESE_PATTERN.search(fallback_name):
             localized["ja"] = fallback_name
-        elif _CJK_RE.search(fallback_name):
+        elif CJK_PATTERN.search(fallback_name):
             localized["zh-CN"] = fallback_name
             localized["zh-TW"] = cls._convert_simplified_to_traditional(fallback_name)
 
@@ -427,25 +426,14 @@ class RichAssessmentService:
 
     @staticmethod
     def _sanitize_metric(value: Any) -> Optional[float]:
-        if value is None:
-            return None
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError):
-            return None
-        if not math.isfinite(numeric):
-            return None
-        return round(numeric, 4)
+        """Wrapper for shared safe_number utility."""
+        result = safe_number(value)
+        return round(result, 4) if result is not None else None
 
     @staticmethod
     def _json_safe(value: Any) -> Any:
-        if isinstance(value, dict):
-            return {k: RichAssessmentService._json_safe(v) for k, v in value.items()}
-        if isinstance(value, list):
-            return [RichAssessmentService._json_safe(v) for v in value]
-        if isinstance(value, float):
-            return value if math.isfinite(value) else None
-        return value
+        """Wrapper for shared json_safe utility."""
+        return json_safe(value)
 
     @staticmethod
     def _build_demo_data(ticker: str) -> Dict[str, Any]:

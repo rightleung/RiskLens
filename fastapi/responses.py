@@ -21,6 +21,14 @@ class JSONResponse:
 
 
 @dataclass(slots=True)
+class HTMLResponse:
+    content: str
+    status_code: int = 200
+    media_type: str = "text/html"
+    headers: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
 class FileResponse:
     path: str
     media_type: str = "application/octet-stream"
@@ -28,4 +36,4 @@ class FileResponse:
     status_code: int = 200
 
 
-__all__ = ["StreamingResponse", "JSONResponse", "FileResponse"]
+__all__ = ["StreamingResponse", "JSONResponse", "HTMLResponse", "FileResponse"]
