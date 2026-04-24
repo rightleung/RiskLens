@@ -304,7 +304,7 @@ class RichAssessmentService:
             return
         try:
             df["Value"] = df["Value"] * factor
-        except Exception:
+        except (KeyError, TypeError, ValueError):
             return
 
     @staticmethod
@@ -313,7 +313,7 @@ class RichAssessmentService:
             return {}
         try:
             return df["Value"].dropna().to_dict()
-        except Exception:
+        except (KeyError, AttributeError):
             return {}
 
     @staticmethod
@@ -323,7 +323,7 @@ class RichAssessmentService:
                 if data.empty:
                     return pd.DataFrame()
                 return data.copy()
-            except Exception:
+            except (AttributeError, ValueError):
                 return pd.DataFrame()
         return pd.DataFrame()
 
@@ -393,7 +393,7 @@ class RichAssessmentService:
             import opencc
 
             return opencc.OpenCC("s2t.json").convert(text)
-        except Exception:
+        except (ImportError, RuntimeError):
             return text
 
     @staticmethod

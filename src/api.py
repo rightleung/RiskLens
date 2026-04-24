@@ -265,7 +265,7 @@ async def run_credit_assessment(request: AssessmentRequest):
                 run_in_threadpool(_search_tickers, ticker),
                 timeout=suggestions_timeout,
             )
-        except Exception:
+        except (asyncio.TimeoutError, DataFetchError, KeyError, AttributeError):
             return []
 
     async def process_ticker(ticker: str):
@@ -321,7 +321,7 @@ async def run_credit_assessment(request: AssessmentRequest):
                     "details": exc.details,
                     "sugg": sugg
                 }
-            except Exception as exc:
+            except DataFetchError as exc:
                 # Fallback for unexpected errors
                 sugg = await fetch_suggestions(ticker)
                 return {
@@ -389,7 +389,7 @@ def _extract_company_name_from_stock_info(stock_info: Any) -> Optional[str]:
     try:
         if hasattr(stock_info, "empty") and stock_info.empty:
             return None
-    except Exception:
+    except (KeyError, AttributeError, TypeError):
         pass
 
     try:
@@ -402,7 +402,7 @@ def _extract_company_name_from_stock_info(stock_info: Any) -> Optional[str]:
                         text = str(value).strip()
                         if text:
                             return text
-    except Exception:
+    except (KeyError, AttributeError, TypeError, IndexError):
         pass
 
     try:
@@ -412,7 +412,7 @@ def _extract_company_name_from_stock_info(stock_info: Any) -> Optional[str]:
                 text = str(value).strip()
                 if text:
                     return text
-    except Exception:
+    except (KeyError, AttributeError, TypeError, IndexError):
         pass
 
     return None
@@ -423,7 +423,7 @@ def _convert_simplified_to_traditional(text: str) -> str:
         import opencc
 
         return opencc.OpenCC("s2t.json").convert(text)
-    except Exception:
+    except (ImportError, RuntimeError):
         return text
 
 
@@ -474,7 +474,7 @@ def _build_company_name_localized(
             if cn_name:
                 localized["zh-CN"] = cn_name
                 localized["zh-TW"] = _convert_simplified_to_traditional(cn_name)
-        except Exception as exc:
+        except (ImportError, KeyError, AttributeError) as exc:
             logger.debug("Localized name lookup failed for %s: %s", normalized_ticker, exc)
 
     _LOCALIZED_NAME_CACHE[cache_key] = dict(localized)
@@ -522,7 +522,7 @@ def _search_tickers(query: str, limit: int = 5, strict: bool = False) -> list:
                         break
 
                 return suggestions
-        except Exception as exc:
+        except (KeyError, AttributeError, TypeError, ValueError) as exc:
             last_error = exc
             continue
 
