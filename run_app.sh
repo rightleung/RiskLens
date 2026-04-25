@@ -18,7 +18,7 @@ source "$SCRIPT_DIR/scripts/venv_bootstrap.sh"
 if [ ! -f "$SCRIPT_DIR/web/dist/index.html" ]; then
   echo "[Setup] Frontend build not found at web/dist/index.html"
   echo "[Hint] Build frontend first:"
-  echo "       cd web && npm install && npm run build"
+  echo "       ./scripts/rebuild_workspace.sh"
   exit 1
 fi
 

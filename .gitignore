@@ -27,12 +27,21 @@ build/
 dist/
 *.egg-info/
 
+# Generated artifacts
+*.pdf
+*_payload.json
+scratch_*.json
+msft.json
+missing_translations.txt
+web/missing_hk.txt
+
 # Logs and local runtime files
 *.log
 
 # Node artifacts (frontend)
 node_modules/
 web/node_modules/
+web/dist/
 
 # Playwright artifacts
 web/test-results/

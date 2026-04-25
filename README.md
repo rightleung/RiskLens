@@ -59,14 +59,32 @@ Open:
 - `http://127.0.0.1:8000/health`
 - `http://127.0.0.1:8000/docs`
 
-### 4.2 MVP Compatibility Path (`/api/assess`)
+### 4.2 Rebuild a Clean Workspace
+
+If you want to shrink the local workspace or recover from missing local artifacts, use:
+
+```bash
+./scripts/rebuild_workspace.sh
+```
+
+This recreates `.venv`, restores `web/node_modules`, and rebuilds `web/dist/`.
+
+If you also need AKShare-backed Chinese market data, set:
+
+```bash
+RISKLENS_WITH_CN_DATA=1 ./scripts/rebuild_workspace.sh
+```
+
+That installs the `cn-data` extra.
+
+### 4.3 MVP Compatibility Path (`/api/assess`)
 
 ```bash
 ./.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 18000
 ./smoke_test.sh http://127.0.0.1:18000
 ```
 
-### 4.3 CLI Command (`risklens`) One-Time Setup
+### 4.4 CLI Command (`risklens`) One-Time Setup
 
 Run once in the project root (`RiskLens/`):
 

@@ -11,7 +11,6 @@ dependencies = [
     "numpy>=2.4",
     "pandas>=3.0",
     "yfinance>=1.2",
-    "akshare>=1.18",
     "reportlab>=4,<5",
     "fastapi>=0.133",
     "uvicorn>=0.41",
@@ -22,6 +21,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=9", "httpx>=0.28"]
 cn = ["opencc"]
+cn-data = ["akshare>=1.18"]
 
 [tool.setuptools.packages.find]
 where = ["."]
