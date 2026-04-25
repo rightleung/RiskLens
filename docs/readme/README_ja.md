@@ -8,7 +8,7 @@ RiskLens は現在、用途の異なる 2 つのバックエンド実行パス�
 
 1. Dashboard パス（デフォルト）
 - 起動スクリプト：`./run_app.sh`
-- バックエンド入口：`src/api.py`（`uvicorn api:app`）
+- バックエンド入口：`src/api.py`（`uvicorn src.api:app`）
 - フロントエンド：`web/`（React + Vite のビルド成果物を FastAPI が静的配信）
 - 主な API：`/api/v1/assess`、`/api/v1/symbols/search`、`/api/v1/covenants/check`
 
@@ -32,17 +32,36 @@ RiskLens は現在、用途の異なる 2 つのバックエンド実行パス�
 ```text
 RiskLens/
 ├── run_app.sh
+├── run_cli.sh
 ├── smoke_test.sh
+├── rollback.sh
+├── scripts/
+│   ├── rebuild_workspace.sh
+│   └── venv_bootstrap.sh
 ├── src/
 │   ├── api.py
+│   ├── risklens_cli.py
 │   ├── data_fetcher.py
 │   ├── ratio_analyzer.py
+│   ├── zscore.py
 │   ├── covenant_monitor.py
-│   └── zscore.py
+│   ├── akshare_data.py
+│   ├── reportlab_pdf_exporter.py
+│   ├── reportlab_pdf_renderer.py
+│   ├── html_pdf_exporter.py
+│   ├── pdf_report_core.py
+│   ├── services/
+│   └── legacy/
 ├── web/
 │   ├── src/App.tsx
 │   └── dist/
-├── main.py
+├── docs/
+│   ├── architecture/
+│   ├── methodology/
+│   ├── pdf-template/
+│   ├── readme/
+│   └── report-workbook/
+├── main.py           (MVP 互換)
 └── *.md
 ```
 
@@ -59,14 +78,30 @@ RiskLens/
 - `http://127.0.0.1:8000/health`
 - `http://127.0.0.1:8000/docs`
 
-### 4.2 MVP 互換パス（`/api/assess`）
+### 4.2 ワークスペースの再構築
+
+ローカルワークスペースを一から再構築する場合：
+
+```bash
+./scripts/rebuild_workspace.sh
+```
+
+`.venv` の再作成、`web/node_modules` の復元、`web/dist/` の再ビルドを行います。
+
+AKShare 中国市場データも必要な場合：
+
+```bash
+RISKLENS_WITH_CN_DATA=1 ./scripts/rebuild_workspace.sh
+```
+
+### 4.3 MVP 互換パス（`/api/assess`）
 
 ```bash
 ./.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 18000
 ./smoke_test.sh http://127.0.0.1:18000
 ```
 
-### 4.3 CLI コマンド（`risklens`）の初回セットアップ
+### 4.4 CLI コマンド（`risklens`）の初回セットアップ
 
 プロジェクトルート（`RiskLens/`）で一度だけ実行:
 
@@ -117,11 +152,12 @@ curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
 
 ## 6. ドキュメント階層
 
-以下の 3 文書は責務が異なるため、維持を推奨します。
+以下の文書は責務が異なるため、維持を推奨します。
 
-- [ARCHITECTURE.md](../architecture/ARCHITECTURE.md)：実行境界とコンポーネント責務
-- [METHODOLOGY.md](../methodology/METHODOLOGY.md)：スコアリング手法とリスク区分
-- [REPORT_WORKBOOK_SPEC.md](../report-workbook/REPORT_WORKBOOK_SPEC.md)：Excel 出力契約と項目ルール
+- [ARCHITECTURE.md](../architecture/ARCHITECTURE.md)：実行境界とコンポーネント責務（多言語：[簡中](../architecture/ARCHITECTURE_zh-CN.md)、[繁中](../architecture/ARCHITECTURE_zh-TW.md)、[日本語](../architecture/ARCHITECTURE_ja.md)）
+- [METHODOLOGY.md](../methodology/METHODOLOGY.md)：スコアリング手法とリスク区分（多言語：[簡中](../methodology/METHODOLOGY_zh-CN.md)、[繁中](../methodology/METHODOLOGY_zh-TW.md)、[日本語](../methodology/METHODOLOGY_ja.md)）
+- [REPORT_WORKBOOK_SPEC.md](../report-workbook/REPORT_WORKBOOK_SPEC.md)：Excel 出力契約と項目ルール（多言語：[簡中](../report-workbook/REPORT_WORKBOOK_SPEC_zh-CN.md)、[繁中](../report-workbook/REPORT_WORKBOOK_SPEC_zh-TW.md)、[日本語](../report-workbook/REPORT_WORKBOOK_SPEC_ja.md)）
+- [REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md](../pdf-template/REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md)：完全 PDF レポートテンプレートとワイヤーフレーム
 - 他言語版は対応するディレクトリ（例: `docs/readme/` と `docs/architecture/`）にまとめ、ルートをすっきり保っています。
 
 責務分担：
@@ -129,6 +165,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
 - Architecture：システム設計とランタイム境界
 - Methodology：モデルとリスク方針
 - Workbook Spec：レポート出力契約
+- PDF Template：全レポートページ構造とエクスポートレイアウト基準
 
 ## 7. 多言語ドキュメント運用方針
 

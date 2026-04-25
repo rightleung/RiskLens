@@ -8,7 +8,7 @@ RiskLens は現在、2 つのバックエンド入口パスをサポートして
 
 1. Dashboard パス（デフォルト）
 - 起動：`./run_app.sh`
-- バックエンド：`src/api.py`（`uvicorn api:app`）
+- バックエンド：`src/api.py`（`uvicorn src.api:app`）
 - フロントエンド：`web/` React アプリを FastAPI の静的ルートで配信
 - 主 API：`/api/v1/assess`、`/api/v1/symbols/search`、`/api/v1/covenants/check`
 
@@ -20,10 +20,17 @@ RiskLens は現在、2 つのバックエンド入口パスをサポートして
 ## 2. バックエンドコンポーネント（`src/`）
 
 - `api.py`：リクエスト制御、エラーマッピング、API ルーティング、静的配信
+- `risklens_cli.py`：CLI インターフェース（バッチ評価、検索、コベナンツチェック）
 - `data_fetcher.py`：市場データ取得（yfinance/AKShare フォールバック）
 - `ratio_analyzer.py`：財務比率計算レイヤー
 - `zscore.py`：Altman Z-Score 計算
 - `covenant_monitor.py`：コベナンツ判定（保守的 fail ポリシー）
+- `akshare_data.py`：A 株/HK 市場データソース（オプション、未導入時は yfinance にフォールバック）
+- `reportlab_pdf_exporter.py`：PDF 生成エントリポイント（ReportLab）
+- `reportlab_pdf_renderer.py`：ReportLab レンダリング層
+- `html_pdf_exporter.py`：HTML-to-PDF データ抽出とモデル構築
+- `pdf_report_core.py`：データサニタイズとプロキシ層
+- `services/`：評価サービス層（RichAssessmentService）
 
 ## 3. フロントエンドコンポーネント（`web/`）
 
@@ -42,6 +49,7 @@ RiskLens は現在、2 つのバックエンド入口パスをサポートして
 - `POST /api/v1/assess`：リスク評価（単一/複数 ticker）
 - `GET /api/v1/symbols/search`：企業検索候補
 - `POST /api/v1/covenants/check`：コベナンツチェック
+- `POST /api/v1/reports/pdf`：完全 PDF レポート出力
 
 ## 5. データフロー
 

@@ -8,7 +8,7 @@ RiskLens currently supports two backend entry paths:
 
 1. Dashboard path (default)
 - Launcher: `./run_app.sh`
-- Backend: `src/api.py` (`uvicorn api:app`)
+- Backend: `src/api.py` (`uvicorn src.api:app`)
 - Frontend: `web/` React app served by FastAPI static routes
 - Primary APIs: `/api/v1/assess`, `/api/v1/symbols/search`, `/api/v1/covenants/check`
 
@@ -20,10 +20,17 @@ RiskLens currently supports two backend entry paths:
 ## 2. Backend Components (`src/`)
 
 - `api.py`: request orchestration, error mapping, API routes, static hosting
+- `risklens_cli.py`: CLI interface for batch assessment, search, and covenant checks
 - `data_fetcher.py`: market data retrieval (yfinance/AKShare fallback strategy)
 - `ratio_analyzer.py`: ratio computation layer
 - `zscore.py`: Altman Z-Score computation
 - `covenant_monitor.py`: covenant rule checking with conservative fail policy
+- `akshare_data.py`: A-share / HK market data source (optional, degrades to yfinance)
+- `reportlab_pdf_exporter.py`: PDF generation entry point (ReportLab)
+- `reportlab_pdf_renderer.py`: ReportLab rendering layer
+- `html_pdf_exporter.py`: HTML-to-PDF data extraction and model building
+- `pdf_report_core.py`: sanitization and proxy layer
+- `services/`: assessment service layer (RichAssessmentService)
 
 ## 3. Frontend Components (`web/`)
 
@@ -42,6 +49,7 @@ RiskLens currently supports two backend entry paths:
 - `POST /api/v1/assess`: risk assessment (single/multi ticker)
 - `GET /api/v1/symbols/search`: equity symbol suggestions for company finder
 - `POST /api/v1/covenants/check`: covenant check
+- `POST /api/v1/reports/pdf`: full PDF report export
 
 ## 5. Data Flow
 

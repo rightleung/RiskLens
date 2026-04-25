@@ -1,7 +1,10 @@
-"""RiskLens MVP FastAPI entrypoint.
+"""RiskLens legacy MVP FastAPI entrypoint.
 
 Run:
     uvicorn main:app --reload
+
+The primary dashboard/API runtime is ``src.api:app``. This module remains for
+backward compatibility with the legacy ``/api/assess`` smoke checks.
 """
 
 from __future__ import annotations

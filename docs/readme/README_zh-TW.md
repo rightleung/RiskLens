@@ -8,7 +8,7 @@ RiskLens 目前提供兩條後端執行路徑，對應不同用途：
 
 1. Dashboard 路徑（預設）
 - 啟動腳本：`./run_app.sh`
-- 後端入口：`src/api.py`（`uvicorn api:app`）
+- 後端入口：`src/api.py`（`uvicorn src.api:app`）
 - 前端：`web/`（React + Vite 產物由 FastAPI 靜態路由提供）
 - 主要 API：`/api/v1/assess`、`/api/v1/symbols/search`、`/api/v1/covenants/check`
 
@@ -32,17 +32,36 @@ RiskLens 目前提供兩條後端執行路徑，對應不同用途：
 ```text
 RiskLens/
 ├── run_app.sh
+├── run_cli.sh
 ├── smoke_test.sh
+├── rollback.sh
+├── scripts/
+│   ├── rebuild_workspace.sh
+│   └── venv_bootstrap.sh
 ├── src/
 │   ├── api.py
+│   ├── risklens_cli.py
 │   ├── data_fetcher.py
 │   ├── ratio_analyzer.py
+│   ├── zscore.py
 │   ├── covenant_monitor.py
-│   └── zscore.py
+│   ├── akshare_data.py
+│   ├── reportlab_pdf_exporter.py
+│   ├── reportlab_pdf_renderer.py
+│   ├── html_pdf_exporter.py
+│   ├── pdf_report_core.py
+│   ├── services/
+│   └── legacy/
 ├── web/
 │   ├── src/App.tsx
 │   └── dist/
-├── main.py
+├── docs/
+│   ├── architecture/
+│   ├── methodology/
+│   ├── pdf-template/
+│   ├── readme/
+│   └── report-workbook/
+├── main.py           (MVP 相容)
 └── *.md
 ```
 
@@ -59,14 +78,30 @@ RiskLens/
 - `http://127.0.0.1:8000/health`
 - `http://127.0.0.1:8000/docs`
 
-### 4.2 MVP 相容路徑（`/api/assess`）
+### 4.2 重建開發環境
+
+如須從頭重建本機工作區或恢復缺失的建置產物：
+
+```bash
+./scripts/rebuild_workspace.sh
+```
+
+這會重建 `.venv`、恢復 `web/node_modules`，並重新建置 `web/dist/`。
+
+如果需要 AKShare 中國市場資料支援：
+
+```bash
+RISKLENS_WITH_CN_DATA=1 ./scripts/rebuild_workspace.sh
+```
+
+### 4.3 MVP 相容路徑（`/api/assess`）
 
 ```bash
 ./.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 18000
 ./smoke_test.sh http://127.0.0.1:18000
 ```
 
-### 4.3 CLI 指令（`risklens`）一次性設定
+### 4.4 CLI 指令（`risklens`）一次性設定
 
 在專案根目錄（`RiskLens/`）執行一次：
 
@@ -117,11 +152,12 @@ curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
 
 ## 6. 文件分層
 
-建議保留以下三份文件，因為各自負責不同邊界：
+以下文件各自對應不同職責邊界，建議保留：
 
-- [ARCHITECTURE.md](../architecture/ARCHITECTURE.md)：執行邊界與元件職責
-- [METHODOLOGY.md](../methodology/METHODOLOGY.md)：評分方法與風險分層口徑
-- [REPORT_WORKBOOK_SPEC.md](../report-workbook/REPORT_WORKBOOK_SPEC.md)：Excel 匯出契約與欄位規則
+- [ARCHITECTURE.md](../architecture/ARCHITECTURE.md)：執行邊界與元件職責（多語言：[簡中](../architecture/ARCHITECTURE_zh-CN.md)、[繁中](../architecture/ARCHITECTURE_zh-TW.md)、[日文](../architecture/ARCHITECTURE_ja.md)）
+- [METHODOLOGY.md](../methodology/METHODOLOGY.md)：評分方法與風險分層口徑（多語言：[簡中](../methodology/METHODOLOGY_zh-CN.md)、[繁中](../methodology/METHODOLOGY_zh-TW.md)、[日文](../methodology/METHODOLOGY_ja.md)）
+- [REPORT_WORKBOOK_SPEC.md](../report-workbook/REPORT_WORKBOOK_SPEC.md)：Excel 匯出契約與欄位規則（多語言：[簡中](../report-workbook/REPORT_WORKBOOK_SPEC_zh-CN.md)、[繁中](../report-workbook/REPORT_WORKBOOK_SPEC_zh-TW.md)、[日文](../report-workbook/REPORT_WORKBOOK_SPEC_ja.md)）
+- [REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md](../pdf-template/REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md)：完整 PDF 報告樣板與草圖
 - 其他語言版本已統一收納到對應目錄（如 `docs/readme/` 與 `docs/architecture/`），方便保持根目錄整潔。
 
 職責劃分：
@@ -129,6 +165,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
 - Architecture：系統設計與執行邊界
 - Methodology：模型與風險口徑
 - Workbook Spec：報表輸出契約
+- PDF Template：全報告頁面結構與匯出佈局基準
 
 ## 7. 多語文件維護策略
 

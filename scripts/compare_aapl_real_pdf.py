@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-from src import pdf_exporter
+import src.reportlab_pdf_exporter as reportlab_pdf_exporter
 
 DEFAULT_REFERENCE = Path("/Users/rightleung/Downloads/AAPL_Real_Report.pdf")
 DEFAULT_FIXTURE = ROOT / "tests" / "fixtures" / "aapl_real_report.json"
@@ -157,7 +157,7 @@ def main() -> int:
         print("Applied replacements:")
         for old, new in replacements:
             print(f"  {old!r} -> {new!r}")
-    generated_bytes = pdf_exporter.generate_full_pdf(report, lang="en", theme="dark")
+    generated_bytes = reportlab_pdf_exporter.generate_full_pdf(report, lang="en", theme="dark")
 
     with tempfile.TemporaryDirectory(prefix="aapl_pdf_compare_") as tmp:
         workdir = Path(tmp)

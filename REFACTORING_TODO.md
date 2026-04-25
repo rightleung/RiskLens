@@ -6,12 +6,20 @@
 - **Phase 2**: 归档 Legacy 代码 (src/legacy/, tests/legacy/)
 - **Phase 3**: 提取共享工具函数 (~50 行重复代码消除)
 - **Phase 4**: 改善异常处理 (10+ 个裸 except 收窄)
+- **Phase 5**: Python 打包 (pyproject.toml, conftest.py, sys.path 清理)
+- **Phase 6**: 仓库清理 (部分完成: 构建产物已删除, .gitignore 已更新, shim 文件已移除, akshare 已下放为 optional extra)
+- **Phase 7**: 测试覆盖补充 (101 tests, 0 failures)
 
-**当前状态**: 93 passed, 1 failed (canary test)
+**当前状态**: 101 passed, 0 failed (all green)
 
 ---
 
-## Phase 5: Python 打包
+## Phase 5: Python 打包 ✅
+
+> **已完成** — `pyproject.toml`、`tests/conftest.py`、`sys.path` 清理均已落地。
+
+<details>
+<summary>原始计划（已完成）</summary>
 
 ### 目标
 消除所有 `sys.path.insert(0, ...)` 调用，创建标准 Python 包结构。
@@ -34,7 +42,6 @@ dependencies = [
     "numpy>=2.4",
     "pandas>=3.0",
     "yfinance>=1.2",
-    "akshare>=1.18",
     "reportlab>=4,<5",
     "fastapi>=0.133",
     "uvicorn>=0.41",
@@ -45,6 +52,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=9", "httpx>=0.28"]
 cn = ["opencc"]
+cn-data = ["akshare>=1.18"]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -105,9 +113,17 @@ python -m pytest tests/ --ignore=tests/legacy/ -q
 python -c "from services import RichAssessmentService; print('OK')"
 ```
 
+</details>
+
 ---
 
-## Phase 6: 仓库清理
+## Phase 6: 仓库清理 ✅ (部分完成)
+
+> **已完成**: 构建产物删除、.gitignore 更新、根目录 shim 文件移除、akshare 下放为 optional extra
+> **剩余**: `.venv_fetcher/` 检查（如不需则可删除）
+
+<details>
+<summary>原始计划</summary>
 
 ### 6.1 删除跟踪的构建产物
 
@@ -152,7 +168,16 @@ git rm pdf_exporter.py reportlab_pdf_exporter.py
 
 ---
 
-## Phase 7: 测试覆盖补充
+</details>
+
+---
+
+## Phase 7: 测试覆盖补充 ✅
+
+> **已完成** — 当前 101 tests, 0 failures。RichAssessmentService.analyze()、data_fetcher 边缘测试均已覆盖。
+
+<details>
+<summary>原始计划</summary>
 
 ### 7.1 为 RichAssessmentService.analyze() 添加测试
 
@@ -260,6 +285,8 @@ def test_analyze_quarterly_fallback():
 - 部分数据（缺失报表）测试
 - 网络超时模拟测试
 
+</details>
+
 ---
 
 ## Phase 8: 拆分单体文件（远期）
@@ -302,7 +329,7 @@ python -c "from services import RichAssessmentService; print('✓ Service import
 bash run_app.sh &
 sleep 3
 curl http://localhost:8000/health
-pkill -f "uvicorn api:app"
+pkill -f "uvicorn src.api:app"
 ```
 
 ---

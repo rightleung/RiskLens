@@ -10,7 +10,7 @@
 
 RiskLens 以 **Altman Z-Score** 作為上市公司評分引擎核心。Z-Score 是一個多變量公式，將企業財務健康的五個維度合成為單一預測分數。
 
-**1.0 範圍說明：** 線上 API 流程目前僅使用 Altman Z-Score。`src/credit_risk_assessment.py` 的舊評分框架不會由 FastAPI 服務呼叫。
+**1.0 範圍說明：** 線上 API 流程目前僅使用 Altman Z-Score。`src/legacy/credit_risk_assessment.py` 的舊評分框架不會由 FastAPI 服務呼叫。
 
 ### Z-Score 公式
 `Z = 1.2(X1) + 1.4(X2) + 3.3(X3) + 0.6(X4) + 1.0(X5)`

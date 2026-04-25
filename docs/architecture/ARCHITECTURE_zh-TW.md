@@ -8,7 +8,7 @@ RiskLens 目前支援兩條後端入口路徑：
 
 1. Dashboard 路徑（預設）
 - 啟動方式：`./run_app.sh`
-- 後端：`src/api.py`（`uvicorn api:app`）
+- 後端：`src/api.py`（`uvicorn src.api:app`）
 - 前端：`web/` React 應用由 FastAPI 靜態路由託管
 - 主要 API：`/api/v1/assess`、`/api/v1/symbols/search`、`/api/v1/covenants/check`
 
@@ -20,10 +20,17 @@ RiskLens 目前支援兩條後端入口路徑：
 ## 2. 後端元件（`src/`）
 
 - `api.py`：請求編排、錯誤映射、API 路由、靜態託管
+- `risklens_cli.py`：CLI 介面，支援批次評估、搜尋和契約檢查
 - `data_fetcher.py`：市場資料抓取（yfinance/AKShare 回退策略）
 - `ratio_analyzer.py`：財務比率計算層
 - `zscore.py`：Altman Z-Score 計算
 - `covenant_monitor.py`：契約規則檢查（保守失敗策略）
+- `akshare_data.py`：A 股/港股資料來源（可選，缺失時降級為 yfinance）
+- `reportlab_pdf_exporter.py`：PDF 產生入口（ReportLab）
+- `reportlab_pdf_renderer.py`：ReportLab 渲染層
+- `html_pdf_exporter.py`：HTML-to-PDF 資料提取與模型構建
+- `pdf_report_core.py`：資料清洗與代理層
+- `services/`：評估服務層（RichAssessmentService）
 
 ## 3. 前端元件（`web/`）
 
@@ -42,6 +49,7 @@ RiskLens 目前支援兩條後端入口路徑：
 - `POST /api/v1/assess`：風險評估（單/多 ticker）
 - `GET /api/v1/symbols/search`：公司搜尋候選
 - `POST /api/v1/covenants/check`：契約檢查
+- `POST /api/v1/reports/pdf`：完整 PDF 報告匯出
 
 ## 5. 資料流
 

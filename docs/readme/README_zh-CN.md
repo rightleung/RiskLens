@@ -8,7 +8,7 @@ RiskLens 当前提供两条后端运行路径，分别用于不同场景：
 
 1. Dashboard 路径（默认）
 - 启动脚本：`./run_app.sh`
-- 后端入口：`src/api.py`（`uvicorn api:app`）
+- 后端入口：`src/api.py`（`uvicorn src.api:app`）
 - 前端：`web/`（React + Vite 构建产物由 FastAPI 静态路由托管）
 - 主要接口：`/api/v1/assess`、`/api/v1/symbols/search`、`/api/v1/covenants/check`
 
@@ -32,17 +32,36 @@ RiskLens 当前提供两条后端运行路径，分别用于不同场景：
 ```text
 RiskLens/
 ├── run_app.sh
+├── run_cli.sh
 ├── smoke_test.sh
+├── rollback.sh
+├── scripts/
+│   ├── rebuild_workspace.sh
+│   └── venv_bootstrap.sh
 ├── src/
 │   ├── api.py
+│   ├── risklens_cli.py
 │   ├── data_fetcher.py
 │   ├── ratio_analyzer.py
+│   ├── zscore.py
 │   ├── covenant_monitor.py
-│   └── zscore.py
+│   ├── akshare_data.py
+│   ├── reportlab_pdf_exporter.py
+│   ├── reportlab_pdf_renderer.py
+│   ├── html_pdf_exporter.py
+│   ├── pdf_report_core.py
+│   ├── services/
+│   └── legacy/
 ├── web/
 │   ├── src/App.tsx
 │   └── dist/
-├── main.py
+├── docs/
+│   ├── architecture/
+│   ├── methodology/
+│   ├── pdf-template/
+│   ├── readme/
+│   └── report-workbook/
+├── main.py           (MVP 兼容)
 └── *.md
 ```
 
@@ -59,14 +78,30 @@ RiskLens/
 - `http://127.0.0.1:8000/health`
 - `http://127.0.0.1:8000/docs`
 
-### 4.2 MVP 兼容路径（`/api/assess`）
+### 4.2 重建开发环境
+
+如需从头重建本地工作区或恢复缺失的构建产物：
+
+```bash
+./scripts/rebuild_workspace.sh
+```
+
+这会重建 `.venv`、恢复 `web/node_modules`，并重新构建 `web/dist/`。
+
+如果需要 AKShare 中国市场数据支持：
+
+```bash
+RISKLENS_WITH_CN_DATA=1 ./scripts/rebuild_workspace.sh
+```
+
+### 4.3 MVP 兼容路径（`/api/assess`）
 
 ```bash
 ./.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 18000
 ./smoke_test.sh http://127.0.0.1:18000
 ```
 
-### 4.3 CLI 命令（`risklens`）一次性配置
+### 4.4 CLI 命令（`risklens`）一次性配置
 
 在项目根目录（`RiskLens/`）执行一次：
 
@@ -117,11 +152,12 @@ curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
 
 ## 6. 文档分层
 
-建议保留以下三份文档，因为它们对应不同的职责边界：
+以下文档各自对应不同职责边界，建议保留：
 
-- [ARCHITECTURE.md](../architecture/ARCHITECTURE.md)：运行边界与组件职责
-- [METHODOLOGY.md](../methodology/METHODOLOGY.md)：评分方法与风险分层口径
-- [REPORT_WORKBOOK_SPEC.md](../report-workbook/REPORT_WORKBOOK_SPEC.md)：Excel 导出契约与字段规则
+- [ARCHITECTURE.md](../architecture/ARCHITECTURE.md)：运行边界与组件职责（多语言：[简中](../architecture/ARCHITECTURE_zh-CN.md)、[繁中](../architecture/ARCHITECTURE_zh-TW.md)、[日文](../architecture/ARCHITECTURE_ja.md)）
+- [METHODOLOGY.md](../methodology/METHODOLOGY.md)：评分方法与风险分层口径（多语言：[简中](../methodology/METHODOLOGY_zh-CN.md)、[繁中](../methodology/METHODOLOGY_zh-TW.md)、[日文](../methodology/METHODOLOGY_ja.md)）
+- [REPORT_WORKBOOK_SPEC.md](../report-workbook/REPORT_WORKBOOK_SPEC.md)：Excel 导出契约与字段规则（多语言：[简中](../report-workbook/REPORT_WORKBOOK_SPEC_zh-CN.md)、[繁中](../report-workbook/REPORT_WORKBOOK_SPEC_zh-TW.md)、[日文](../report-workbook/REPORT_WORKBOOK_SPEC_ja.md)）
+- [REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md](../pdf-template/REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md)：完整 PDF 报告模版与草图
 - 其他语言版本已统一收纳到对应目录（如 `docs/readme/` 与 `docs/architecture/`），便于保持根目录整洁。
 
 职责划分：
@@ -129,6 +165,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
 - Architecture：系统设计与运行边界
 - Methodology：模型与风险口径
 - Workbook Spec：报表输出契约
+- PDF Template：全报告页面结构与导出布局基线
 
 ## 7. 多语言文档维护策略
 

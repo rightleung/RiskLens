@@ -15,10 +15,12 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
-import html_pdf_exporter
-import pdf_exporter
-from reportlab_pdf_renderer import _render_reportlab_pdf
-from pdf_exporter import _build_yoy_map, _is_negative_display_value, generate_full_pdf
+import src.html_pdf_exporter as html_pdf_exporter
+import src.pdf_report_core as pdf_report_core
+import src.reportlab_pdf_exporter as reportlab_pdf_exporter
+from src.reportlab_pdf_exporter import generate_full_pdf
+from src.reportlab_pdf_renderer import _render_reportlab_pdf
+from src.pdf_report_core import _build_yoy_map, _is_negative_display_value
 
 
 REPORTLAB_AVAILABLE = importlib.util.find_spec("reportlab") is not None
@@ -212,7 +214,7 @@ def test_build_pdf_document_model_cleans_profile_labels():
         "country。": "US",
     }
 
-    model = pdf_exporter.build_pdf_document_model(report, "en")
+    model = pdf_report_core.build_pdf_document_model(report, "en")
 
     assert [row["label"] for row in model["summary"]["company_profile_rows"]] == [
         "Sector",
@@ -247,7 +249,7 @@ def test_build_pdf_document_model_normalizes_statement_labels():
         "operating_cf": 136_200_000_000.0,
     }
 
-    model = pdf_exporter.build_pdf_document_model(report, "en")
+    model = pdf_report_core.build_pdf_document_model(report, "en")
 
     balance_labels = [row["label"] for row in model["statements"][1]["rows"][:3]]
     assert balance_labels == [
@@ -273,7 +275,7 @@ def test_build_pdf_document_model_separates_magnitude_units_and_repairs_ocr_suff
         {"label": "Tax Rate for Calcs", "value": "0.18"},
     ]
 
-    model = pdf_exporter.build_pdf_document_model(report, "en")
+    model = pdf_report_core.build_pdf_document_model(report, "en")
 
     income_rows = model["statements"][0]["rows"][:5]
     assert [row["values"][0] for row in income_rows] == [
@@ -330,7 +332,7 @@ def test_generate_full_pdf_accepts_multiline_statement_rows(tmp_path):
         }
     ]
 
-    model = pdf_exporter.build_pdf_document_model(report, lang="en")
+    model = pdf_report_core.build_pdf_document_model(report, lang="en")
 
     assert [row["label"] for row in model["statements"][0]["rows"]] == ["EBITDA", "EBIT", "Net Interest Income"]
     assert [row["values"][0] for row in model["statements"][0]["rows"]] == [
@@ -359,7 +361,7 @@ def test_generate_full_pdf_rejects_inline_breaks_outside_statements():
     report["company_name"] = "Alpha\nBeta"
 
     with pytest.raises(ValueError, match="FATAL: 渲染层拒绝接收硬合并的多行数据"):
-        pdf_exporter.build_pdf_document_model(report, lang="en")
+        pdf_report_core.build_pdf_document_model(report, lang="en")
 
 
 def test_generate_full_pdf_rejects_merged_metric_labels():
@@ -372,13 +374,13 @@ def test_generate_full_pdf_rejects_merged_metric_labels():
     }
 
     with pytest.raises(ValueError, match="Merged metric text"):
-        pdf_exporter.build_pdf_document_model(report, lang="en")
+        pdf_report_core.build_pdf_document_model(report, lang="en")
 
 
 def test_reportlab_renderer_rejects_inline_breaks_in_sanitized_model():
     if not REPORTLAB_AVAILABLE:
         pytest.skip("reportlab is not installed")
-    model = pdf_exporter.build_pdf_document_model(_build_report(), "en")
+    model = pdf_report_core.build_pdf_document_model(_build_report(), "en")
     model["kpi"]["rows"][0][0] = "Metric\nSplit"
 
     with pytest.raises(ValueError, match="FATAL: Renderer rejects hard-merged multiline data"):
@@ -388,7 +390,7 @@ def test_reportlab_renderer_rejects_inline_breaks_in_sanitized_model():
 def test_reportlab_renderer_pads_cover_hero_slots():
     if not REPORTLAB_AVAILABLE:
         pytest.skip("reportlab is not installed")
-    model = pdf_exporter.build_pdf_document_model(_build_report(), "en")
+    model = pdf_report_core.build_pdf_document_model(_build_report(), "en")
     model["cover"]["hero_summary"]["items"] = [
         {"label": "Only Slot", "value": "1.0", "tone": "info"},
     ]
@@ -632,7 +634,7 @@ def test_generate_full_pdf_keeps_long_statement_rows_and_interest_expense_alignm
         ],
     }
 
-    model = pdf_exporter.build_pdf_document_model(report, "en")
+    model = pdf_report_core.build_pdf_document_model(report, "en")
     income_section = next(section for section in model["statements"] if section["title"] == "income_statement")
     interest_row = next(row for row in income_section["rows"] if row["label"] == "Interest Expense")
     assert interest_row["yoy_q"] == "-18.7%"
@@ -701,7 +703,7 @@ def test_generate_full_pdf_supports_all_languages(lang):
 def test_generate_full_pdf_supports_light_theme():
     if not REPORTLAB_AVAILABLE:
         pytest.skip("reportlab is not installed")
-    model = pdf_exporter.build_pdf_document_model(_build_report(), "en", "light")
+    model = pdf_report_core.build_pdf_document_model(_build_report(), "en", "light")
     assert model["theme"] == "light"
     assert model["context"]["theme"] == "light"
     pdf_bytes = generate_full_pdf(_build_report(), lang="en", theme="light")

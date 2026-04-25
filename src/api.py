@@ -4,7 +4,7 @@ Institutional Credit Risk API
 FastAPI backend for automated credit risk assessment and covenant monitoring.
 
 Run with:
-    cd src && uvicorn api:app --reload --port 8000
+    uvicorn src.api:app --reload --port 8000
 
 Swagger UI:
     http://localhost:8000/docs

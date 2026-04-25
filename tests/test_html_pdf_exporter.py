@@ -8,7 +8,8 @@ import os
 import sys
 
 import api
-import pdf_exporter
+import src.pdf_report_core as pdf_report_core
+import src.reportlab_pdf_exporter as reportlab_pdf_exporter
 import pytest
 from fastapi.testclient import TestClient
 
@@ -156,20 +157,20 @@ def _sample_report():
 def test_pdf_exporter_generates_pdf_bytes(tmp_path):
     report = _sample_report()
 
-    model = pdf_exporter.build_pdf_document_model(report, "zh-CN")
+    model = pdf_report_core.build_pdf_document_model(report, "zh-CN")
     assert model["cover"]["company_name"] == "Demo Industrial Co."
     assert model["context"]["labels"]["contents"] == "目录"
     assert model["statements"][0]["headers"][0] == "指标"
     if not REPORTLAB_AVAILABLE:
         pytest.skip("reportlab is not installed")
 
-    assert pdf_exporter._format_period_label("25Q3") == "Q3 FY25"
-    assert pdf_exporter._build_yoy_map(["25Q3", "24Q3", "FY24", "FY23"]) == {
+    assert pdf_report_core._format_period_label("25Q3") == "Q3 FY25"
+    assert pdf_report_core._build_yoy_map(["25Q3", "24Q3", "FY24", "FY23"]) == {
         "25Q3": "24Q3",
         "FY24": "FY23",
     }
 
-    context = pdf_exporter.build_pdf_context(report, "zh-CN")
+    context = pdf_report_core.build_pdf_context(report, "zh-CN")
     assert context["kpi_yoy_label_q"] == "Q3'25 vs Q3'24"
     assert context["kpi_yoy_label_fy"] == "FY24 vs FY23"
     assert context["yoy_note"] == "（截至FY24及FY23财政年度）"
@@ -203,9 +204,9 @@ def test_pdf_exporter_generates_pdf_bytes(tmp_path):
     capex_row = next(row for row in cash_flow_section["rows"] if row["label"] == "Capex")
     assert capex_row["yoy_q"] == "-16.7%"
     assert capex_row["yoy_fy"] == "+5.3%"
-    assert not hasattr(pdf_exporter, "render_pdf_html")
+    assert not hasattr(pdf_report_core, "render_pdf_html")
 
-    pdf_bytes = pdf_exporter.generate_full_pdf(report, "zh-CN")
+    pdf_bytes = reportlab_pdf_exporter.generate_full_pdf(report, "zh-CN")
 
     assert pdf_bytes.startswith(b"%PDF")
     assert len(pdf_bytes) > 5000
@@ -238,7 +239,7 @@ def test_pdf_export_api_is_async_and_returns_pdf(tmp_path):
     response = client.post("/api/v1/reports/pdf", json={"report": _sample_report(), "lang": "en"})
 
     assert response.status_code == 200
-    assert response.media_type == "application/pdf"
+    assert response.headers["content-type"].startswith("application/pdf")
     assert response.content.startswith(b"%PDF")
     assert len(response.content) > 5000
     if shutil.which("pdftotext"):
@@ -263,7 +264,7 @@ def test_build_pdf_context_prefers_ratio_fields_and_weakness_fallback():
     latest["raw_metrics"]["operating_income"] = 18_300_000.0
     latest["raw_metrics"]["ebitda"] = 160_165_000_000.0
 
-    context = pdf_exporter.build_pdf_context(report, "en")
+    context = pdf_report_core.build_pdf_context(report, "en")
 
     assert context["watch_items"] == ["Liquidity sensitivity"]
     assert context["kpi_rows"][3]["values"][0] == "0.38x"
@@ -284,7 +285,7 @@ def test_build_pdf_context_uses_none_state_and_covenant_fallback():
     latest["assessment"].pop("covenant_pre_check", None)
     latest.pop("covenant_pre_check", None)
 
-    context = pdf_exporter.build_pdf_context(report, "en")
+    context = pdf_report_core.build_pdf_context(report, "en")
 
     assert context["watch_items"] == ["No significant watch items"]
     assert [row["metric"] for row in context["covenant_rows"]] == [
@@ -300,7 +301,7 @@ def test_build_pdf_context_uses_period_span_note_for_annual_only_tables():
     report = _sample_report()
     report["history"] = [entry for entry in report["history"] if str(entry.get("fiscal_year", "")).startswith("FY")]
 
-    context = pdf_exporter.build_pdf_context(report, "en")
+    context = pdf_report_core.build_pdf_context(report, "en")
 
     assert context["yoy_note"] == "(For the fiscal years ended FY24 and FY23)"
     assert all(section["yoy_note"] == "(For the fiscal years ended FY24 and FY23)" for section in context["statement_sections"])
@@ -327,7 +328,7 @@ def test_build_pdf_context_prefers_annual_period_span_note_in_mixed_tables():
         },
     ]
 
-    context = pdf_exporter.build_pdf_context(report, "en")
+    context = pdf_report_core.build_pdf_context(report, "en")
 
     assert context["yoy_note"] == "(For the fiscal years ended FY24 and FY23)"
     assert all(section["yoy_note"] == "(For the fiscal years ended FY24 and FY23)" for section in context["statement_sections"])
@@ -337,7 +338,7 @@ def test_async_pdf_export_direct_call():
     if not REPORTLAB_AVAILABLE:
         pytest.skip("reportlab is not installed")
     report = _sample_report()
-    pdf_bytes = asyncio.run(pdf_exporter.generate_full_pdf_async(report, "en"))
+    pdf_bytes = asyncio.run(reportlab_pdf_exporter.generate_full_pdf_async(report, "en"))
 
     assert pdf_bytes.startswith(b"%PDF")
     assert len(pdf_bytes) > 5000

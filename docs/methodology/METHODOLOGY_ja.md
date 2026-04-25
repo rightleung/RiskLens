@@ -10,7 +10,7 @@ Language: [EN](./METHODOLOGY.md) | [简中](./METHODOLOGY_zh-CN.md) | [繁中](.
 
 RiskLens は上場企業評価の中核エンジンとして **Altman Z-Score** を採用しています。Z-Score は企業の財務健全性を 5 つの次元で統合し、単一の予測スコアに変換する多変量式です。
 
-**1.0 スコープ注記：** 本番 API パイプラインは Altman Z-Score のみを使用します。`src/credit_risk_assessment.py` のレガシー評価ロジックは FastAPI サービスでは呼び出されません。
+**1.0 スコープ注記：** 本番 API パイプラインは Altman Z-Score のみを使用します。`src/legacy/credit_risk_assessment.py` のレガシー評価ロジックは FastAPI サービスでは呼び出されません。
 
 ### Z-Score 公式
 `Z = 1.2(X1) + 1.4(X2) + 3.3(X3) + 0.6(X4) + 1.0(X5)`

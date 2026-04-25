@@ -8,7 +8,7 @@ RiskLens currently exposes two runnable backend paths for different purposes:
 
 1. Dashboard path (default)
 - Launcher: `./run_app.sh`
-- Backend entrypoint: `src/api.py` (`uvicorn api:app`)
+- Backend entrypoint: `src/api.py` (`uvicorn src.api:app`)
 - Frontend: `web/` (React + Vite build served by FastAPI static routes)
 - Primary APIs: `/api/v1/assess`, `/api/v1/symbols/search`, `/api/v1/covenants/check`
 
@@ -32,17 +32,36 @@ RiskLens currently exposes two runnable backend paths for different purposes:
 ```text
 RiskLens/
 ├── run_app.sh
+├── run_cli.sh
 ├── smoke_test.sh
+├── rollback.sh
+├── scripts/
+│   ├── rebuild_workspace.sh
+│   └── venv_bootstrap.sh
 ├── src/
 │   ├── api.py
+│   ├── risklens_cli.py
 │   ├── data_fetcher.py
 │   ├── ratio_analyzer.py
+│   ├── zscore.py
 │   ├── covenant_monitor.py
-│   └── zscore.py
+│   ├── akshare_data.py
+│   ├── reportlab_pdf_exporter.py
+│   ├── reportlab_pdf_renderer.py
+│   ├── html_pdf_exporter.py
+│   ├── pdf_report_core.py
+│   ├── services/
+│   └── legacy/
 ├── web/
 │   ├── src/App.tsx
 │   └── dist/
-├── main.py
+├── docs/
+│   ├── architecture/
+│   ├── methodology/
+│   ├── pdf-template/
+│   ├── readme/
+│   └── report-workbook/
+├── main.py           (MVP compat)
 └── *.md
 ```
 
@@ -137,12 +156,11 @@ curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
 
 Keep these docs because each has a different ownership boundary:
 
-- [ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md): runtime boundaries and component ownership
-- README translations live under [docs/readme/](./docs/readme/).
-- Architecture translations live under [docs/architecture/](./docs/architecture/).
-- [METHODOLOGY.md](./docs/methodology/METHODOLOGY.md): scoring and risk-layer methodology
-- [REPORT_WORKBOOK_SPEC.md](./docs/report-workbook/REPORT_WORKBOOK_SPEC.md): Excel output contract and field rules
+- [ARCHITECTURE.md](./docs/architecture/ARCHITECTURE.md): runtime boundaries and component ownership (translations: [zh-CN](./docs/architecture/ARCHITECTURE_zh-CN.md), [zh-TW](./docs/architecture/ARCHITECTURE_zh-TW.md), [ja](./docs/architecture/ARCHITECTURE_ja.md))
+- [METHODOLOGY.md](./docs/methodology/METHODOLOGY.md): scoring and risk-layer methodology (translations: [zh-CN](./docs/methodology/METHODOLOGY_zh-CN.md), [zh-TW](./docs/methodology/METHODOLOGY_zh-TW.md), [ja](./docs/methodology/METHODOLOGY_ja.md))
+- [REPORT_WORKBOOK_SPEC.md](./docs/report-workbook/REPORT_WORKBOOK_SPEC.md): Excel output contract and field rules (translations: [zh-CN](./docs/report-workbook/REPORT_WORKBOOK_SPEC_zh-CN.md), [zh-TW](./docs/report-workbook/REPORT_WORKBOOK_SPEC_zh-TW.md), [ja](./docs/report-workbook/REPORT_WORKBOOK_SPEC_ja.md))
 - [REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md](./docs/pdf-template/REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md): Full PDF desktop-first draft template and wireframe
+- README translations: [zh-CN](./docs/readme/README_zh-CN.md), [zh-TW](./docs/readme/README_zh-TW.md), [ja](./docs/readme/README_ja.md)
 
 Responsibilities:
 - README: onboarding and runbook

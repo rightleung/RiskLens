@@ -22,13 +22,6 @@ _MODULE_ALIASES = {
     "covenant_monitor": "src.covenant_monitor",
     "services": "src.services",
     "risklens_cli": "src.risklens_cli",
-    "html_pdf_exporter": "src.html_pdf_exporter",
-    "pdf_exporter": "src.pdf_exporter",
-    "reportlab_pdf_exporter": "src.reportlab_pdf_exporter",
-    "reportlab_pdf_renderer": "src.reportlab_pdf_renderer",
-    "pdf_report_core": "src.pdf_report_core",
-    "akshare_data": "src.akshare_data",
-    "credit_risk_assessment": "src.legacy.credit_risk_assessment",
 }
 
 for alias, target in _MODULE_ALIASES.items():

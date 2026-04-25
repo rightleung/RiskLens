@@ -11,7 +11,8 @@ from pathlib import Path
 
 import pytest
 
-import pdf_exporter
+import src.pdf_report_core as pdf_report_core
+import src.reportlab_pdf_exporter as reportlab_pdf_exporter
 
 
 REPORTLAB_AVAILABLE = importlib.util.find_spec("reportlab") is not None
@@ -39,7 +40,7 @@ def _collapse_spaces(text: str) -> str:
 
 def test_real_aapl_context_keeps_alignment_and_placeholders():
     report = _load_real_aapl_report()
-    context = pdf_exporter.build_pdf_context(report, "en", "dark")
+    context = pdf_report_core.build_pdf_context(report, "en", "dark")
 
     assert context["ticker"] == "AAPL"
     assert context["company_name"] == "Apple Inc."
@@ -95,7 +96,7 @@ def test_real_aapl_context_keeps_alignment_and_placeholders():
 @pytest.mark.skipif(not REPORTLAB_AVAILABLE, reason="reportlab is not installed")
 def test_real_aapl_pdf_smoke_and_layout(tmp_path):
     report = _load_real_aapl_report()
-    pdf_bytes = pdf_exporter.generate_full_pdf(report, lang="en", theme="dark")
+    pdf_bytes = reportlab_pdf_exporter.generate_full_pdf(report, lang="en", theme="dark")
 
     assert pdf_bytes.startswith(b"%PDF")
     assert len(pdf_bytes) > 8000

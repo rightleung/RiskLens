@@ -49,6 +49,7 @@ web/playwright-report/
 web/.playwright/
 
 # Local scratch files (do not release)
+trace_error.js
 web/revert_export.cjs
 web/revert_export.js
 web/test_color.xlsx
