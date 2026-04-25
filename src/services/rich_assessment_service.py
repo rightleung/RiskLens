@@ -10,12 +10,12 @@ from typing import Any, Dict, Optional
 
 import pandas as pd
 
-from data_fetcher import DataFetchError, FinancialDataFetcher
-from ratio_analyzer import CreditRatioAnalysis, RatioAnalyzer
-from zscore import calculate_z_score
+from src.data_fetcher import DataFetchError, FinancialDataFetcher
+from src.ratio_analyzer import CreditRatioAnalysis, RatioAnalyzer
+from src.zscore import calculate_z_score
 
-from .assessment_service import AssessmentServiceError
-from ._utils import CJK_PATTERN, JAPANESE_PATTERN, json_safe, safe_number
+from src.services.assessment_service import AssessmentServiceError
+from src.services._utils import CJK_PATTERN, JAPANESE_PATTERN, json_safe, safe_number
 
 logger = logging.getLogger(__name__)
 

@@ -225,7 +225,7 @@ class DataFetchError(Exception):
 
 # Optional AKShare integration (akshare_data.py is a legacy module)
 try:
-    from akshare_data import get_financial_data as akshare_get_data
+    from src.akshare_data import get_financial_data as akshare_get_data
 except ImportError:
     akshare_get_data = None
 

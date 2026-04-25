@@ -10,13 +10,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
 
-SRC_DIR = Path(__file__).resolve().parent
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
-
-from covenant_monitor import CovenantMonitor, FinancialCovenants
-from ratio_analyzer import CreditRatioAnalysis
-from services import AssessmentService, AssessmentServiceError
+from src.covenant_monitor import CovenantMonitor, FinancialCovenants
+from src.ratio_analyzer import CreditRatioAnalysis
+from src.services import AssessmentService, AssessmentServiceError
 
 ALLOWED_DATA_SOURCES = ("auto", "yfinance", "akshare", "demo")
 _RATIO_FIELDS = {entry.name for entry in fields(CreditRatioAnalysis)}

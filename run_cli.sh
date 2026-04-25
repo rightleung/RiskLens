@@ -10,4 +10,4 @@ export RISKLENS_ROOT="$SCRIPT_DIR"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/scripts/venv_bootstrap.sh"
 
-exec "$PYTHON_BIN" "$SCRIPT_DIR/src/risklens_cli.py" "$@"
+exec "$PYTHON_BIN" -m src.risklens_cli "$@"

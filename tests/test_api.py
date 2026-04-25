@@ -4,6 +4,7 @@ API Integration Tests
 Tests for FastAPI endpoints using TestClient.
 """
 
+import hashlib
 import pytest
 from fastapi.testclient import TestClient
 import sys
@@ -11,9 +12,6 @@ import os
 import types
 import time
 import pandas as pd
-
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 import api
 from data_fetcher import DataFetchError, DataFetchErrorType
@@ -331,7 +329,10 @@ class TestPdfExportEndpoint:
     """Tests for /api/v1/reports/pdf endpoint."""
 
     def test_pdf_export_returns_attachment(self, client, monkeypatch):
-        monkeypatch.setattr(api, "generate_full_pdf", lambda _report, _lang: b"%PDF-1.4\n%Test\n%%EOF")
+        async def _fake_generate_full_pdf_async(_report, _lang, _theme):
+            return b"%PDF-1.4\n%Test\n%%EOF"
+
+        monkeypatch.setattr(api, "generate_full_pdf_async", _fake_generate_full_pdf_async)
         payload = {
             "report": {
                 "ticker": "AAPL",
@@ -357,12 +358,18 @@ class TestPdfExportEndpoint:
             "lang": "zh-CN",
         }
 
-        response = client.post("/api/v1/reports/pdf", json=payload)
+        response = client.post("/api/v1/reports/pdf", json=payload, headers={"Origin": "http://localhost:5173"})
         assert response.status_code == 200
         assert response.headers.get("content-type", "").startswith("application/pdf")
         assert "attachment" in response.headers.get("content-disposition", "")
         assert "AAPL_Full_Report.pdf" in response.headers.get("content-disposition", "")
         assert response.content.startswith(b"%PDF")
+        assert response.headers.get("x-pdf-bytes") == str(len(response.content))
+        assert response.headers.get("x-pdf-sha256") == hashlib.sha256(response.content).hexdigest()
+        expose_headers = response.headers.get("access-control-expose-headers", "")
+        assert "x-pdf-sha256" in expose_headers.lower()
+        assert "x-pdf-bytes" in expose_headers.lower()
+        assert "content-disposition" in expose_headers.lower()
 
     def test_pdf_export_validation_error(self, client):
         response = client.post("/api/v1/reports/pdf", json={"lang": "zh-CN"})

@@ -1587,13 +1587,13 @@ def build_pdf_document_model(report: dict[str, Any], lang: str = 'en', theme: st
 
 
 def generate_full_pdf_async(report: dict[str, Any], lang: str = 'en', theme: str = 'dark') -> bytes:
-    from reportlab_pdf_exporter import generate_full_pdf_async as _generate_full_pdf_async
+    from src.reportlab_pdf_exporter import generate_full_pdf_async as _generate_full_pdf_async
 
     return _generate_full_pdf_async(report, lang, theme)
 
 
 def generate_full_pdf(report: dict[str, Any], lang: str = 'en', theme: str = 'dark') -> bytes:
-    from reportlab_pdf_exporter import generate_full_pdf as _generate_full_pdf
+    from src.reportlab_pdf_exporter import generate_full_pdf as _generate_full_pdf
 
     return _generate_full_pdf(report, lang, theme)
 

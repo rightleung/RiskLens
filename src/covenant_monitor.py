@@ -6,7 +6,7 @@ Analyzes financial ratios against defined financial covenants.
 
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from ratio_analyzer import CreditRatioAnalysis
+from src.ratio_analyzer import CreditRatioAnalysis
 
 
 class FinancialCovenants(BaseModel):

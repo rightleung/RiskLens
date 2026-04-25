@@ -5,13 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 import math
 import re
-from services._utils import json_safe, safe_number
+from typing import Any, Dict, Optional
+
+from src.services._utils import json_safe, safe_number
 
 import pandas as pd
 
-from data_fetcher import DataFetchError, FinancialDataFetcher
-from ratio_analyzer import CreditRatioAnalysis, RatioAnalyzer
-from zscore import ZScoreResult, calculate_z_score
+from src.data_fetcher import DataFetchError, FinancialDataFetcher
+from src.ratio_analyzer import CreditRatioAnalysis, RatioAnalyzer
+from src.zscore import ZScoreResult, calculate_z_score
 
 
 class AssessmentServiceError(Exception):

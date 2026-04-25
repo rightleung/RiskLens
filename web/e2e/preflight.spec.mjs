@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { test, expect } from 'playwright/test';
 
 const synthesizeButton = /Synthesize|综合分析|綜合分析|分析する/i;
@@ -128,4 +129,63 @@ test('mobile table keeps horizontal overflow with many periods', async ({ page }
     scrollWidth: el.scrollWidth,
   }));
   expect(dimensions.scrollWidth).toBeGreaterThan(dimensions.clientWidth);
+});
+
+test('pdf export verifies the downloaded blob against response headers', async ({ page }) => {
+  const pdfBody = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<<>>\n%%EOF', 'utf8');
+  const pdfSha256 = createHash('sha256').update(pdfBody).digest('hex');
+
+  await page.route('**/api/v1/assess', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        count: 1,
+        errors: null,
+        suggestions: null,
+        results: [
+          {
+            ticker: 'AAPL',
+            company_name: 'Apple Inc.',
+            currency: 'USD',
+            history: [
+              createPeriod('FY25', 2.6),
+              createPeriod('FY24', 2.4),
+              createPeriod('FY23', 2.2),
+            ],
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.route('**/api/v1/reports/pdf', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/pdf',
+      headers: {
+        'content-disposition': 'attachment; filename="AAPL_Full_Report.pdf"',
+        'x-pdf-sha256': pdfSha256,
+        'x-pdf-bytes': String(pdfBody.length),
+      },
+      body: pdfBody,
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('input').first().fill('AAPL');
+  await page.getByRole('button', { name: synthesizeButton }).click();
+
+  await expect(page.getByRole('button', { name: /Export PDF/i }).first()).toBeVisible();
+  await page.getByRole('button', { name: /Export PDF/i }).first().click();
+
+  const exportDialog = page.getByRole('dialog');
+  await expect(exportDialog.getByText(pdfSha256)).toBeVisible();
+  const downloadPromise = page.waitForEvent('download');
+  await exportDialog.getByRole('button', { name: /Export PDF/i }).click();
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toBe('AAPL_Full_Report.pdf');
+  await expect(page.getByText(`SHA-256: ${pdfSha256}`)).toBeVisible();
+  await expect(page.getByText(`Bytes: ${pdfBody.length}`)).toBeVisible();
 });

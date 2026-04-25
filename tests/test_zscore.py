@@ -8,8 +8,6 @@ import math
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
 from zscore import (
     calculate_z_score,
     map_z_score_to_zone,

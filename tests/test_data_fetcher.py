@@ -9,8 +9,6 @@ import sys
 from pathlib import Path
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
 import data_fetcher
 from data_fetcher import FinancialDataFetcher, DataFetchError, DataFetchErrorType
 
@@ -46,6 +44,37 @@ class _FakeTicker:
             "Accounts Payable": 130.0,
             "Total Debt": 600.0,
         })
+        self.cashflow = _build_fake_statement({
+            "Operating Cash Flow": 220.0,
+            "Free Cash Flow": 180.0,
+        })
+        self.quarterly_income_stmt = pd.DataFrame()
+        self.quarterly_balance_sheet = pd.DataFrame()
+        self.quarterly_cashflow = pd.DataFrame()
+
+
+class _EmptyTicker:
+    def __init__(self, symbol: str):
+        self.symbol = symbol
+        self.info = {"longName": "Empty Corp", "marketCap": 0}
+        self.income_stmt = pd.DataFrame()
+        self.balance_sheet = pd.DataFrame()
+        self.cashflow = pd.DataFrame()
+        self.quarterly_income_stmt = pd.DataFrame()
+        self.quarterly_balance_sheet = pd.DataFrame()
+        self.quarterly_cashflow = pd.DataFrame()
+
+
+class _PartialTicker:
+    def __init__(self, symbol: str):
+        self.symbol = symbol
+        self.info = {"longName": "Partial Corp", "marketCap": 42}
+        self.income_stmt = _build_fake_statement({
+            "Total Revenue": 1000.0,
+            "Operating Income": 250.0,
+            "Net Income": 200.0,
+        })
+        self.balance_sheet = pd.DataFrame()
         self.cashflow = _build_fake_statement({
             "Operating Cash Flow": 220.0,
             "Free Cash Flow": 180.0,
@@ -124,6 +153,26 @@ class TestFinancialDataFetcher:
                 assert 'income' in period
                 assert 'balance' in period
                 assert 'cash' in period
+
+    def test_empty_response_raises_no_data_available(self, monkeypatch):
+        fetcher = FinancialDataFetcher()
+        monkeypatch.setattr(data_fetcher.yf, "Ticker", _EmptyTicker)
+
+        with pytest.raises(DataFetchError) as exc_info:
+            fetcher.get_financial_data("EMPTY", "yfinance")
+
+        assert exc_info.value.error_type == DataFetchErrorType.NO_DATA_AVAILABLE
+
+    def test_partial_data_returns_history_with_missing_statements(self, monkeypatch):
+        fetcher = FinancialDataFetcher()
+        monkeypatch.setattr(data_fetcher.yf, "Ticker", _PartialTicker)
+
+        result = fetcher.get_financial_data("PARTIAL", "yfinance")
+
+        assert result is not None
+        assert len(result["history"]) > 0
+        assert any(period["balance"].empty for period in result["history"])
+        assert any(not period["income"].empty for period in result["history"])
 
     def test_a_share_ticker_format(self, monkeypatch):
         """Test that A-share ticker format is handled correctly."""

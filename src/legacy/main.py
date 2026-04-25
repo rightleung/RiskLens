@@ -23,8 +23,8 @@ import argparse
 # from financial_statement_parser import FinancialStatementParser, FinancialStatement
 # from credit_visualizer import CreditVisualizer
 
-from ratio_analyzer import RatioAnalyzer, CreditRatioAnalysis
-from legacy.credit_risk_assessment import CreditRiskAssessor, CreditRiskAssessment
+from src.ratio_analyzer import RatioAnalyzer, CreditRatioAnalysis
+from src.legacy.credit_risk_assessment import CreditRiskAssessor, CreditRiskAssessment
 
 
 class CreditAnalystToolkit:

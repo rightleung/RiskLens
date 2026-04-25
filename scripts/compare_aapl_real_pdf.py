@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import difflib
 import hashlib
 import json
@@ -14,10 +15,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "src"))
-
-import pdf_exporter
+from src import pdf_exporter
 
 DEFAULT_REFERENCE = Path("/Users/rightleung/Downloads/AAPL_Real_Report.pdf")
 DEFAULT_FIXTURE = ROOT / "tests" / "fixtures" / "aapl_real_report.json"
@@ -31,6 +29,33 @@ def _collapse(text: str) -> str:
 
 def _normalize_dynamic_text(text: str) -> str:
     return _GENERATED_AT_RE.sub(r"\1<timestamp>", text)
+
+
+def _apply_replacements(value: object, replacements: list[tuple[str, str]]) -> object:
+    if isinstance(value, str):
+        text = value
+        for old, new in replacements:
+            text = text.replace(old, new)
+        return text
+    if isinstance(value, list):
+        return [_apply_replacements(item, replacements) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_apply_replacements(item, replacements) for item in value)
+    if isinstance(value, dict):
+        return {key: _apply_replacements(item, replacements) for key, item in value.items()}
+    return value
+
+
+def _parse_replacements(items: list[str]) -> list[tuple[str, str]]:
+    parsed: list[tuple[str, str]] = []
+    for item in items:
+        if "=" not in item:
+            raise ValueError(f"Replacement must use OLD=NEW syntax: {item!r}")
+        old, new = item.split("=", 1)
+        if not old:
+            raise ValueError(f"Replacement source must not be empty: {item!r}")
+        parsed.append((old, new))
+    return parsed
 
 
 def _read_report(path: Path) -> dict:
@@ -110,6 +135,12 @@ def main() -> int:
         default=list(DEFAULT_PAGES),
         help="1-based page numbers to inspect.",
     )
+    parser.add_argument(
+        "--replace",
+        action="append",
+        default=[],
+        help="Recursively replace OLD=NEW in the report JSON before generating the comparison PDF. Can be repeated.",
+    )
     args = parser.parse_args()
 
     if not args.reference.exists():
@@ -120,12 +151,20 @@ def main() -> int:
         return 2
 
     report = _read_report(args.fixture)
+    replacements = _parse_replacements(args.replace)
+    if replacements:
+        report = _apply_replacements(copy.deepcopy(report), replacements)
+        print("Applied replacements:")
+        for old, new in replacements:
+            print(f"  {old!r} -> {new!r}")
     generated_bytes = pdf_exporter.generate_full_pdf(report, lang="en", theme="dark")
 
     with tempfile.TemporaryDirectory(prefix="aapl_pdf_compare_") as tmp:
         workdir = Path(tmp)
         generated_pdf = _write_pdf_bytes(generated_bytes, workdir, "generated.pdf")
         reference_pdf = args.reference
+        print(f"Reference SHA256: {_sha256(reference_pdf)}")
+        print(f"Generated SHA256: {_sha256(generated_pdf)}")
 
         ref_pages = _extract_pages(reference_pdf)
         gen_pages = _extract_pages(generated_pdf)
@@ -158,6 +197,14 @@ def main() -> int:
                 print("")
             if image_status == "different":
                 any_diff = True
+
+        gen_text = "\n".join(gen_pages)
+        for _old, new in replacements:
+            if new not in gen_text:
+                print(f"Canary check: replacement target {new!r} not found in generated text.")
+                any_diff = True
+            else:
+                print(f"Canary check: replacement target {new!r} found in generated text.")
 
         if not can_compare_images:
             print("Image comparison skipped: pdftocairo not available.")

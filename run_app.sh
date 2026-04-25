@@ -26,5 +26,4 @@ echo "[Run] UI: http://127.0.0.1:8000/"
 echo "[Run] Health: http://127.0.0.1:8000/health"
 echo "[Run] Docs: http://127.0.0.1:8000/docs"
 
-cd "$SCRIPT_DIR/src"
-"$PYTHON_BIN" -m uvicorn api:app --host 127.0.0.1 --port 8000 --reload
+"$PYTHON_BIN" -m uvicorn src.api:app --host 127.0.0.1 --port 8000 --reload

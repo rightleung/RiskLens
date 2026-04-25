@@ -46,6 +46,14 @@ interface AssessmentResponse {
   suggestions?: Record<string, Array<SymbolSearchResult>>;
 }
 
+type PdfDownloadTelemetry = {
+  filename: string;
+  serverSha256: string;
+  blobSha256: string;
+  byteLength: number;
+  verified: boolean;
+};
+
 interface SymbolSearchResult {
   symbol: string;
   name: string;
@@ -224,6 +232,19 @@ function formatCurrency(
 function getYahooUrl(ticker: string) {
   return `https://finance.yahoo.com/quote/${encodeURIComponent(ticker)}/financials/`;
 }
+
+const bytesToHex = (buffer: ArrayBuffer): string => Array.from(new Uint8Array(buffer))
+  .map((byte) => byte.toString(16).padStart(2, '0'))
+  .join('');
+
+const hashBlobSha256 = async (blob: Blob): Promise<string> => {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new Error('Browser crypto.subtle is unavailable for PDF verification');
+  }
+  const digest = await subtle.digest('SHA-256', await blob.arrayBuffer());
+  return bytesToHex(digest);
+};
 
 type Language = 'en' | 'zh-CN' | 'zh-TW' | 'ja';
 type ColorMode = 'system' | 'light' | 'dark';
@@ -1751,8 +1772,10 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
   saveAs(new Blob([buffer]), `RiskLens_MultiCompany_Comparison.xlsx`);
 };
 
-const exportSingleCompanyPdf = async (result: any, lang: Language, filenameOverride?: string): Promise<string> => {
-  if (typeof window === 'undefined') return '';
+const exportSingleCompanyPdf = async (result: any, lang: Language, filenameOverride?: string): Promise<PdfDownloadTelemetry> => {
+  if (typeof window === 'undefined') {
+    throw new Error('PDF export is only available in the browser.');
+  }
   const ticker = String(result?.ticker ?? 'RiskLens').toUpperCase();
 
   const response = await fetch('/api/v1/reports/pdf', {
@@ -1771,13 +1794,44 @@ const exportSingleCompanyPdf = async (result: any, lang: Language, filenameOverr
     throw new Error(message);
   }
 
+  const serverSha256 = response.headers.get('x-pdf-sha256')?.trim() || '';
+  const serverBytes = response.headers.get('x-pdf-bytes')?.trim() || '';
+  if (!serverSha256) {
+    throw new Error('PDF export response is missing the X-PDF-SHA256 header.');
+  }
+  if (!serverBytes) {
+    throw new Error('PDF export response is missing the X-PDF-Bytes header.');
+  }
+
   const blob = await response.blob();
+  const blobSha256 = await hashBlobSha256(blob);
+  const byteLength = blob.size;
+  const expectedBytes = Number(serverBytes);
+  if (!Number.isFinite(expectedBytes)) {
+    throw new Error(`PDF export response returned an invalid X-PDF-Bytes value: ${serverBytes}`);
+  }
+  if (byteLength !== expectedBytes) {
+    throw new Error(`PDF download verification failed: body bytes ${byteLength} did not match X-PDF-Bytes ${expectedBytes}.`);
+  }
+  if (blobSha256.toLowerCase() !== serverSha256.toLowerCase()) {
+    throw new Error(`PDF download verification failed: body SHA-256 ${blobSha256} did not match X-PDF-SHA256 ${serverSha256}.`);
+  }
+
   const disposition = response.headers.get('content-disposition') || '';
   const filenameMatch = disposition.match(/filename="?([^"]+)"?/i);
   const serverFilename = filenameMatch?.[1] ? decodeURIComponent(filenameMatch[1]) : `${ticker}_Full_Report.pdf`;
   const filename = (filenameOverride || serverFilename).trim() || `${ticker}_Full_Report.pdf`;
   saveAs(blob, filename);
-  return filename;
+  const telemetry: PdfDownloadTelemetry = {
+    filename,
+    serverSha256,
+    blobSha256,
+    byteLength,
+    verified: true,
+  };
+  window.dispatchEvent(new CustomEvent('risklens:pdf-download', { detail: telemetry }));
+  console.info('[RiskLens] PDF download verified', telemetry);
+  return telemetry;
 };
 
 import { translateAssessmentText, prettifyKey, getTooltip, translateRatingStatus } from './translations';
@@ -2027,8 +2081,14 @@ function PdfExportDialog({
     setError('');
     setSuccess('');
     try {
-      const savedAs = await exportSingleCompanyPdf(target.report, exportLang, normalizedFilename);
-      setSuccess(pdfText.savedAs(savedAs));
+      const download = await exportSingleCompanyPdf(target.report, exportLang, normalizedFilename);
+      setSuccess([
+        pdfText.savedAs(download.filename),
+        `Server SHA-256: ${download.serverSha256}`,
+        `SHA-256: ${download.blobSha256}`,
+        `Bytes: ${download.byteLength}`,
+        download.verified ? 'Verified against server response headers.' : 'Verification pending.',
+      ].join('\n'));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'PDF export failed';
       setError(message);
@@ -2218,7 +2278,7 @@ function PdfExportDialog({
                   <div className="rounded-2xl border border-emerald-400/25 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">
                     <div className="flex items-start gap-3">
                       <CheckCircle2 className="mt-0.5 h-4 w-4" />
-                      <div>{success}</div>
+                      <div className="whitespace-pre-line">{success}</div>
                     </div>
                   </div>
                 ) : null}

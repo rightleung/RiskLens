@@ -66,12 +66,12 @@ if sentry_dsn:
 else:
     logger.info("Sentry disabled (set SENTRY_DSN env var to enable)")
 
-from data_fetcher import FinancialDataFetcher, DataFetchError, DataFetchErrorType
-from ratio_analyzer import RatioAnalyzer, CreditRatioAnalysis
-from covenant_monitor import FinancialCovenants, CovenantMonitor, CovenantReport
-from zscore import calculate_z_score
+from src.data_fetcher import FinancialDataFetcher, DataFetchError, DataFetchErrorType
+from src.ratio_analyzer import RatioAnalyzer, CreditRatioAnalysis
+from src.covenant_monitor import FinancialCovenants, CovenantMonitor, CovenantReport
+from src.zscore import calculate_z_score
 from src.reportlab_pdf_exporter import generate_full_pdf, generate_full_pdf_async
-from services import AssessmentServiceError, RichAssessmentService
+from src.services import AssessmentServiceError, RichAssessmentService
 
 # ── FastAPI App ──────────────────────────────────────────────────────────────
 

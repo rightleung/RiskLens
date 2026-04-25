@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import sys
 import shutil
 import subprocess
 import re
+from pathlib import Path
 
 import pytest
 
-ROOT = os.path.join(os.path.dirname(__file__), "..")
-sys.path.insert(0, ROOT)
-sys.path.insert(0, os.path.join(ROOT, "src"))
+ROOT = Path(__file__).resolve().parent.parent
 
 import html_pdf_exporter
 import pdf_exporter
@@ -717,3 +717,39 @@ def test_generate_full_pdf_rejects_empty_history():
 
     with pytest.raises(ValueError, match="No history available"):
         generate_full_pdf(report, lang="en")
+
+
+def test_compare_script_supports_canary_replacement(tmp_path):
+    script = Path(ROOT) / "scripts" / "compare_aapl_real_pdf.py"
+    if not script.exists():
+        pytest.skip("compare script is missing")
+    if not shutil.which("pdftotext") or not shutil.which("pdftocairo"):
+        pytest.skip("pdf comparison tools are not installed")
+    if not REPORTLAB_AVAILABLE:
+        pytest.skip("reportlab is not installed")
+
+    fixture_path = Path(__file__).resolve().parent / "fixtures" / "aapl_real_report.json"
+    reference_pdf = tmp_path / "aapl_reference_for_compare.pdf"
+    with fixture_path.open("r", encoding="utf-8") as fh:
+        report = json.load(fh)
+    reference_pdf.write_bytes(generate_full_pdf(report, lang="en", theme="dark"))
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "scripts.compare_aapl_real_pdf",
+            "--reference",
+            str(reference_pdf),
+            "--replace",
+            "Apple Inc.=Apple Inc. (Cache Break)",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "Applied replacements:" in result.stdout
+    assert "Apple Inc. (Cache Break)" in result.stdout
+    assert "Canary check: replacement target 'Apple Inc. (Cache Break)' found in generated text." in result.stdout

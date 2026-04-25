@@ -11,7 +11,6 @@ from datetime import datetime
 import logging
 import os
 from pathlib import Path
-import sys
 from typing import Any, Dict, List, Optional
 
 from fastapi.concurrency import run_in_threadpool
@@ -22,11 +21,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 BASE_DIR = Path(__file__).resolve().parent
-SRC_DIR = BASE_DIR / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
 
-from services import AssessmentService, AssessmentServiceError
+from src.services import AssessmentService, AssessmentServiceError
 
 logger = logging.getLogger(__name__)
 

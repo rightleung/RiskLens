@@ -7,8 +7,6 @@ Run with: pytest tests/test_covenant_monitor.py -v
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
 from covenant_monitor import FinancialCovenants, CovenantMonitor
 from ratio_analyzer import CreditRatioAnalysis
 

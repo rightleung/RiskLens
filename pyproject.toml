@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "risklens"
+version = "1.1.0"
+description = "Institutional Credit Risk Assessment Platform"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.4",
+    "pandas>=3.0",
+    "yfinance>=1.2",
+    "akshare>=1.18",
+    "reportlab>=4,<5",
+    "fastapi>=0.133",
+    "uvicorn>=0.41",
+    "pydantic>=2.12",
+    "sentry-sdk>=2.53",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9", "httpx>=0.28"]
+cn = ["opencc"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "fastapi*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

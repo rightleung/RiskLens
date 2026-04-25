@@ -18,11 +18,7 @@ from unittest.mock import Mock, MagicMock, patch
 from datetime import datetime
 from typing import Optional
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
-from credit_risk_assessment import (
+from src.legacy.credit_risk_assessment import (
     # Exceptions
     CreditRiskError,
     ValidationError,

@@ -4,10 +4,8 @@ import json
 import re
 import time
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
-
 try:
-    from data_fetcher import FinancialDataFetcher
+    from src.data_fetcher import FinancialDataFetcher
 except ImportError as e:
     print(f"Failed to import data_fetcher: {e}")
     sys.exit(1)
