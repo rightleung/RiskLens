@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.services._utils import safe_number as _safe_number
+from src.statement_i18n import STATEMENT_I18N
 
 LANG = {
     'en': {
@@ -12,6 +13,11 @@ LANG = {
         'credit_health_summary': 'Credit Health Summary',
         'executive_summary': 'Executive Summary',
         'company_profile': 'Company Profile',
+        'sector': 'Sector',
+        'industry': 'Industry',
+        'country': 'Country',
+        'employees': 'Employees',
+        'website': 'Website',
         'key_risk_profile': 'Key Risk Profile',
         'latest_period': 'Latest Period',
         'currency': 'Currency',
@@ -69,6 +75,11 @@ LANG = {
         'credit_health_summary': '信用健康摘要',
         'executive_summary': '执行摘要',
         'company_profile': '公司概况',
+        'sector': '行业板块',
+        'industry': '细分行业',
+        'country': '国家/地区',
+        'employees': '员工人数',
+        'website': '公司网站',
         'key_risk_profile': '核心风险特征',
         'latest_period': '最新期间',
         'currency': '币种',
@@ -126,6 +137,11 @@ LANG = {
         'credit_health_summary': '信用健康摘要',
         'executive_summary': '執行摘要',
         'company_profile': '公司概況',
+        'sector': '行業板塊',
+        'industry': '細分行業',
+        'country': '國家/地區',
+        'employees': '員工人數',
+        'website': '公司網站',
         'key_risk_profile': '核心風險特徵',
         'latest_period': '最新期間',
         'currency': '幣別',
@@ -183,6 +199,11 @@ LANG = {
         'credit_health_summary': 'クレジット健全性サマリー',
         'executive_summary': 'エグゼクティブサマリー',
         'company_profile': '会社概要',
+        'sector': 'セクター',
+        'industry': '業界',
+        'country': '国/地域',
+        'employees': '従業員数',
+        'website': 'ウェブサイト',
         'key_risk_profile': '主要リスク特性',
         'latest_period': '最新期間',
         'currency': '通貨',
@@ -325,6 +346,133 @@ def _style_tokens() -> dict[str, str]:
     return dict(PDF_STYLE_TOKENS)
 
 
+def _t_statement(lang: str, raw_label: str) -> str:
+    """Translate a financial statement line-item label.
+
+    Normalizes *raw_label* to the STATEMENT_I18N key format and returns
+    the localized label, or the original if no translation exists.
+    """
+    if lang == 'en':
+        return raw_label
+    key = raw_label.strip().lower().replace(' ', '_').replace('-', '_')
+    for ch in "()[]{}.,;:'\"!/?":
+        key = key.replace(ch, '')
+    key = key.strip('_')
+    entry = STATEMENT_I18N.get(key)
+    if entry is None:
+        key = key.replace('__', '_')
+        entry = STATEMENT_I18N.get(key)
+    return entry.get(lang, raw_label) if entry else raw_label
+
+
+# -- Strength / weakness text translations (ported from web/src/translations.ts) --
+
+_ASSESSMENT_I18N: dict[str, dict[str, str]] = {
+    "Low leverage": {
+        "en": "Low leverage", "zh-CN": "低杠杆", "zh-TW": "低槓桿", "ja": "低レバレッジ",
+    },
+    "Strong interest coverage": {
+        "en": "Strong interest coverage", "zh-CN": "强劲的利息保障倍数", "zh-TW": "強勁的利息保障倍數", "ja": "強固なインタレストカバレッジ",
+    },
+    "Healthy liquidity position": {
+        "en": "Healthy liquidity position", "zh-CN": "健康的流动性状况", "zh-TW": "健康的流動性狀況", "ja": "健全な流動性ポジション",
+    },
+    "Healthy liquidity": {
+        "en": "Healthy liquidity", "zh-CN": "健康的流动性", "zh-TW": "健康的流動性", "ja": "健全な流動性",
+    },
+    "Good liquidity": {
+        "en": "Good liquidity", "zh-CN": "良好的流动性", "zh-TW": "良好的流動性", "ja": "良好な流動性",
+    },
+    "Strong profitability margins": {
+        "en": "Strong profitability margins", "zh-CN": "强劲的利润率", "zh-TW": "強勁的利潤率", "ja": "強固な利益率",
+    },
+    "Strong profitability": {
+        "en": "Strong profitability", "zh-CN": "强劲的盈利能力", "zh-TW": "強勁的盈利能力", "ja": "強い収益性",
+    },
+    "Strong free cash flow generation": {
+        "en": "Strong free cash flow generation", "zh-CN": "强劲的自由现金流生成", "zh-TW": "強勁的自由現金流生成", "ja": "強力なフリーキャッシュフロー創出",
+    },
+    "Strong free cash flow": {
+        "en": "Strong free cash flow", "zh-CN": "强劲的自由现金流", "zh-TW": "強勁的自由現金流", "ja": "強力なフリーキャッシュフロー",
+    },
+    "Conservative debt level": {
+        "en": "Conservative debt level", "zh-CN": "保守的债务水平", "zh-TW": "保守的債務水平", "ja": "保守的な負債水準",
+    },
+    "High financial leverage": {
+        "en": "High financial leverage", "zh-CN": "高财务杠杆", "zh-TW": "高財務槓桿", "ja": "高い財務レバレッジ",
+    },
+    "High leverage": {
+        "en": "High leverage", "zh-CN": "高杠杆", "zh-TW": "高槓桿", "ja": "高レバレッジ",
+    },
+    "Weak interest coverage": {
+        "en": "Weak interest coverage", "zh-CN": "利息保障倍数较弱", "zh-TW": "利息保障倍數較弱", "ja": "弱いインタレストカバレッジ",
+    },
+    "Tight liquidity": {
+        "en": "Tight liquidity", "zh-CN": "流动性紧张", "zh-TW": "流動性緊張", "ja": "ひっ迫した流動性",
+    },
+    "Weak liquidity": {
+        "en": "Weak liquidity", "zh-CN": "流动性较弱", "zh-TW": "流動性較弱", "ja": "流動性が弱い",
+    },
+    "Negative or weak profitability": {
+        "en": "Negative or weak profitability", "zh-CN": "盈利能力弱或为负", "zh-TW": "盈利能力弱或為負", "ja": "収益性がマイナスまたは弱い",
+    },
+    "Weak profitability": {
+        "en": "Weak profitability", "zh-CN": "盈利能力较弱", "zh-TW": "盈利能力較弱", "ja": "弱い収益性",
+    },
+    "Negative free cash flow": {
+        "en": "Negative free cash flow", "zh-CN": "负自由现金流", "zh-TW": "負自由現金流", "ja": "マイナスのフリーキャッシュフロー",
+    },
+    "Excessive debt burden": {
+        "en": "Excessive debt burden", "zh-CN": "过度的债务负担", "zh-TW": "過度的債務負擔", "ja": "過剰な負債負担",
+    },
+    "Moderate leverage": {
+        "en": "Moderate leverage", "zh-CN": "适度杠杆", "zh-TW": "適度槓桿", "ja": "適度なレバレッジ",
+    },
+}
+
+_METRIC_LABEL_I18N: dict[str, dict[str, str]] = {
+    "Debt/EBITDA": {"zh-CN": "债务/EBITDA", "zh-TW": "債務/EBITDA", "ja": "有利子負債/EBITDA"},
+    "Current Ratio": {"zh-CN": "流动比率", "zh-TW": "流動比率", "ja": "流動比率"},
+    "of debt": {"zh-CN": "占总债务", "zh-TW": "占總債務", "ja": "対負債"},
+}
+
+
+def _translate_assessment_text(text: str, lang: str) -> str:
+    """Translate a strength/weakness assessment phrase.
+
+    Handles exact matches, prefix matches (with parenthetical data kept),
+    and substring fallback — mirroring the frontend's translateAssessmentText.
+    """
+    if lang == "en":
+        return text
+
+    # Exact match
+    entry = _ASSESSMENT_I18N.get(text)
+    if entry:
+        return entry.get(lang, text)
+
+    # Prefix match — e.g. "Low leverage (Debt/EBITDA: 2.1)" matches "Low leverage"
+    lower_text = text.lower()
+    for key, entry in _ASSESSMENT_I18N.items():
+        if lower_text.startswith(key.lower()):
+            remainder = text[len(key):]
+            # Translate embedded metric labels in parenthetical
+            for en_label, label_i18n in _METRIC_LABEL_I18N.items():
+                trans = label_i18n.get(lang)
+                if trans:
+                    remainder = remainder.replace(en_label, trans)
+            return entry.get(lang, key) + remainder
+
+    # Substring fallback
+    for key, entry in _ASSESSMENT_I18N.items():
+        if key.lower() in lower_text:
+            translated = entry.get(lang, key)
+            pattern = re.compile(re.escape(key), re.IGNORECASE)
+            return pattern.sub(translated, text)
+
+    return text
+
+
 def _lang(lang: str | None) -> str:
     if lang in LANG:
         return lang or 'en'
@@ -333,6 +481,25 @@ def _lang(lang: str | None) -> str:
 
 def _t(lang: str, key: str) -> str:
     return LANG.get(lang, LANG['en']).get(key, key)
+
+
+def _resolve_localized_name(raw: Any, lang: str, fallback: str = '') -> str:
+    """Extract a localized company name from a dict like {'en': 'Apple', 'zh-CN': '苹果'}.
+
+    If *raw* is a dict, pick by *lang* key then try zh-CN, zh-TW, ja, en.
+    If *raw* is a string (or anything else), return it as-is.
+    """
+    if isinstance(raw, dict) and raw:
+        for key in (lang, 'zh-CN', 'zh-TW', 'ja', 'en'):
+            val = raw.get(key)
+            if val and str(val).strip():
+                return str(val)
+        # dict is non-empty but all values are empty/whitespace
+        first = next(iter(raw.values()), '')
+        return str(first) if first else fallback
+    if isinstance(raw, str) and raw.strip():
+        return raw
+    return fallback
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -923,16 +1090,22 @@ def _extract_texts(value: Any) -> list[str]:
 
 def _extract_summary(entry: dict[str, Any], lang: str = 'en') -> dict[str, Any]:
     assessment = _mapping(entry.get('assessment'))
-    strengths = _extract_texts(assessment.get('strengths') or entry.get('strengths'))
-    watch_items = _extract_texts(
-        assessment.get('watch_items')
-        or assessment.get('concerns')
-        or assessment.get('weaknesses')
-        or entry.get('watch_items')
-        or entry.get('concerns')
-        or entry.get('weaknesses')
-        or entry.get('risks')
-    )
+    strengths = [
+        _translate_assessment_text(s, lang)
+        for s in _extract_texts(assessment.get('strengths') or entry.get('strengths'))
+    ]
+    watch_items = [
+        _translate_assessment_text(s, lang)
+        for s in _extract_texts(
+            assessment.get('watch_items')
+            or assessment.get('concerns')
+            or assessment.get('weaknesses')
+            or entry.get('watch_items')
+            or entry.get('concerns')
+            or entry.get('weaknesses')
+            or entry.get('risks')
+        )
+    ]
     covenant_rows: list[dict[str, str]] = []
     for item in _sequence(assessment.get('covenant_pre_check') or assessment.get('covenants') or entry.get('covenant_pre_check') or entry.get('covenants')):
         if isinstance(item, dict):
@@ -1286,7 +1459,7 @@ def _paginate_table_rows(rows: list[list[str]], widths: list[float], available_h
     return chunks
 
 
-def _extract_profile(report: dict[str, Any], latest: dict[str, Any]) -> list[dict[str, str]]:
+def _extract_profile(report: dict[str, Any], latest: dict[str, Any], lang: str = 'en') -> list[dict[str, str]]:
     profile = report.get('company_profile') or latest.get('company_profile') or {}
     rows: list[dict[str, str]] = []
     if isinstance(profile, dict):
@@ -1297,7 +1470,8 @@ def _extract_profile(report: dict[str, Any], latest: dict[str, Any]) -> list[dic
                 value = value.get('value') or value.get('text') or value.get('name') or '--'
             if isinstance(value, (list, tuple, set)):
                 value = ', '.join(_clean_display_text(item) for item in value if _clean_display_text(item))
-            label = _normalize_label_text(key)
+            translated = _t(lang, key)
+            label = translated if translated != key else _normalize_label_text(key)
             display_value = _format_value(value)
             if not label or display_value in {'', '--', 'N/A', 'n/a', '[]', '{}'}:
                 continue
@@ -1650,6 +1824,12 @@ def build_pdf_context(report: dict[str, object], lang: str = 'en', theme: str = 
             annual_periods[1] if len(annual_periods) > 1 else None,
         )
     statement_sections = _build_statement_sections(history)
+    if lang != 'en':
+        for section in statement_sections:
+            for row in section.get('detail_rows', []):
+                row['label'] = _t_statement(lang, str(row.get('label', '')))
+            for row in section.get('summary_rows', []):
+                row['label'] = _t_statement(lang, str(row.get('label', '')))
     currency = str(report.get('currency') or latest.get('currency') or latest.get('reporting_currency') or '--')
     for section in statement_sections:
         section['yoy_label_q'] = _format_yoy_label(lang, section.get('current_quarter_period'), section.get('compare_quarter_period'))
@@ -1697,7 +1877,11 @@ def build_pdf_context(report: dict[str, object], lang: str = 'en', theme: str = 
         'generated_at_title': _t(lang, 'generated_at'),
         'style': _style_tokens(),
         'company_name': str(report.get('company_name') or latest.get('company_name') or latest.get('name') or 'Unknown Company'),
-        'company_name_localized': '' if lang == 'en' else str(report.get('company_name_localized') or latest.get('company_name_localized') or report.get('company_name') or latest.get('company_name') or 'Unknown Company'),
+        'company_name_localized': '' if lang == 'en' else _resolve_localized_name(
+            report.get('company_name_localized') or latest.get('company_name_localized'),
+            lang,
+            fallback=str(report.get('company_name') or latest.get('company_name') or ''),
+        ),
         'ticker': str(report.get('ticker') or latest.get('ticker') or '--'),
         'currency': currency,
         'latest_period': period_labels[0],
@@ -1716,7 +1900,7 @@ def build_pdf_context(report: dict[str, object], lang: str = 'en', theme: str = 
         ],
         'hero_summary': hero_summary,
         'zone_text': _format_value(summary['zone']) if summary['zone'] is not None else None,
-        'company_profile_rows': _extract_profile(report, latest),
+        'company_profile_rows': _extract_profile(report, latest, lang),
         'strengths': summary.get('strengths', []),
         'watch_items': summary.get('watch_items', []),
         'covenant_rows': summary.get('covenant_rows', []),
