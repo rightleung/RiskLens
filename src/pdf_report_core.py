@@ -10,7 +10,6 @@ from src.html_pdf_exporter import (
     _clean_display_text as _html_clean_display_text,
     _estimate_table_row_height as _html_estimate_table_row_height,
     _format_period_label as _html_format_period_label,
-    _format_statement_display_value as _html_format_statement_display_value,
     _is_negative_display_value as _html_is_negative_display_value,
     _paginate_table_rows as _html_paginate_table_rows,
     _t as _html_t,
@@ -234,6 +233,29 @@ def _sanitize_text_row(row: dict[str, Any], label_key: str = 'label') -> dict[st
     return cleaned
 
 
+def _clean_value_list(values: Any) -> list[str]:
+    if isinstance(values, (list, tuple)):
+        return [
+            '--' if not (text := _clean_display_text(value)) or re.fullmatch(r'[,;\s]+', text) else text
+            for value in values
+        ]
+    text = _clean_display_text(values)
+    return ['--' if not text or re.fullmatch(r'[,;\s]+', text) else text]
+
+
+def _validate_table_matrix(headers: list[str], rows: list[list[str]], path: str) -> None:
+    expected = len(headers)
+    if expected == 0:
+        raise ValueError(f'PDF table at {path} has no headers.')
+    for row_idx, row in enumerate(rows):
+        if len(row) != expected:
+            raise ValueError(
+                f'PDF table row length mismatch at {path}[{row_idx}]: expected {expected}, got {len(row)}.'
+            )
+        for col_idx, cell in enumerate(row):
+            _scan_for_inline_breaks(cell, f'{path}[{row_idx}][{col_idx}]')
+
+
 def _sanitize_pdf_document_model(model: dict[str, Any]) -> dict[str, Any]:
     sanitized = dict(model)
     cover = dict(sanitized.get('cover') or {})
@@ -340,8 +362,10 @@ def _sanitize_pdf_document_model(model: dict[str, Any]) -> dict[str, Any]:
     kpi['title'] = _clean_display_text(kpi.get('title'))
     kpi['benchmark_note'] = _clean_display_text(kpi.get('benchmark_note'))
     kpi['yoy_note'] = _clean_display_text(kpi.get('yoy_note'))
+    kpi['unit_note'] = _clean_display_text(kpi.get('unit_note'))
     kpi['headers'] = [_clean_display_text(header) for header in kpi.get('headers', [])]
     kpi['rows'] = [[_clean_display_text(cell) for cell in row] for row in kpi.get('rows', [])]
+    _validate_table_matrix(kpi['headers'], kpi['rows'], 'kpi.rows')
     for row_idx, row in enumerate(kpi['rows']):
         for col_idx, cell in enumerate(row):
             _scan_for_merged_metric_text(cell, f'kpi.rows[{row_idx}][{col_idx}]')
@@ -354,39 +378,61 @@ def _sanitize_pdf_document_model(model: dict[str, Any]) -> dict[str, Any]:
     for section in sanitized.get('statements', []):
         if not isinstance(section, dict):
             continue
-        section_key = _clean_display_text(section.get('key')).lower()
-        repaired_rows: list[dict[str, Any]] = []
-        for row in section.get('rows', []):
-            if not isinstance(row, dict):
-                continue
-            cleaned_row = _sanitize_text_row(row)
-            values = row.get('values', [])
-            if isinstance(values, (list, tuple)):
-                cleaned_values = [
-                    _html_format_statement_display_value(value, cleaned_row.get('label'))
-                    if section_key in {'income_statement', 'balance_sheet', 'cash_flow_statement'}
-                    else ('--' if not (text := _clean_display_text(value)) or re.fullmatch(r'[,;\s]+', text) else text)
-                    for value in values
+        def repair_statement_rows(source_rows: Any) -> list[dict[str, Any]]:
+            repaired: list[dict[str, Any]] = []
+            for row in source_rows:
+                if not isinstance(row, dict):
+                    continue
+                cleaned_row = _sanitize_text_row(row)
+                repaired.append({
+                    **cleaned_row,
+                    'values': _clean_value_list(row.get('values', [])),
+                    'raw_values': _clean_value_list(row.get('raw_values', row.get('values', []))),
+                    'summary_display_values': _clean_value_list(row.get('summary_display_values', row.get('values', []))),
+                    'detail_display_values': _clean_value_list(row.get('detail_display_values', row.get('values', []))),
+                    'yoy_q': _clean_display_text(row.get('yoy_q')),
+                    'yoy_fy': _clean_display_text(row.get('yoy_fy')),
+                    'level': int(row.get('level') or row.get('depth') or 0),
+                    'depth': int(row.get('depth') or 0),
+                    'is_total': bool(row.get('is_total')),
+                    'yoy_q_tone': _clean_display_text(row.get('yoy_q_tone') or 'neutral'),
+                    'yoy_fy_tone': _clean_display_text(row.get('yoy_fy_tone') or 'neutral'),
+                })
+            return repaired
+
+        repaired_rows = repair_statement_rows(section.get('rows', []))
+        repaired_detail_rows = repair_statement_rows(section.get('detail_rows', []))
+        normalized_rows = _normalize_statement_rows(repaired_rows)
+        normalized_detail_rows = _normalize_statement_rows(repaired_detail_rows)
+        headers = [_clean_display_text(header) for header in section.get('headers', [])]
+
+        def statement_matrix(source_rows: list[dict[str, Any]], display_key: str, path: str) -> list[list[str]]:
+            matrix = [
+                [
+                    _clean_display_text(row.get('label')),
+                    *(_clean_value_list(row.get(display_key) or row.get('values', []))),
+                    _clean_display_text(row.get('yoy_q')),
+                    _clean_display_text(row.get('yoy_fy')),
                 ]
-            else:
-                text = _clean_display_text(values)
-                cleaned_values = [
-                    _html_format_statement_display_value(text, cleaned_row.get('label'))
-                    if section_key in {'income_statement', 'balance_sheet', 'cash_flow_statement'}
-                    else ('--' if not text or re.fullmatch(r'[,;\s]+', text) else text)
-                ]
-            repaired_rows.append({
-                **cleaned_row,
-                'values': cleaned_values,
-                'yoy_q': _clean_display_text(row.get('yoy_q')),
-                'yoy_fy': _clean_display_text(row.get('yoy_fy')),
-            })
+                for row in source_rows
+            ]
+            _validate_table_matrix(headers, matrix, path)
+            return matrix
+
+        table_rows = statement_matrix(normalized_rows, 'summary_display_values', f'statements[{len(statement_sections)}].table_rows')
+        detail_table_rows = statement_matrix(normalized_detail_rows, 'detail_display_values', f'statements[{len(statement_sections)}].detail_table_rows')
         statement_sections.append({
             **section,
             'display_title': _clean_display_text(section.get('display_title')),
-            'headers': [_clean_display_text(header) for header in section.get('headers', [])],
-            'rows': _normalize_statement_rows(repaired_rows),
+            'headers': headers,
+            'rows': normalized_rows,
+            'detail_rows': normalized_detail_rows,
+            'table_rows': table_rows,
+            'detail_table_rows': detail_table_rows,
+            'level_field': _clean_display_text(section.get('level_field') or 'level'),
             'yoy_note': _clean_display_text(section.get('yoy_note')),
+            'unit_note': _clean_display_text(section.get('unit_note')),
+            'detail_unit_note': _clean_display_text(section.get('detail_unit_note')),
         })
     sanitized['statements'] = statement_sections
     for section_idx, section in enumerate(sanitized['statements']):
@@ -397,6 +443,7 @@ def _sanitize_pdf_document_model(model: dict[str, Any]) -> dict[str, Any]:
             _scan_for_merged_metric_text(row.get('yoy_q'), f'statements[{section_idx}].rows[{row_idx}].yoy_q')
             _scan_for_merged_metric_text(row.get('yoy_fy'), f'statements[{section_idx}].rows[{row_idx}].yoy_fy')
     appendix['title'] = _clean_display_text(appendix.get('title'))
+    appendix['statement_detail_title'] = _clean_display_text(appendix.get('statement_detail_title'))
     appendix['benchmark_note'] = _clean_display_text(appendix.get('benchmark_note'))
     appendix['notes'] = [_clean_display_text(note) for note in appendix.get('notes', []) if _clean_display_text(note)]
     appendix['covenant_note_title'] = _clean_display_text(appendix.get('covenant_note_title'))

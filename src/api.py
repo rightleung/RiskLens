@@ -10,21 +10,28 @@ Swagger UI:
     http://localhost:8000/docs
 """
 
+from __future__ import annotations
+
 import math
 import hashlib
 import logging
 import io
+import os
 import re
+import threading
 from contextlib import contextmanager
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ValidationError
-from typing import List, Optional, Any, Dict
+from typing import Any
 from datetime import datetime
 import pandas as pd
 import json
+
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -37,15 +44,15 @@ _PROXY_ENV_KEYS = (
     "all_proxy",
 )
 
-_LOCALIZED_NAME_CACHE: Dict[str, Dict[str, str]] = {}
+_LOCALIZED_NAME_CACHE: dict[str, dict[str, str]] = {}
+_LOCALIZED_NAME_CACHE_LOCK = threading.Lock()
 
 # ── Error Monitoring (Sentry) ─────────────────────────────────────────────────
 # Initialize Sentry for error tracking
 # Set SENTRY_DSN environment variable to enable, or leave empty to disable
-import os
-sentry_dsn = os.environ.get("SENTRY_DSN", "")
-environment = os.environ.get("ENVIRONMENT", "development").lower()
-debug_enabled = os.environ.get("DEBUG", "").lower() in {"1", "true", "yes", "on"}
+sentry_dsn = settings.sentry_dsn
+environment = settings.environment.lower()
+debug_enabled = settings.debug
 debug_error_details_enabled = debug_enabled and environment != "production"
 if sentry_dsn:
     import sentry_sdk
@@ -60,7 +67,7 @@ if sentry_dsn:
         ],
         traces_sample_rate=0.1,
         environment=environment,
-        release=f"risklens@{os.environ.get('VERSION', '1.1.0')}",
+        release=f"risklens@{settings.version}",
     )
     logger.info("Sentry error monitoring enabled")
 else:
@@ -72,6 +79,7 @@ from src.covenant_monitor import FinancialCovenants, CovenantMonitor, CovenantRe
 from src.zscore import calculate_z_score
 from src.reportlab_pdf_exporter import generate_full_pdf, generate_full_pdf_async
 from src.services import AssessmentServiceError, RichAssessmentService
+from src.services._utils import convert_simplified_to_traditional
 
 # ── FastAPI App ──────────────────────────────────────────────────────────────
 
@@ -88,8 +96,8 @@ app = FastAPI(
 )
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
-def _parse_cors_origins() -> List[str]:
-    configured = os.environ.get("CORS_ORIGINS", "").strip()
+def _parse_cors_origins() -> list[str]:
+    configured = settings.cors_origins.strip()
     if configured:
         origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
         return origins or ["*"]
@@ -112,27 +120,68 @@ app.add_middleware(
 
 # ── Exception Handlers ─────────────────────────────────────────────────────────
 
+def _api_error_response(error: str, error_type: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "error": error,
+        "error_type": error_type,
+        "details": details,
+    }
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_request: Request, exc: HTTPException):
+    """Normalize explicit HTTP errors."""
+    detail = exc.detail
+    if isinstance(detail, dict):
+        error = str(detail.get("error") or detail.get("message") or "Request failed")
+        error_type = str(detail.get("error_type") or "http_error")
+        details = {key: value for key, value in detail.items() if key not in {"error", "error_type", "message"}}
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=_api_error_response(error, error_type, details or None),
+            headers=exc.headers,
+        )
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=_api_error_response(str(detail), "http_error", None),
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_request: Request, exc: RequestValidationError):
+    """Normalize FastAPI/Pydantic validation errors."""
+    return JSONResponse(
+        status_code=422,
+        content=_api_error_response(
+            "Validation failed",
+            "validation_error",
+            {"errors": exc.errors()},
+        ),
+    )
+
+
 @app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
+async def global_exception_handler(request: Request, exc: Exception):
     """Catch unhandled exceptions and return proper error response."""
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    details = {"path": str(request.url)}
+    if debug_error_details_enabled:
+        details["message"] = str(exc)
     return JSONResponse(
         status_code=500,
-        content={
-            "error": "Internal server error",
-            "message": str(exc) if debug_error_details_enabled else "An unexpected error occurred",
-            "path": str(request.url),
-        },
+        content=_api_error_response("Internal server error", "internal_server_error", details),
     )
 
 
 # ── Shared Instances ─────────────────────────────────────────────────────────
 
 fetcher = FinancialDataFetcher()
-analyzer = RatioAnalyzer(report_dir="/tmp/credit_api_reports")
+analyzer = RatioAnalyzer(report_dir=settings.api_report_dir)
 # NOTE: covenant_monitor is stateless (no mutable state), safe as a singleton
 covenant_monitor = CovenantMonitor()
-rich_assessment_service = RichAssessmentService(report_dir="/tmp/credit_api_reports")
+rich_assessment_service = RichAssessmentService(report_dir=settings.api_report_dir)
 # assessor is NOT a singleton — instantiated per-request in _assess_risk()
 # to avoid race conditions on self.assessments list in concurrent requests.
 
@@ -141,14 +190,14 @@ rich_assessment_service = RichAssessmentService(report_dir="/tmp/credit_api_repo
 
 class AssessmentRequest(BaseModel):
     """Request body for credit assessment."""
-    tickers: List[str] = Field(
+    tickers: list[str] = Field(
         ...,
         min_length=1,
         max_length=50,
         description="List of stock tickers to analyze",
-        examples=[["AAPL", "MSFT"]],
+        examples=[["NVDA", "AMD"]],
     )
-    fiscal_year: Optional[int] = Field(
+    fiscal_year: int | None = Field(
         default=None,
         ge=1900,
         le=2100,
@@ -163,7 +212,7 @@ class AssessmentRequest(BaseModel):
 class CovenantCheckRequest(BaseModel):
     """Request body for covenant breach checking."""
     ticker: str = Field(..., description="Stock ticker to check")
-    fiscal_year: Optional[int] = Field(
+    fiscal_year: int | None = Field(
         default=None,
         ge=1900,
         le=2100,
@@ -181,7 +230,7 @@ class CovenantCheckRequest(BaseModel):
 
 class PdfExportRequest(BaseModel):
     """Request body for full PDF export."""
-    report: Dict[str, Any] = Field(..., description="Single-company assessment payload")
+    report: dict[str, Any] = Field(..., description="Single-company assessment payload")
     lang: str = Field(default="en", description="Language code")
     theme: str = Field(default="dark", description="PDF theme: 'dark' or 'light'")
 
@@ -240,21 +289,15 @@ async def run_credit_assessment(request: AssessmentRequest):
         raise HTTPException(status_code=422, detail={"errors": ["At least one non-empty ticker is required."]})
 
     fiscal_year = request.fiscal_year or datetime.now().year
-    results: List[dict] = []
-    errors: List[str] = []
-    suggestions: Dict[str, list] = {}
+    results: list[dict] = []
+    errors: list[str] = []
+    suggestions: dict[str, list] = {}
 
     from fastapi.concurrency import run_in_threadpool
     import asyncio
 
-    try:
-        max_concurrency = max(1, int(os.environ.get("ASSESS_MAX_CONCURRENCY", "8")))
-    except ValueError:
-        max_concurrency = 8
-    try:
-        per_ticker_timeout = max(1.0, float(os.environ.get("ASSESS_TICKER_TIMEOUT_SECONDS", "20")))
-    except ValueError:
-        per_ticker_timeout = 20.0
+    max_concurrency = max(1, settings.assess_max_concurrency)
+    per_ticker_timeout = max(1.0, settings.assess_ticker_timeout_seconds)
     suggestions_timeout = min(8.0, max(1.0, per_ticker_timeout / 3))
     semaphore = asyncio.Semaphore(max_concurrency)
 
@@ -265,7 +308,7 @@ async def run_credit_assessment(request: AssessmentRequest):
                 run_in_threadpool(_search_tickers, ticker),
                 timeout=suggestions_timeout,
             )
-        except (asyncio.TimeoutError, DataFetchError, KeyError, AttributeError):
+        except (TimeoutError, DataFetchError, KeyError, AttributeError):
             return []
 
     async def process_ticker(ticker: str):
@@ -289,7 +332,7 @@ async def run_credit_assessment(request: AssessmentRequest):
                         "error_type": "no_data_available",
                         "sugg": sugg
                     }
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 sugg = await fetch_suggestions(ticker)
                 return {
                     "type": "error",
@@ -321,17 +364,6 @@ async def run_credit_assessment(request: AssessmentRequest):
                     "details": exc.details,
                     "sugg": sugg
                 }
-            except DataFetchError as exc:
-                # Fallback for unexpected errors
-                sugg = await fetch_suggestions(ticker)
-                return {
-                    "type": "error",
-                    "ticker": ticker,
-                    "msg": str(exc),
-                    "error_type": "unknown",
-                    "sugg": sugg
-                }
-
     # Gather results concurrently
     tasks = [process_ticker(t) for t in tickers]
     outcomes = await asyncio.gather(*tasks)
@@ -383,7 +415,7 @@ def _contains_cjk_text(value: str) -> bool:
     return bool(re.search(r"[\u4e00-\u9fff]", value or ""))
 
 
-def _extract_company_name_from_stock_info(stock_info: Any) -> Optional[str]:
+def _extract_company_name_from_stock_info(stock_info: Any) -> str | None:
     if stock_info is None:
         return None
     try:
@@ -419,30 +451,26 @@ def _extract_company_name_from_stock_info(stock_info: Any) -> Optional[str]:
 
 
 def _convert_simplified_to_traditional(text: str) -> str:
-    try:
-        import opencc
-
-        return opencc.OpenCC("s2t.json").convert(text)
-    except (ImportError, RuntimeError):
-        return text
+    return convert_simplified_to_traditional(text)
 
 
 def _build_company_name_localized(
     company_name: str,
     ticker: str,
-    quote: Optional[Dict[str, Any]] = None,
-) -> Dict[str, str]:
+    quote: dict[str, Any] | None = None,
+) -> dict[str, str]:
     normalized_ticker = str(ticker or "").strip().upper()
     fallback_name = str(company_name or normalized_ticker or "N/A").strip() or normalized_ticker or "N/A"
 
     cache_key = normalized_ticker or fallback_name
-    cached = _LOCALIZED_NAME_CACHE.get(cache_key)
-    if cached is not None:
-        merged = dict(cached)
-        merged.setdefault("en", fallback_name)
-        return merged
+    with _LOCALIZED_NAME_CACHE_LOCK:
+        cached = _LOCALIZED_NAME_CACHE.get(cache_key)
+        if cached is not None:
+            merged = dict(cached)
+            merged.setdefault("en", fallback_name)
+            return merged
 
-    localized: Dict[str, str] = {"en": fallback_name}
+    localized: dict[str, str] = {"en": fallback_name}
 
     source_text = ""
     if isinstance(quote, dict):
@@ -477,7 +505,8 @@ def _build_company_name_localized(
         except (ImportError, KeyError, AttributeError) as exc:
             logger.debug("Localized name lookup failed for %s: %s", normalized_ticker, exc)
 
-    _LOCALIZED_NAME_CACHE[cache_key] = dict(localized)
+    with _LOCALIZED_NAME_CACHE_LOCK:
+        _LOCALIZED_NAME_CACHE[cache_key] = dict(localized)
     return localized
 
 
@@ -489,7 +518,7 @@ def _search_tickers(query: str, limit: int = 5, strict: bool = False) -> list:
     """
     query_symbol = query.strip().upper()
     allowed_quote_types = {"EQUITY"}
-    last_error: Optional[Exception] = None
+    last_error: Exception | None = None
 
     for clear_proxy in (False, True):
         try:
@@ -540,17 +569,14 @@ async def search_symbols(
     import asyncio
     from fastapi.concurrency import run_in_threadpool
 
-    try:
-        timeout_seconds = max(0.5, float(os.environ.get("SYMBOL_SEARCH_TIMEOUT_SECONDS", "8")))
-    except ValueError:
-        timeout_seconds = 8.0
+    timeout_seconds = max(0.5, settings.symbol_search_timeout_seconds)
 
     try:
         results = await asyncio.wait_for(
             run_in_threadpool(_search_tickers, q, limit, True),
             timeout=timeout_seconds,
         )
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         raise HTTPException(
             status_code=504,
             detail={
@@ -683,8 +709,6 @@ async def export_full_pdf(request: PdfExportRequest | dict[str, Any]):
     )
 
 
-import os
-
 # ── Static Files (Frontend) ──────────────────────────────────────────────────
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -709,7 +733,7 @@ if os.path.isdir(_WEB_DIR):
 async def spa_fallback(full_path: str):
     """SPA catch-all: return index.html for any unmatched GET route.
     
-    This enables React Router to handle deep links (e.g. /results/AAPL)
+    This enables React Router to handle deep links (e.g. /results/NVDA)
     without returning a 404 on page refresh.
     """
     index_path = os.path.join(_WEB_DIR, "index.html")
@@ -721,4 +745,4 @@ async def spa_fallback(full_path: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("api:app", host="0.0.0.0", port=settings.app_port, reload=True)

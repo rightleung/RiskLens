@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime
 import logging
-import math
 import re
 from typing import Any, Dict, Optional
 
@@ -13,9 +12,18 @@ import pandas as pd
 from src.data_fetcher import DataFetchError, FinancialDataFetcher
 from src.ratio_analyzer import CreditRatioAnalysis, RatioAnalyzer
 from src.zscore import calculate_z_score
+from src.config import settings
 
 from src.services.assessment_service import AssessmentServiceError
-from src.services._utils import CJK_PATTERN, JAPANESE_PATTERN, json_safe, safe_number
+from src.services._utils import (
+    CJK_PATTERN,
+    JAPANESE_PATTERN,
+    convert_simplified_to_traditional,
+    get_dataframe_value,
+    infer_fiscal_year,
+    json_safe,
+    safe_number,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +34,9 @@ class RichAssessmentService:
 
     _ALLOWED_SOURCES = {"auto", "yfinance", "akshare", "demo"}
 
-    def __init__(self, report_dir: str = "/tmp/risklens_rich_reports") -> None:
+    def __init__(self, report_dir: str | None = None) -> None:
         self.fetcher = FinancialDataFetcher()
-        self.analyzer = RatioAnalyzer(report_dir=report_dir)
+        self.analyzer = RatioAnalyzer(report_dir=report_dir or settings.rich_report_dir)
 
     def analyze(
         self,
@@ -75,7 +83,7 @@ class RichAssessmentService:
             try:
                 fy_label = str(period.get("year_label") or fiscal_year or datetime.now().year)
                 is_quarterly = bool(period.get("is_quarterly", False))
-                fy_int = self._infer_fiscal_year(fy_label, fallback=fiscal_year)
+                fy_int = infer_fiscal_year(fy_label, fallback=fiscal_year)
 
                 income_df = self._copy_dataframe(period.get("income"))
                 cash_df = self._copy_dataframe(period.get("cash"))
@@ -105,7 +113,7 @@ class RichAssessmentService:
                         "fiscal_year": fy_label,
                         "is_quarterly": is_quarterly,
                         "assessment": assessment,
-                        "ratios": self._json_safe(ratios.to_dict()),
+                        "ratios": json_safe(ratios.to_dict()),
                         "raw_metrics": raw_metrics,
                         "statements": {
                             "income": self._statement_values(income_df),
@@ -142,7 +150,7 @@ class RichAssessmentService:
                 if assessment.get("overall_rating") == "N/A" and entry.get("is_quarterly"):
                     entry["assessment"] = dict(latest_fy_assessment)
 
-        return self._json_safe(
+        return json_safe(
             {
                 "ticker": normalized_ticker,
                 "company_name": company_name,
@@ -199,12 +207,12 @@ class RichAssessmentService:
         ratios: CreditRatioAnalysis,
         market_cap: float,
     ) -> Dict[str, Any]:
-        total_assets = self._get_value(balance_df, "total_assets")
-        total_liabilities = self._get_value(balance_df, "total_liabilities")
-        total_current_assets = self._get_value(balance_df, "total_current_assets")
-        total_current_liabilities = self._get_value(balance_df, "total_current_liabilities")
-        retained_earnings = self._get_value(balance_df, "retained_earnings")
-        ebit = self._get_value(income_df, "operating_income")
+        total_assets = get_dataframe_value(balance_df, "total_assets")
+        total_liabilities = get_dataframe_value(balance_df, "total_liabilities")
+        total_current_assets = get_dataframe_value(balance_df, "total_current_assets")
+        total_current_liabilities = get_dataframe_value(balance_df, "total_current_liabilities")
+        retained_earnings = get_dataframe_value(balance_df, "retained_earnings")
+        ebit = get_dataframe_value(income_df, "operating_income")
         sales = ratios.revenue
 
         z_result = calculate_z_score(
@@ -246,6 +254,33 @@ class RichAssessmentService:
             elif current_ratio is not None and current_ratio < 1:
                 weaknesses.append(f"Weak liquidity (Current Ratio: {current_ratio:.2f})")
 
+        def covenant_row(
+            metric: str,
+            actual: float | None,
+            threshold: float,
+            passes_when: str,
+            pass_note: str,
+            fail_note: str,
+        ) -> Dict[str, object]:
+            if actual is None:
+                return {
+                    "metric": metric,
+                    "actual": None,
+                    "threshold": threshold,
+                    "status": "Insufficient Data",
+                    "signal": "Neutral",
+                    "notes": "Insufficient data",
+                }
+            passed = actual <= threshold if passes_when == "lte" else actual >= threshold
+            return {
+                "metric": metric,
+                "actual": float(round(actual, 2)),
+                "threshold": threshold,
+                "status": "Pass" if passed else "Fail",
+                "signal": "Green" if passed else "Red",
+                "notes": pass_note if passed else fail_note,
+            }
+
         assessment = {
             "risk_score": float(round(z_result.z_score, 2)) if z_result.z_score is not None else 0.0,
             "overall_rating": z_result.zone,
@@ -253,33 +288,12 @@ class RichAssessmentService:
             "strengths": strengths,
             "weaknesses": weaknesses,
             "covenant_pre_check": [
-                {
-                    "metric": "Debt/EBITDA",
-                    "actual": float(round(ratios.debt_to_ebitda, 2)) if ratios.debt_to_ebitda else None,
-                    "threshold": 3.5,
-                    "status": "Pass" if ratios.debt_to_ebitda and ratios.debt_to_ebitda <= 3.5 else "Fail",
-                    "signal": "Green" if ratios.debt_to_ebitda and ratios.debt_to_ebitda <= 3.5 else "Red",
-                    "notes": "Comfortable leverage" if ratios.debt_to_ebitda and ratios.debt_to_ebitda <= 3.5 else "High leverage"
-                },
-                {
-                    "metric": "Interest Coverage",
-                    "actual": float(round(ratios.interest_coverage, 2)) if ratios.interest_coverage else None,
-                    "threshold": 3.0,
-                    "status": "Pass" if ratios.interest_coverage and ratios.interest_coverage >= 3.0 else "Fail",
-                    "signal": "Green" if ratios.interest_coverage and ratios.interest_coverage >= 3.0 else "Red",
-                    "notes": "Strong coverage" if ratios.interest_coverage and ratios.interest_coverage >= 3.0 else "Weak coverage"
-                },
-                {
-                    "metric": "Current Ratio",
-                    "actual": float(round(ratios.current_ratio, 2)) if ratios.current_ratio else None,
-                    "threshold": 1.2,
-                    "status": "Pass" if ratios.current_ratio and ratios.current_ratio >= 1.2 else "Fail",
-                    "signal": "Green" if ratios.current_ratio and ratios.current_ratio >= 1.2 else "Red",
-                    "notes": "Adequate liquidity" if ratios.current_ratio and ratios.current_ratio >= 1.2 else "Poor liquidity"
-                }
+                covenant_row("Debt/EBITDA", ratios.debt_to_ebitda, 3.5, "lte", "Comfortable leverage", "High leverage"),
+                covenant_row("Interest Coverage", ratios.interest_coverage, 3.0, "gte", "Strong coverage", "Weak coverage"),
+                covenant_row("Current Ratio", ratios.current_ratio, 1.2, "gte", "Adequate liquidity", "Poor liquidity"),
             ]
         }
-        return self._json_safe(assessment)
+        return json_safe(assessment)
 
     def _build_raw_metrics(
         self,
@@ -289,13 +303,13 @@ class RichAssessmentService:
         ratios: CreditRatioAnalysis,
     ) -> Dict[str, Optional[float]]:
         return {
-            "total_debt": self._sanitize_metric(self._get_value(balance_df, "total_debt")),
+            "total_debt": self._sanitize_metric(get_dataframe_value(balance_df, "total_debt")),
             "ebitda": self._sanitize_metric(ratios.ebitda),
-            "operating_income": self._sanitize_metric(self._get_value(income_df, "operating_income")),
-            "interest_expense": self._sanitize_metric(self._get_value(income_df, "interest_expense")),
-            "total_current_assets": self._sanitize_metric(self._get_value(balance_df, "total_current_assets")),
-            "total_current_liabilities": self._sanitize_metric(self._get_value(balance_df, "total_current_liabilities")),
-            "free_cf": self._sanitize_metric(self._get_value(cash_df, "free_cf")),
+            "operating_income": self._sanitize_metric(get_dataframe_value(income_df, "operating_income")),
+            "interest_expense": self._sanitize_metric(get_dataframe_value(income_df, "interest_expense")),
+            "total_current_assets": self._sanitize_metric(get_dataframe_value(balance_df, "total_current_assets")),
+            "total_current_liabilities": self._sanitize_metric(get_dataframe_value(balance_df, "total_current_liabilities")),
+            "free_cf": self._sanitize_metric(get_dataframe_value(cash_df, "free_cf")),
         }
 
     @staticmethod
@@ -351,29 +365,6 @@ class RichAssessmentService:
         months_covered = quarter * 3
         return 12.0 / months_covered if months_covered > 0 else factor
 
-    @staticmethod
-    def _infer_fiscal_year(year_label: Optional[str], fallback: Optional[int] = None) -> int:
-        current_year = datetime.now().year
-        if not year_label:
-            return fallback or current_year
-
-        quarter_match = re.search(r"(?:Q([1-4])\s*'?\s*(\d{2,4})|(\d{2,4})\s*Q([1-4]))", str(year_label), flags=re.I)
-        if quarter_match:
-            year_text = quarter_match.group(2) or quarter_match.group(3) or ""
-            if len(year_text) == 4:
-                return int(year_text)
-            if len(year_text) == 2:
-                value = int(year_text)
-                return 2000 + value if value < 80 else 1900 + value
-
-        digits = re.sub(r"\D", "", str(year_label))
-        if len(digits) >= 4:
-            return int(digits[-4:])
-        if len(digits) == 2:
-            value = int(digits)
-            return 2000 + value if value < 80 else 1900 + value
-        return fallback or current_year
-
     @classmethod
     def _build_company_name_localized(cls, company_name: str, ticker: str) -> Dict[str, str]:
         fallback_name = str(company_name or ticker or "N/A").strip() or ticker or "N/A"
@@ -383,57 +374,14 @@ class RichAssessmentService:
             localized["ja"] = fallback_name
         elif CJK_PATTERN.search(fallback_name):
             localized["zh-CN"] = fallback_name
-            localized["zh-TW"] = cls._convert_simplified_to_traditional(fallback_name)
+            localized["zh-TW"] = convert_simplified_to_traditional(fallback_name)
 
         return localized
 
     @staticmethod
-    def _convert_simplified_to_traditional(text: str) -> str:
-        try:
-            import opencc
-
-            return opencc.OpenCC("s2t.json").convert(text)
-        except (ImportError, RuntimeError):
-            return text
-
-    @staticmethod
-    def _get_value(df: pd.DataFrame, key: str) -> Optional[float]:
-        if df is None or df.empty:
-            return None
-
-        try:
-            if key in df.index:
-                value = df.loc[key]
-                if isinstance(value, pd.Series):
-                    value = value.iloc[0] if len(value) > 0 else None
-            elif key in df.columns:
-                value = df[key]
-                if isinstance(value, pd.Series):
-                    value = value.iloc[0] if len(value) > 0 else None
-            else:
-                return None
-
-            if value is None:
-                return None
-            try:
-                if math.isnan(value) or math.isinf(value):
-                    return None
-            except TypeError:
-                pass
-            return float(value)
-        except (KeyError, TypeError, ValueError):
-            return None
-
-    @staticmethod
     def _sanitize_metric(value: Any) -> Optional[float]:
-        """Wrapper for shared safe_number utility."""
         result = safe_number(value)
         return round(result, 4) if result is not None else None
-
-    @staticmethod
-    def _json_safe(value: Any) -> Any:
-        """Wrapper for shared json_safe utility."""
-        return json_safe(value)
 
     @staticmethod
     def _build_demo_data(ticker: str) -> Dict[str, Any]:

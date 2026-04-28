@@ -1,8 +1,7 @@
 """MVP endpoint regression tests for main.py."""
 
-import os
-import sys
-import time
+import asyncio
+from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
@@ -50,14 +49,10 @@ def test_assess_empty_ticker_validation():
 
 def test_assess_timeout_returns_504(monkeypatch):
     monkeypatch.setenv("ASSESS_TIMEOUT_SECONDS", "1")
-
-    def _slow_assess(**_kwargs):
-        time.sleep(1.2)
-        return {"ok": True}
-
-    monkeypatch.setattr(main.service, "assess", _slow_assess)
+    monkeypatch.setattr(main, "run_in_threadpool", AsyncMock(side_effect=asyncio.TimeoutError))
 
     response = client.post("/api/assess", json={"ticker": "DEMO", "data_source": "demo"})
     assert response.status_code == 504
-    detail = response.json().get("detail", {})
-    assert "评估超时" in detail.get("error", "")
+    data = response.json()
+    assert data.get("error_type") == "timeout"
+    assert "评估超时" in data.get("error", "")

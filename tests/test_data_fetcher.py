@@ -6,7 +6,7 @@ Run with: pytest tests/test_data_fetcher.py -v
 
 import pytest
 import sys
-from pathlib import Path
+import types
 import pandas as pd
 
 import data_fetcher
@@ -236,6 +236,101 @@ class TestFinancialDataFetcher:
         quarterly_labels = [p["year_label"] for p in result["history"] if p["is_quarterly"]]
         assert "Q4 '24 (U)" not in quarterly_labels
         assert "Q4 '25 (U)" not in quarterly_labels
+
+    def test_fetch_a_share_akshare_builds_annual_and_quarterly_history(self, monkeypatch):
+        """AKShare path should normalize report dates and map Sina fields."""
+        report_dates = ["20250930", "20240930", "2024-12-31", "2023-12-31"]
+
+        class FakeAk:
+            @staticmethod
+            def stock_individual_info_em(symbol):
+                assert symbol == "600519"
+                return pd.DataFrame({
+                    "item": ["股票简称", "所属行业", "网址", "员工人数", "公司简介"],
+                    "value": ["贵州茅台", "白酒", "https://www.moutaichina.com", "30000", "A-share issuer"],
+                })
+
+            @staticmethod
+            def stock_profile_cninfo(symbol):
+                assert symbol == "600519"
+                return pd.DataFrame([{"主营业务": "酒类产品生产与销售"}])
+
+            @staticmethod
+            def stock_zygc_em(symbol):
+                assert symbol == "SH600519"
+                return pd.DataFrame({
+                    "分类方向": ["产品", "产品"],
+                    "主营构成": ["茅台酒", "系列酒"],
+                })
+
+            @staticmethod
+            def stock_financial_report_sina(stock, symbol):
+                assert stock == "600519"
+                if symbol == "利润表":
+                    return pd.DataFrame({
+                        "报告日": report_dates,
+                        "营业总收入": [900.0, 700.0, 1200.0, 1000.0],
+                        "营业利润": [500.0, 400.0, 800.0, 650.0],
+                        "净利润": [400.0, 320.0, 650.0, 520.0],
+                    })
+                if symbol == "资产负债表":
+                    return pd.DataFrame({
+                        "报告日": report_dates,
+                        "资产总计": [3000.0, 2600.0, 2800.0, 2400.0],
+                        "负债合计": [900.0, 800.0, 850.0, 760.0],
+                        "流动资产合计": [1800.0, 1600.0, 1700.0, 1500.0],
+                        "流动负债合计": [500.0, 450.0, 480.0, 430.0],
+                        "短期借款": [100.0, 90.0, 95.0, 85.0],
+                        "长期借款": [200.0, 180.0, 190.0, 170.0],
+                    })
+                if symbol == "现金流量表":
+                    return pd.DataFrame({
+                        "报告日": report_dates,
+                        "经营活动产生的现金流量净额": [450.0, 360.0, 700.0, 600.0],
+                        "购建固定资产、无形资产和其他长期资产所支付的现金": [-50.0, -40.0, -80.0, -60.0],
+                    })
+                raise AssertionError(f"Unexpected report symbol: {symbol}")
+
+        class FakeYFTicker:
+            def __init__(self, symbol):
+                assert symbol == "600519.SS"
+                self.info = {
+                    "marketCap": 123_000_000,
+                    "sector": "Consumer Defensive",
+                    "industry": "Beverages",
+                }
+                self.income_stmt = pd.DataFrame()
+
+        monkeypatch.setitem(sys.modules, "akshare", types.SimpleNamespace(
+            stock_individual_info_em=FakeAk.stock_individual_info_em,
+            stock_profile_cninfo=FakeAk.stock_profile_cninfo,
+            stock_zygc_em=FakeAk.stock_zygc_em,
+            stock_financial_report_sina=FakeAk.stock_financial_report_sina,
+        ))
+        monkeypatch.setattr(data_fetcher.yf, "Ticker", FakeYFTicker)
+
+        result = data_fetcher._fetch_a_share_akshare("600519")
+
+        assert result is not None
+        assert result["ticker"] == "600519"
+        assert result["company_name"] == "贵州茅台"
+        assert result["market_cap"] == 123_000_000
+        assert result["company_profile"]["industry"] == "白酒"
+        assert result["company_profile"]["products"] == ["茅台酒", "系列酒"]
+
+        labels = [period["year_label"] for period in result["history"]]
+        assert labels == ["Q3 '25 (U)", "Q3 '24 (U)", "FY24", "FY23"]
+
+        latest_quarter = result["history"][0]
+        assert latest_quarter["is_quarterly"] is True
+        assert latest_quarter["income"].loc["revenue", "Value"] == 900.0
+        assert latest_quarter["balance"].loc["total_assets", "Value"] == 3000.0
+        assert latest_quarter["balance"].loc["total_debt", "Value"] == 300.0
+        assert latest_quarter["cash"].loc["free_cf", "Value"] == 400.0
+
+        latest_annual = result["history"][2]
+        assert latest_annual["is_quarterly"] is False
+        assert latest_annual["income"].loc["revenue", "Value"] == 1200.0
 
     def test_exception_to_dict(self):
         """Test that DataFetchError can be serialized to dict."""

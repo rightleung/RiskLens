@@ -17,13 +17,18 @@ Usage:
     ratios = analyzer.calculate_all_ratios(income_stmt, balance_sheet, cash_flow)
 """
 
+from __future__ import annotations
+
 import pandas as pd
 import numpy as np
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import Any
 from datetime import datetime
 import json
+
+from src.config import settings
+from src.services._utils import get_dataframe_value
 
 
 # =============================================================================
@@ -33,7 +38,7 @@ import json
 class RatioAnalyzerError(Exception):
     """Base exception for all ratio analysis errors."""
     
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         """Initialize exception with message and optional details.
         
         Args:
@@ -60,7 +65,7 @@ class ValidationError(RatioAnalyzerError):
         field_name: str, 
         value: Any, 
         expected_type: str, 
-        reason: Optional[str] = None
+        reason: str | None = None
     ) -> None:
         """Initialize validation error.
         
@@ -94,7 +99,7 @@ class RatioCalculationError(RatioAnalyzerError):
         numerator: Any, 
         denominator: Any,
         reason: str,
-        details: Optional[Dict] = None
+        details: dict | None = None
     ) -> None:
         """Initialize ratio calculation error.
         
@@ -130,7 +135,7 @@ class DataInconsistencyError(RatioAnalyzerError):
         check_name: str, 
         actual_value: Any, 
         expected_value: Any,
-        details: Optional[Dict] = None
+        details: dict | None = None
     ) -> None:
         """Initialize data inconsistency error.
         
@@ -210,43 +215,43 @@ class CreditRatioAnalysis:
     """
     
     # Liquidity Ratios
-    current_ratio: Optional[float] = None
-    quick_ratio: Optional[float] = None
-    cash_ratio: Optional[float] = None
-    operating_cf_ratio: Optional[float] = None
+    current_ratio: float | None = None
+    quick_ratio: float | None = None
+    cash_ratio: float | None = None
+    operating_cf_ratio: float | None = None
     
     # Leverage Ratios
-    debt_to_equity: Optional[float] = None
-    debt_to_assets: Optional[float] = None
-    financial_leverage: Optional[float] = None
-    interest_coverage: Optional[float] = None
-    debt_to_ebitda: Optional[float] = None
+    debt_to_equity: float | None = None
+    debt_to_assets: float | None = None
+    financial_leverage: float | None = None
+    interest_coverage: float | None = None
+    debt_to_ebitda: float | None = None
     
     # Profitability Ratios
-    gross_margin: Optional[float] = None
-    operating_margin: Optional[float] = None
-    net_margin: Optional[float] = None
-    roa: Optional[float] = None
-    roe: Optional[float] = None
-    roic: Optional[float] = None
+    gross_margin: float | None = None
+    operating_margin: float | None = None
+    net_margin: float | None = None
+    roa: float | None = None
+    roe: float | None = None
+    roic: float | None = None
     
     # Efficiency Ratios
-    asset_turnover: Optional[float] = None
-    receivables_turnover: Optional[float] = None
-    inventory_turnover: Optional[float] = None
-    payables_turnover: Optional[float] = None
+    asset_turnover: float | None = None
+    receivables_turnover: float | None = None
+    inventory_turnover: float | None = None
+    payables_turnover: float | None = None
     
     # Cash Flow Ratios
-    fcf_to_debt: Optional[float] = None
-    fcf_to_revenue: Optional[float] = None
-    debt_service_coverage: Optional[float] = None
+    fcf_to_debt: float | None = None
+    fcf_to_revenue: float | None = None
+    debt_service_coverage: float | None = None
     
     # Coverage & Quality
-    ebitda: Optional[float] = None
-    total_debt: Optional[float] = None
-    total_equity: Optional[float] = None
-    total_assets: Optional[float] = None
-    revenue: Optional[float] = None
+    ebitda: float | None = None
+    total_debt: float | None = None
+    total_equity: float | None = None
+    total_assets: float | None = None
+    revenue: float | None = None
     
     # Analysis metadata
     analysis_date: datetime = None
@@ -279,7 +284,7 @@ class CreditRatioAnalysis:
                     expected_type=f"int between 1900 and {current_year + 5}"
                 )
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for export.
         
         Returns:
@@ -408,7 +413,7 @@ class CreditRatioAnalysis:
         else:
             return "Distressed (C/D)"
     
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get a summary of the ratio analysis.
         
         Returns:
@@ -463,7 +468,7 @@ class RiskFactorsValidator:
     """
     
     # Valid ranges for ratios
-    VALID_RANGES: Dict[str, Tuple[float, float]] = {
+    VALID_RANGES: dict[str, tuple[float, float]] = {
         'current_ratio': (0.0, 1000.0),
         'quick_ratio': (0.0, 1000.0),
         'cash_ratio': (0.0, 1000.0),
@@ -487,10 +492,10 @@ class RiskFactorsValidator:
     def validate_ratio_value(
         cls, 
         ratio_name: str, 
-        value: Optional[float],
+        value: float | None,
         allow_none: bool = True,
-        custom_range: Tuple[float, float] = None
-    ) -> Optional[float]:
+        custom_range: tuple[float, float] = None
+    ) -> float | None:
         """Validate a ratio value.
         
         Args:
@@ -568,7 +573,7 @@ class RiskFactorsValidator:
         return stripped
     
     @classmethod
-    def validate_fiscal_year(cls, year: Optional[int]) -> Optional[int]:
+    def validate_fiscal_year(cls, year: int | None) -> int | None:
         """Validate fiscal year.
         
         Args:
@@ -602,7 +607,7 @@ class RiskFactorsValidator:
         return year
     
     @classmethod
-    def validate_dataframe(cls, df: pd.DataFrame, required_columns: List[str] = None) -> pd.DataFrame:
+    def validate_dataframe(cls, df: pd.DataFrame, required_columns: list[str] = None) -> pd.DataFrame:
         """Validate DataFrame structure.
         
         Args:
@@ -660,21 +665,21 @@ class RatioAnalyzer:
         >>> print(ratios.get_rating())
     """
     
-    def __init__(self, report_dir: str = "../reports") -> None:
+    def __init__(self, report_dir: str | None = None) -> None:
         """Initialize the RatioAnalyzer.
         
         Args:
             report_dir: Directory for saving reports
         """
-        self.report_dir = Path(report_dir)
+        self.report_dir = Path(report_dir or settings.ratio_report_dir)
         self.report_dir.mkdir(exist_ok=True)
     
     def _safe_divide(
         self, 
-        numerator: Optional[float], 
-        denominator: Optional[float], 
-        default: Optional[float] = None
-    ) -> Optional[float]:
+        numerator: float | None, 
+        denominator: float | None, 
+        default: float | None = None
+    ) -> float | None:
         """Safely divide two numbers, handling division by zero and None values.
         
         Args:
@@ -707,7 +712,7 @@ class RatioAnalyzer:
                 reason=str(e)
             ) from e
     
-    def _get_value(self, df: pd.DataFrame, key: str) -> Optional[float]:
+    def _get_value(self, df: pd.DataFrame, key: str) -> float | None:
         """Extract a single value from standardized financial data.
         
         Args:
@@ -717,39 +722,9 @@ class RatioAnalyzer:
         Returns:
             Value as float or None if not found
         """
-        if df is None or df.empty:
-            return None
-        
-        try:
-            if key in df.index:
-                value = df.loc[key]
-                if isinstance(value, pd.Series):
-                    value = value.iloc[0] if len(value) > 0 else None
-                if value is None:
-                    return None
-                try:
-                    if np.isnan(value) or np.isinf(value):
-                        return None
-                except TypeError:
-                    pass
-                return float(value)
-            if key in df.columns:
-                value = df[key]
-                if isinstance(value, pd.Series):
-                    value = value.iloc[0] if len(value) > 0 else None
-                if value is None:
-                    return None
-                try:
-                    if np.isnan(value) or np.isinf(value):
-                        return None
-                except TypeError:
-                    pass
-                return float(value)
-            return None
-        except (KeyError, ValueError, TypeError):
-            return None
+        return get_dataframe_value(df, key)
     
-    def calculate_liquidity_ratios(self, bs_data: pd.DataFrame) -> Dict[str, Optional[float]]:
+    def calculate_liquidity_ratios(self, bs_data: pd.DataFrame) -> dict[str, float | None]:
         """Calculate liquidity ratios from balance sheet data.
         
         Args:
@@ -763,7 +738,7 @@ class RatioAnalyzer:
         """
         RiskFactorsValidator.validate_dataframe(bs_data)
         
-        ratios: Dict[str, Optional[float]] = {}
+        ratios: dict[str, float | None] = {}
         
         # Current Ratio = Current Assets / Current Liabilities
         ca = self._get_value(bs_data, 'total_current_assets')
@@ -788,7 +763,7 @@ class RatioAnalyzer:
         self, 
         bs_data: pd.DataFrame, 
         is_data: pd.DataFrame = None
-    ) -> Dict[str, Optional[float]]:
+    ) -> dict[str, float | None]:
         """Calculate leverage/solvency ratios.
         
         Args:
@@ -800,7 +775,7 @@ class RatioAnalyzer:
         """
         RiskFactorsValidator.validate_dataframe(bs_data)
         
-        ratios: Dict[str, Optional[float]] = {}
+        ratios: dict[str, float | None] = {}
         
         # Debt to Equity = Total Debt / Total Equity
         debt = self._get_value(bs_data, 'total_debt')
@@ -865,7 +840,7 @@ class RatioAnalyzer:
         self, 
         bs_data: pd.DataFrame, 
         is_data: pd.DataFrame = None
-    ) -> Dict[str, Optional[float]]:
+    ) -> dict[str, float | None]:
         """Calculate profitability ratios.
         
         Args:
@@ -877,7 +852,7 @@ class RatioAnalyzer:
         """
         RiskFactorsValidator.validate_dataframe(bs_data)
         
-        ratios: Dict[str, Optional[float]] = {}
+        ratios: dict[str, float | None] = {}
         
         if is_data is not None:
             RiskFactorsValidator.validate_dataframe(is_data)
@@ -920,7 +895,7 @@ class RatioAnalyzer:
         self, 
         bs_data: pd.DataFrame, 
         is_data: pd.DataFrame = None
-    ) -> Dict[str, Optional[float]]:
+    ) -> dict[str, float | None]:
         """Calculate efficiency ratios.
         
         Args:
@@ -932,7 +907,7 @@ class RatioAnalyzer:
         """
         RiskFactorsValidator.validate_dataframe(bs_data)
         
-        ratios: Dict[str, Optional[float]] = {}
+        ratios: dict[str, float | None] = {}
         
         if is_data is not None:
             RiskFactorsValidator.validate_dataframe(is_data)
@@ -962,7 +937,7 @@ class RatioAnalyzer:
         self, 
         cf_data: pd.DataFrame, 
         bs_data: pd.DataFrame = None
-    ) -> Dict[str, Optional[float]]:
+    ) -> dict[str, float | None]:
         """Calculate cash flow ratios.
         
         Args:
@@ -974,7 +949,7 @@ class RatioAnalyzer:
         """
         RiskFactorsValidator.validate_dataframe(cf_data)
         
-        ratios: Dict[str, Optional[float]] = {}
+        ratios: dict[str, float | None] = {}
         
         ocf = self._get_value(cf_data, 'operating_cf')
         fcf = self._get_value(cf_data, 'free_cf')
@@ -1084,7 +1059,7 @@ class RatioAnalyzer:
         self, 
         analysis1: CreditRatioAnalysis, 
         analysis2: CreditRatioAnalysis,
-        ratio_names: List[str] = None
+        ratio_names: list[str] = None
     ) -> pd.DataFrame:
         """Compare ratios between two analyses.
         

@@ -7,6 +7,8 @@ Produces DataFrames with metric names as the **index** and a single
 value column — the format expected by RatioAnalyzer._get_value().
 """
 
+from __future__ import annotations
+
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -14,9 +16,12 @@ import time
 import logging
 import threading
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Callable, List, Tuple
+from typing import Any
+from collections.abc import Callable
 from enum import Enum
 from functools import wraps
+
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +37,13 @@ class SimpleCache:
         Args:
             default_ttl: Default time-to-live in seconds (default: 600 = 10 minutes)
         """
-        self._cache: Dict[str, tuple[Any, datetime]] = {}
+        self._cache: dict[str, tuple[Any, datetime]] = {}
         self._default_ttl = default_ttl
         self._hits = 0
         self._misses = 0
         self._lock = threading.RLock()
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """Get value from cache if not expired.
 
         Args:
@@ -62,7 +67,7 @@ class SimpleCache:
             self._hits += 1
             return value
 
-    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+    def set(self, key: str, value: Any, ttl: int | None = None) -> None:
         """Set value in cache with TTL.
 
         Args:
@@ -82,7 +87,7 @@ class SimpleCache:
             self._hits = 0
             self._misses = 0
 
-    def stats(self) -> Dict[str, int]:
+    def stats(self) -> dict[str, int]:
         """Get cache statistics.
 
         Returns:
@@ -99,8 +104,8 @@ class SimpleCache:
             }
 
 
-# Global cache instance (10-minute TTL)
-_data_cache = SimpleCache(default_ttl=600)
+# Global cache instance
+_data_cache = SimpleCache(default_ttl=settings.cache_ttl_seconds)
 
 
 # ── Ticker Normalization ─────────────────────────────────────────────────────
@@ -207,14 +212,14 @@ class DataFetchErrorType(Enum):
 class DataFetchError(Exception):
     """Custom exception for data fetching errors with detailed error types."""
 
-    def __init__(self, message: str, error_type: DataFetchErrorType, ticker: str = None, details: Dict[str, Any] = None):
+    def __init__(self, message: str, error_type: DataFetchErrorType, ticker: str = None, details: dict[str, Any] = None):
         super().__init__(message)
         self.message = message
         self.error_type = error_type
         self.ticker = ticker
         self.details = details or {}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert exception to dictionary for API responses."""
         return {
             "error": self.message,
@@ -347,7 +352,7 @@ def _standardize_name(name: str) -> str:
     return name.lower().replace(' ', '_').replace('&', 'and')
 
 
-def _extract_single_column(df: Optional[pd.DataFrame], col_idx: int) -> pd.DataFrame:
+def _extract_single_column(df: pd.DataFrame | None, col_idx: int) -> pd.DataFrame:
     """Extract a single column (period) from a yfinance statement DataFrame and 
     standardize the index. Format: index = metric names, single 'Value' column."""
     if df is None or df.empty or col_idx >= len(df.columns):
@@ -356,7 +361,7 @@ def _extract_single_column(df: Optional[pd.DataFrame], col_idx: int) -> pd.DataF
     target_col = df.iloc[:, col_idx]
 
     # Build a new Series with standardized index names
-    records: Dict[str, float] = {}
+    records: dict[str, float] = {}
     for raw_name, value in target_col.items():
         key = _standardize_name(str(raw_name))
         if key in records:
@@ -460,7 +465,7 @@ def _akshare_row_to_df(row: pd.Series, field_map: dict) -> pd.DataFrame:
     if not records:
         # Log which Chinese field names were NOT matched
         if field_map:
-            all_row_keys = set(str(k) for k in row.index) if hasattr(row, 'index') else set()
+            all_row_keys = {str(k) for k in row.index} if hasattr(row, 'index') else set()
             mapped_cn_keys = set(field_map.keys())
             unmatched = all_row_keys - mapped_cn_keys
             if unmatched and len(unmatched) < 50:  # avoid logging noise
@@ -469,7 +474,7 @@ def _akshare_row_to_df(row: pd.Series, field_map: dict) -> pd.DataFrame:
     return pd.DataFrame.from_dict(records, orient='index', columns=['Value'])
 
 
-def _normalize_profile_text(value: Any) -> Optional[str]:
+def _normalize_profile_text(value: Any) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
@@ -478,7 +483,7 @@ def _normalize_profile_text(value: Any) -> Optional[str]:
     return text
 
 
-def _normalize_profile_int(value: Any) -> Optional[int]:
+def _normalize_profile_int(value: Any) -> int | None:
     if value is None:
         return None
     text = str(value).strip().replace(",", "")
@@ -490,7 +495,7 @@ def _normalize_profile_int(value: Any) -> Optional[int]:
         return None
 
 
-def _build_company_profile_from_yfinance_info(info: Dict[str, Any]) -> Dict[str, Any]:
+def _build_company_profile_from_yfinance_info(info: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(info, dict):
         return {}
     return {
@@ -504,7 +509,7 @@ def _build_company_profile_from_yfinance_info(info: Dict[str, Any]) -> Dict[str,
     }
 
 
-def _merge_company_profiles(primary: Dict[str, Any], fallback: Dict[str, Any]) -> Dict[str, Any]:
+def _merge_company_profiles(primary: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
     merged = dict(primary or {})
     fb = fallback or {}
     for key in ("description", "sector", "industry", "website", "country", "employees"):
@@ -529,7 +534,7 @@ def _merge_company_profiles(primary: Dict[str, Any], fallback: Dict[str, Any]) -
     backoff_factor=2.0,
     retriable_errors=(Exception,)
 )
-def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
+def _fetch_a_share_akshare(ticker: str) -> dict[str, Any] | None:
     """Fetch A-share data from AKShare's Sina Finance API.
     
     Returns the same dict format as the yfinance path:
@@ -544,7 +549,7 @@ def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
         # Fetch all 3 statements
         logger.info(f"Fetching AKShare data for {ticker}")
         company_name = ticker
-        company_profile: Dict[str, Any] = {
+        company_profile: dict[str, Any] = {
             "description": None,
             "sector": None,
             "industry": None,
@@ -558,7 +563,7 @@ def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
         try:
             stock_info = ak.stock_individual_info_em(symbol=ticker)
             if stock_info is not None and not stock_info.empty:
-                stock_info_map: Dict[str, Any] = {}
+                stock_info_map: dict[str, Any] = {}
                 if {'item', 'value'}.issubset(set(stock_info.columns)):
                     for _, row in stock_info.iterrows():
                         key = str(row.get('item', '')).strip()
@@ -631,7 +636,7 @@ def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
                     None
                 )
                 if name_col is not None:
-                    products: List[str] = []
+                    products: list[str] = []
                     seen_products = set()
                     for raw_value in data_df[name_col].tolist():
                         cleaned = _normalize_profile_text(raw_value)
@@ -676,7 +681,7 @@ def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
     annual_dates = annual_dates[:3]
     latest_annual_year = int(_date_digits(annual_dates[0])[:4]) if annual_dates else 0
 
-    def _year_quarter(date_val: Any) -> Optional[Tuple[int, int]]:
+    def _year_quarter(date_val: Any) -> tuple[int, int] | None:
         ds = _date_digits(date_val)
         if len(ds) < 6:
             return None
@@ -696,8 +701,8 @@ def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
     if latest_quarter_is_displayed:
         prior_year_same_quarter = (latest_quarter_meta[0] - 1, latest_quarter_meta[1])
 
-    quarterly_dates: List[Any] = []
-    seen_quarters: set[Tuple[int, int]] = set()
+    quarterly_dates: list[Any] = []
+    seen_quarters: set[tuple[int, int]] = set()
     for d in quarterly_dates_raw:
         yq = _year_quarter(d)
         if yq is None:
@@ -786,11 +791,15 @@ def _fetch_a_share_akshare(ticker: str) -> Optional[Dict[str, Any]]:
                 ebitda_val = None
                 da_val = None
                 if 'EBITDA' in yf_inc.index:
-                    try: ebitda_val = float(yf_inc.loc['EBITDA'].iloc[col_idx])
-                    except: pass
+                    try:
+                        ebitda_val = float(yf_inc.loc['EBITDA'].iloc[col_idx])
+                    except (TypeError, ValueError, KeyError, IndexError):
+                        pass
                 if 'Reconciled Depreciation' in yf_inc.index:
-                    try: da_val = float(yf_inc.loc['Reconciled Depreciation'].iloc[col_idx])
-                    except: pass
+                    try:
+                        da_val = float(yf_inc.loc['Reconciled Depreciation'].iloc[col_idx])
+                    except (TypeError, ValueError, KeyError, IndexError):
+                        pass
                 if ebitda_val is not None:
                     yf_ebitda_map[col_date] = (ebitda_val, da_val)
             
@@ -846,14 +855,14 @@ class FinancialDataFetcher:
         backoff_factor=2.0,
         retriable_errors=(Exception,)
     )
-    def get_financial_data(ticker: str, data_source: str = 'auto') -> Optional[Dict[str, Any]]:
+    def get_financial_data(ticker: str, data_source: str = 'auto') -> dict[str, Any] | None:
         """
         Fetch financial data with auto-detection of market.
 
         Routing:
             - 6-digit numbers (e.g. 600519) → A股 → AKShare (Sina), fallback yfinance
             - .HK suffix (e.g. 0700.HK)    → 港股 → yfinance
-            - Letters (e.g. AAPL)           → 美股 → yfinance
+            - Letters (e.g. NVDA)           → 美股 → yfinance
 
         Returns a dict with keys:
             ticker, company_name, market_cap, company_profile, history
@@ -1106,7 +1115,7 @@ class FinancialDataFetcher:
             raise DataFetchError(message, error_type=error_type, ticker=ticker, details={"original_error": str(e)})
 
     @staticmethod
-    def get_cache_stats() -> Dict[str, int]:
+    def get_cache_stats() -> dict[str, int]:
         """Get cache statistics.
 
         Returns:

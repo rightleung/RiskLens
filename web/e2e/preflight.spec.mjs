@@ -44,7 +44,7 @@ test('500 text response does not leave UI in loading state', async ({ page }) =>
   });
 
   await page.goto('/');
-  await page.locator('input').first().fill('AAPL');
+  await page.locator('input').first().fill('NVDA');
   await page.getByRole('button', { name: synthesizeButton }).click();
 
   await expect(page.getByText(/Internal Server Error|Request failed \(500\)/)).toBeVisible();
@@ -64,15 +64,15 @@ test('export all is safe when every result has empty history', async ({ page }) 
         errors: null,
         suggestions: null,
         results: [
-          { ticker: 'AAPL', company_name: 'Apple', history: [] },
-          { ticker: 'MSFT', company_name: 'Microsoft', history: [] },
+          { ticker: 'NVDA', company_name: 'NVIDIA', history: [] },
+          { ticker: 'AMD', company_name: 'Advanced Micro Devices', history: [] },
         ],
       }),
     });
   });
 
   await page.goto('/');
-  await page.locator('input').first().fill('AAPL,MSFT');
+  await page.locator('input').first().fill('NVDA,AMD');
   await page.getByRole('button', { name: synthesizeButton }).click();
 
   const exportAll = page.getByRole('button', { name: /Export All/i });
@@ -97,8 +97,8 @@ test('mobile table keeps horizontal overflow with many periods', async ({ page }
         suggestions: null,
         results: [
           {
-            ticker: 'AAPL',
-            company_name: 'Apple Inc.',
+            ticker: 'NVDA',
+            company_name: 'NVIDIA Corp.',
             currency: 'USD',
             history: [
               createPeriod("FY25", 2.6),
@@ -116,7 +116,7 @@ test('mobile table keeps horizontal overflow with many periods', async ({ page }
   });
 
   await page.goto('/');
-  await page.locator('input').first().fill('AAPL');
+  await page.locator('input').first().fill('NVDA');
   await page.getByRole('button', { name: synthesizeButton }).click();
 
   const headers = page.locator('table thead tr').first().locator('th');
@@ -145,8 +145,8 @@ test('pdf export verifies the downloaded blob against response headers', async (
         suggestions: null,
         results: [
           {
-            ticker: 'AAPL',
-            company_name: 'Apple Inc.',
+            ticker: 'NVDA',
+            company_name: 'NVIDIA Corp.',
             currency: 'USD',
             history: [
               createPeriod('FY25', 2.6),
@@ -164,7 +164,7 @@ test('pdf export verifies the downloaded blob against response headers', async (
       status: 200,
       contentType: 'application/pdf',
       headers: {
-        'content-disposition': 'attachment; filename="AAPL_Full_Report.pdf"',
+        'content-disposition': 'attachment; filename="NVDA_Full_Report.pdf"',
         'x-pdf-sha256': pdfSha256,
         'x-pdf-bytes': String(pdfBody.length),
       },
@@ -173,7 +173,7 @@ test('pdf export verifies the downloaded blob against response headers', async (
   });
 
   await page.goto('/');
-  await page.locator('input').first().fill('AAPL');
+  await page.locator('input').first().fill('NVDA');
   await page.getByRole('button', { name: synthesizeButton }).click();
 
   await expect(page.getByRole('button', { name: /Export PDF/i }).first()).toBeVisible();
@@ -185,7 +185,7 @@ test('pdf export verifies the downloaded blob against response headers', async (
   await exportDialog.getByRole('button', { name: /Export PDF/i }).click();
   const download = await downloadPromise;
 
-  expect(download.suggestedFilename()).toBe('AAPL_Full_Report.pdf');
+  expect(download.suggestedFilename()).toBe('NVDA_Full_Report.pdf');
   await expect(page.getByText(`SHA-256: ${pdfSha256}`)).toBeVisible();
   await expect(page.getByText(`Bytes: ${pdfBody.length}`)).toBeVisible();
 });

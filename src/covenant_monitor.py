@@ -4,26 +4,27 @@ Covenant Monitoring Module
 Analyzes financial ratios against defined financial covenants.
 """
 
+from __future__ import annotations
+
 from pydantic import BaseModel, Field
-from typing import List, Optional
 from src.ratio_analyzer import CreditRatioAnalysis
 
 
 class FinancialCovenants(BaseModel):
     """Configuration for financial covenants / red lines."""
-    min_interest_coverage: Optional[float] = Field(None, description="Minimum Interest Coverage ratio")
-    max_debt_to_ebitda: Optional[float] = Field(None, description="Maximum Debt / EBITDA ratio")
-    max_debt_to_equity: Optional[float] = Field(None, description="Maximum Debt / Equity ratio")
-    min_current_ratio: Optional[float] = Field(None, description="Minimum Current Ratio")
-    min_quick_ratio: Optional[float] = Field(None, description="Minimum Quick Ratio")
-    min_fcf_to_debt: Optional[float] = Field(None, description="Minimum FCF / Debt ratio")
+    min_interest_coverage: float | None = Field(None, description="Minimum Interest Coverage ratio")
+    max_debt_to_ebitda: float | None = Field(None, description="Maximum Debt / EBITDA ratio")
+    max_debt_to_equity: float | None = Field(None, description="Maximum Debt / Equity ratio")
+    min_current_ratio: float | None = Field(None, description="Minimum Current Ratio")
+    min_quick_ratio: float | None = Field(None, description="Minimum Quick Ratio")
+    min_fcf_to_debt: float | None = Field(None, description="Minimum FCF / Debt ratio")
 
 
 class CovenantAlert(BaseModel):
     """Alert structure for a breached covenant."""
     metric: str
     threshold: float
-    actual_value: Optional[float]  # None / NaN when data is unavailable
+    actual_value: float | None  # None / NaN when data is unavailable
     breached: bool
     direction: str  # "min" or "max"
     message: str
@@ -35,15 +36,15 @@ class CovenantReport(BaseModel):
     fiscal_year: int
     covenants_passed: int
     covenants_breached: int
-    alerts: List[CovenantAlert]
+    alerts: list[CovenantAlert]
 
 
 class CovenantMonitor:
     """Monitors financial covenants for credit assessments."""
     
     @staticmethod
-    def _check_metric(metric_name: str, actual: Optional[float], threshold: Optional[float], 
-                      direction: str, label: str) -> Optional[CovenantAlert]:
+    def _check_metric(metric_name: str, actual: float | None, threshold: float | None, 
+                      direction: str, label: str) -> CovenantAlert | None:
         # OR-002: No threshold configured — skip this covenant entirely.
         if threshold is None:
             return None

@@ -12,9 +12,8 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 import logging
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi.concurrency import run_in_threadpool
 from fastapi import FastAPI, HTTPException, Request
@@ -26,33 +25,37 @@ from pydantic import BaseModel, Field, field_validator
 BASE_DIR = Path(__file__).resolve().parent
 
 from src.services import AssessmentService, AssessmentServiceError
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+def _error_response(error: str, error_type: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "error": error,
+        "error_type": error_type,
+        "details": details,
+    }
+
 app = FastAPI(
-    title=os.getenv("APP_NAME", "RiskLens MVP"),
+    title=settings.app_name,
     description="Minimal runnable FastAPI MVP for credit assessment.",
     version="1.1.0",
 )
 
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
-service = AssessmentService(report_dir=str(BASE_DIR / "data" / "reports"))
+service = AssessmentService(report_dir=settings.mvp_report_dir)
 
 
 def _resolve_assess_timeout_seconds() -> float:
-    raw = os.getenv("ASSESS_TIMEOUT_SECONDS", "25")
-    try:
-        timeout = float(raw)
-    except ValueError:
-        timeout = 25.0
-    return max(1.0, timeout)
+    return max(1.0, settings.assess_timeout_seconds)
 
 
 async def _run_assessment_with_timeout(
     ticker: str,
     data_source: str,
-    fiscal_year: Optional[int],
-) -> Dict[str, Any]:
+    fiscal_year: int | None,
+) -> dict[str, Any]:
     timeout_seconds = _resolve_assess_timeout_seconds()
     try:
         return await asyncio.wait_for(
@@ -64,11 +67,12 @@ async def _run_assessment_with_timeout(
             ),
             timeout=timeout_seconds,
         )
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         raise HTTPException(
             status_code=504,
             detail={
                 "error": f"评估超时（>{timeout_seconds:.0f}s）",
+                "error_type": "timeout",
                 "ticker": ticker,
                 "data_source": data_source,
             },
@@ -76,9 +80,9 @@ async def _run_assessment_with_timeout(
 
 
 class AssessRequest(BaseModel):
-    ticker: str = Field(..., description="Stock ticker, e.g. AAPL")
+    ticker: str = Field(..., description="Stock ticker, e.g. NVDA")
     data_source: str = Field(default="yfinance", description="auto | yfinance | akshare | demo")
-    fiscal_year: Optional[int] = Field(default=None, ge=1900, le=2100)
+    fiscal_year: int | None = Field(default=None, ge=1900, le=2100)
 
     @field_validator("ticker")
     @classmethod
@@ -89,25 +93,41 @@ class AssessRequest(BaseModel):
 
 
 class LegacyAssessRequest(BaseModel):
-    tickers: List[str] = Field(..., min_length=1, max_length=50)
+    tickers: list[str] = Field(..., min_length=1, max_length=50)
     data_source: str = Field(default="yfinance")
-    fiscal_year: Optional[int] = Field(default=None, ge=1900, le=2100)
+    fiscal_year: int | None = Field(default=None, ge=1900, le=2100)
 
 
 @app.exception_handler(AssessmentServiceError)
 async def handle_assessment_error(_request: Request, exc: AssessmentServiceError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
-        content={
-            "error": exc.message,
-            "details": exc.details,
-        },
+        content=_error_response(exc.message, "business_error", exc.details),
+    )
+
+
+@app.exception_handler(HTTPException)
+async def handle_http_error(_request: Request, exc: HTTPException) -> JSONResponse:
+    detail = exc.detail
+    if isinstance(detail, dict):
+        error = str(detail.get("error") or detail.get("message") or "Request failed")
+        error_type = str(detail.get("error_type") or "http_error")
+        details = {key: value for key, value in detail.items() if key not in {"error", "error_type", "message"}}
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=_error_response(error, error_type, details or None),
+            headers=exc.headers,
+        )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=_error_response(str(detail), "http_error", None),
+        headers=exc.headers,
     )
 
 
 @app.exception_handler(RequestValidationError)
 async def handle_validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
-    safe_details: List[Dict[str, Any]] = []
+    safe_details: list[dict[str, Any]] = []
     for item in exc.errors():
         row = dict(item)
         ctx = row.get("ctx")
@@ -120,10 +140,7 @@ async def handle_validation_error(_request: Request, exc: RequestValidationError
 
     return JSONResponse(
         status_code=422,
-        content={
-            "error": "请求参数校验失败",
-            "details": safe_details,
-        },
+        content=_error_response("请求参数校验失败", "validation_error", {"errors": safe_details}),
     )
 
 
@@ -132,10 +149,7 @@ async def handle_unexpected_error(request: Request, exc: Exception) -> JSONRespo
     logger.exception("Unhandled error: %s", exc)
     return JSONResponse(
         status_code=500,
-        content={
-            "error": "服务器内部错误",
-            "details": {"path": str(request.url.path)},
-        },
+        content=_error_response("服务器内部错误", "internal_server_error", {"path": str(request.url.path)}),
     )
 
 
@@ -145,7 +159,7 @@ async def homepage(request: Request) -> HTMLResponse:
 
 
 @app.get("/health", tags=["System"])
-def health() -> Dict[str, Any]:
+def health() -> dict[str, Any]:
     return {
         "status": "healthy",
         "service": app.title,
@@ -154,7 +168,7 @@ def health() -> Dict[str, Any]:
 
 
 @app.post("/api/assess", tags=["Assessment"])
-async def assess(payload: AssessRequest) -> Dict[str, Any]:
+async def assess(payload: AssessRequest) -> dict[str, Any]:
     return await _run_assessment_with_timeout(
         ticker=payload.ticker,
         data_source=payload.data_source,
@@ -163,9 +177,9 @@ async def assess(payload: AssessRequest) -> Dict[str, Any]:
 
 
 @app.post("/api/v1/assess", tags=["Assessment"])
-async def assess_v1(payload: LegacyAssessRequest) -> Dict[str, Any]:
-    results: List[Dict[str, Any]] = []
-    errors: List[str] = []
+async def assess_v1(payload: LegacyAssessRequest) -> dict[str, Any]:
+    results: list[dict[str, Any]] = []
+    errors: list[str] = []
 
     for item in payload.tickers:
         ticker = (item or "").strip().upper()
@@ -183,7 +197,14 @@ async def assess_v1(payload: LegacyAssessRequest) -> Dict[str, Any]:
             errors.append(f"{ticker}: {exc.message}")
 
     if not results:
-        raise HTTPException(status_code=404, detail={"errors": errors})
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "No assessments succeeded",
+                "error_type": "no_data_available",
+                "errors": errors,
+            },
+        )
 
     return {
         "count": len(results),
@@ -195,4 +216,4 @@ async def assess_v1(payload: LegacyAssessRequest) -> Dict[str, Any]:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="127.0.0.1", port=int(os.getenv("APP_PORT", "8000")), reload=True)
+    uvicorn.run("main:app", host="127.0.0.1", port=settings.app_port, reload=True)

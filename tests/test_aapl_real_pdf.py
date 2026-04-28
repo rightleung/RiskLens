@@ -56,7 +56,7 @@ def test_real_aapl_context_keeps_alignment_and_placeholders():
     ]
 
     interest_row = next(row for row in context["kpi_rows"] if row["label"] == "Interest Coverage")
-    assert interest_row["values"] == ["--", "--", "29.06x"]
+    assert interest_row["values"] == ["N/A", "N/A", "29.06"]
     assert interest_row["yoy_q"] == "N/A"
     assert interest_row["yoy_fy"] == "N/A"
 
@@ -73,8 +73,8 @@ def test_real_aapl_context_keeps_alignment_and_placeholders():
     cash_flow = next(section for section in context["statement_sections"] if section["title"] == "cash_flow_statement")
     balance_sheet = next(section for section in context["statement_sections"] if section["title"] == "balance_sheet")
 
-    cash_labels = [row["label"] for row in cash_flow["rows"]]
-    balance_labels = [row["label"] for row in balance_sheet["rows"]]
+    cash_labels = [row["label"] for row in cash_flow["detail_rows"]]
+    balance_labels = [row["label"] for row in balance_sheet["detail_rows"]]
 
     assert "Cash Flow From Continuing Financing Activities" in cash_labels
     assert "Cash Flow From Continuing Investing Activities" in cash_labels
@@ -90,7 +90,9 @@ def test_real_aapl_context_keeps_alignment_and_placeholders():
         assert label in balance_labels
 
     assert cash_flow["rows"][0]["label"] == "Free CF"
-    assert balance_sheet["rows"][0]["label"] == "Ordinary Shares Number"
+    assert balance_sheet["rows"][0]["label"] == "Net Debt"
+    assert cash_flow["unit_note"] == "Values in USD billions; ratios in x"
+    assert cash_flow["detail_unit_note"] == "Values in USD millions"
 
 
 @pytest.mark.skipif(not REPORTLAB_AVAILABLE, reason="reportlab is not installed")
@@ -107,19 +109,16 @@ def test_real_aapl_pdf_smoke_and_layout(tmp_path):
     pdfinfo = subprocess.check_output(["pdfinfo", str(pdf_file)], text=True)
     page_match = re.search(r"^Pages:\s+(\d+)$", pdfinfo, flags=re.MULTILINE)
     assert page_match is not None
-    assert int(page_match.group(1)) == 12
+    assert int(page_match.group(1)) == 16
 
     pages = _page_texts(pdf_file)
-    assert len(pages) == 12
+    assert len(pages) == 16
 
     page1 = _collapse_spaces(pages[0])
     page4 = _collapse_spaces(pages[3])
     page5 = _collapse_spaces(pages[4])
     page6 = _collapse_spaces(pages[5])
     page7 = _collapse_spaces(pages[6])
-    page9 = _collapse_spaces(pages[8])
-    cash_flow_financing_page = _collapse_spaces(next(page for page in pages if "Cash Flow From Continuing Financing Activities" in page))
-    cash_flow_investing_page = _collapse_spaces(next(page for page in pages if "Cash Flow From Continuing Investing Activities" in page))
     all_text = _collapse_spaces("\n".join(pages))
 
     assert "Working Capital / Total Assets -4.92%" in page1
@@ -128,18 +127,24 @@ def test_real_aapl_pdf_smoke_and_layout(tmp_path):
     assert "Contribution: -0.06" in page1
     assert "Contribution: +1.22" in page1
 
-    assert "Interest Coverage -- -- 29.06x N/A N/A" in page4
-    assert "Free CF 98.8 B 108.8 B 99.6 B -9.2% +9.3%" in page4
+    assert "Interest Coverage N/A N/A 29.06 N/A N/A" in page4
+    assert "Free CF 98.8 108.8 99.6 -9.2% +9.3%" in page4
 
-    assert "269.0. M" not in page6
-    assert "Other Non Operating Income Expenses -321.0 M 269.0 M -565.0 M" in page6
+    assert "Values in USD billions" in page5
+    assert "269.0. M" not in page5
+    assert "Other Non Operating Income Expenses -0.32 0.27 -0.56" in page5
 
-    assert "Net Debt 62.7 B 76.7 B 81.1 B -18.2% -5.5%" in page7
-    assert "76.7\nB" not in pages[6]
+    assert "Net Debt 62.7 76.7 81.1 -18.2% -5.5%" in page6
+    assert "76.7\nB" not in pages[5]
 
-    assert "Trade and Other Payables Non Current -- 9.3 B 15.5 B N/A -40.1%" in page9
+    assert "Free CF 98.8 108.8 99.6 -9.2% +9.3%" in page7
 
-    assert "Cash Flow From Continuing Financing Activities -120.7 B -122.0 B -108.5 B -1.1% +12.4%" in cash_flow_financing_page
-    assert "Cash Flow From Continuing Investing Activities 15.2 B 2.9 B 3.7 B +417.7% -20.8%" in cash_flow_investing_page
+    assert "Trade and Other Payables Non Current -- 9,254 15,457 N/A -40.1%" in all_text
+    assert "Cash Flow From Continuing Financing Activities -120,686 -121,983 -108,488 -1.1% +12.4%" in all_text
+    assert "Cash Flow From Continuing Investing Activities 15,195 2,935 3,705 +417.7% -20.8%" in all_text
+    assert "Values in USD millions" in all_text
+    assert "Products: []" not in all_text
+    assert "Sate" not in all_text
+    assert "Contibution" not in all_text
     assert "269.0. M" not in all_text
     assert "+1.2% % 1.2 +" not in all_text

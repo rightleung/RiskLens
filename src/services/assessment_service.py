@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-import math
-import re
 from typing import Any, Dict, Optional
 
-from src.services._utils import json_safe, safe_number
+from src.services._utils import infer_fiscal_year, json_safe, safe_number
+from src.config import settings
 
 import pandas as pd
 
@@ -31,9 +30,9 @@ class AssessmentService:
 
     _ALLOWED_SOURCES = {"auto", "yfinance", "akshare", "demo"}
 
-    def __init__(self, report_dir: str = "/tmp/risklens_mvp_reports") -> None:
+    def __init__(self, report_dir: str | None = None) -> None:
         self.fetcher = FinancialDataFetcher()
-        self.analyzer = RatioAnalyzer(report_dir=report_dir)
+        self.analyzer = RatioAnalyzer(report_dir=report_dir or settings.mvp_report_dir)
 
     def assess(
         self,
@@ -78,7 +77,7 @@ class AssessmentService:
             )
 
         company_name = financial_data.get("company_name") or normalized_ticker
-        analysis_year = fiscal_year or self._infer_fiscal_year(latest_period.get("year_label"))
+        analysis_year = fiscal_year or infer_fiscal_year(latest_period.get("year_label"))
 
         ratios = self._calculate_ratios(
             balance_df=balance_df,
@@ -105,7 +104,7 @@ class AssessmentService:
             "period": latest_period.get("year_label") or str(analysis_year),
             "data_source": source,
             "assessment": {
-                "z_score": self._safe_number(z_result.z_score),
+                "z_score": safe_number(z_result.z_score),
                 "risk_zone": z_result.zone,
                 "implied_rating": z_result.implied_rating,
             },
@@ -114,7 +113,7 @@ class AssessmentService:
             "warnings": warnings,
             "timestamp": datetime.now().isoformat(),
         }
-        return self._json_safe(payload)
+        return json_safe(payload)
 
     def _fetch_financial_data(self, ticker: str, source: str) -> Dict[str, Any]:
         if source == "demo" or ticker == "DEMO":
@@ -214,41 +213,16 @@ class AssessmentService:
         ratios: CreditRatioAnalysis,
     ) -> Dict[str, Optional[float]]:
         return {
-            "total_assets": self._safe_number(self.analyzer._get_value(balance_df, "total_assets")),
-            "total_liabilities": self._safe_number(self.analyzer._get_value(balance_df, "total_liabilities")),
-            "revenue": self._safe_number(self.analyzer._get_value(income_df, "revenue")),
-            "operating_income": self._safe_number(self.analyzer._get_value(income_df, "operating_income")),
-            "free_cf": self._safe_number(self.analyzer._get_value(cash_df, "free_cf")),
-            "current_ratio": self._safe_number(ratios.current_ratio),
-            "debt_to_equity": self._safe_number(ratios.debt_to_equity),
-            "interest_coverage": self._safe_number(ratios.interest_coverage),
-            "fcf_to_debt": self._safe_number(ratios.fcf_to_debt),
+            "total_assets": safe_number(self.analyzer._get_value(balance_df, "total_assets")),
+            "total_liabilities": safe_number(self.analyzer._get_value(balance_df, "total_liabilities")),
+            "revenue": safe_number(self.analyzer._get_value(income_df, "revenue")),
+            "operating_income": safe_number(self.analyzer._get_value(income_df, "operating_income")),
+            "free_cf": safe_number(self.analyzer._get_value(cash_df, "free_cf")),
+            "current_ratio": safe_number(ratios.current_ratio),
+            "debt_to_equity": safe_number(ratios.debt_to_equity),
+            "interest_coverage": safe_number(ratios.interest_coverage),
+            "fcf_to_debt": safe_number(ratios.fcf_to_debt),
         }
-
-    @staticmethod
-    def _infer_fiscal_year(year_label: Optional[str]) -> int:
-        current_year = datetime.now().year
-        if not year_label:
-            return current_year
-
-        digits = re.sub(r"\D", "", year_label)
-        if len(digits) >= 4:
-            return int(digits[-4:])
-        if len(digits) == 2:
-            value = int(digits)
-            return 2000 + value if value < 80 else 1900 + value
-        return current_year
-
-    @staticmethod
-    def _safe_number(value: Any) -> Optional[float]:
-        """Wrapper for shared safe_number utility."""
-        result = safe_number(value)
-        return round(result, 4) if result is not None else None
-
-    @staticmethod
-    def _json_safe(value: Any) -> Any:
-        """Wrapper for shared json_safe utility."""
-        return json_safe(value)
 
     @staticmethod
     def _build_demo_data(ticker: str) -> Dict[str, Any]:

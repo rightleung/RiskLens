@@ -4,6 +4,8 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from src.services._utils import safe_number as _safe_number
+
 LANG = {
     'en': {
         'report_title': 'RiskLens Financial Report',
@@ -55,6 +57,12 @@ LANG = {
         'methodology_altman_note': 'Altman Z: weighted model based on working capital, retained earnings, EBIT, market value, and sales.',
         'methodology_zone_note': 'Zone: >2.99 Safe, 1.81-2.99 Grey, <1.81 Distress.',
         'methodology_rating_note': 'Rating: implied rating mapped from Z-Score and historical default rates.',
+        'methodology_reference_note': 'Methodology definitions are provided in the appendix.',
+        'insufficient_data': 'Insufficient Data',
+        'statement_summary_note': 'Summary view. Detailed line items are moved to the appendix.',
+        'statement_appendix_title': 'Statement Detail Appendix',
+        'values_in_currency_millions': 'Values in {currency} millions',
+        'values_in_currency_billions': 'Values in {currency} billions; ratios in x',
     },
     'zh-CN': {
         'report_title': 'RiskLens 风险分析报告',
@@ -106,6 +114,12 @@ LANG = {
         'methodology_altman_note': 'Altman Z：基于营运资本、留存收益、EBIT、市值、营收的加权模型。',
         'methodology_zone_note': 'Zone：>2.99 Safe，1.81-2.99 Grey，<1.81 Distress。',
         'methodology_rating_note': 'Rating：基于 Z 分数与历史违约率映射的隐含评级。',
+        'methodology_reference_note': '指标定义见附录。',
+        'insufficient_data': '数据不足',
+        'statement_summary_note': '正文仅展示摘要，完整明细已移至附录。',
+        'statement_appendix_title': '报表明细附录',
+        'values_in_currency_millions': '单位：{currency} 百万',
+        'values_in_currency_billions': '单位：{currency} 十亿；比率以 x 表示',
     },
     'zh-TW': {
         'report_title': 'RiskLens 風險分析報告',
@@ -157,6 +171,12 @@ LANG = {
         'methodology_altman_note': 'Altman Z：基於營運資本、保留盈餘、EBIT、市值、營收的加權模型。',
         'methodology_zone_note': 'Zone：>2.99 Safe，1.81-2.99 Grey，<1.81 Distress。',
         'methodology_rating_note': 'Rating：基於 Z 分數與歷史違約率映射的隱含評等。',
+        'methodology_reference_note': '指標定義見附錄。',
+        'insufficient_data': '資料不足',
+        'statement_summary_note': '正文僅展示摘要，完整明細已移至附錄。',
+        'statement_appendix_title': '報表明細附錄',
+        'values_in_currency_millions': '單位：{currency} 百萬',
+        'values_in_currency_billions': '單位：{currency} 十億；比率以 x 表示',
     },
     'ja': {
         'report_title': 'RiskLens 財務レポート',
@@ -208,6 +228,12 @@ LANG = {
         'methodology_altman_note': 'Altman Z: 運転資本、利益剰余金、EBIT、市場価値、売上高の加重モデル。',
         'methodology_zone_note': 'Zone: >2.99 Safe、1.81-2.99 Grey、<1.81 Distress。',
         'methodology_rating_note': 'Rating: Zスコアと歴史的デフォルト率を対応付けた推定格付け。',
+        'methodology_reference_note': '指標定義は付録に記載しています。',
+        'insufficient_data': 'データ不足',
+        'statement_summary_note': '本文は要約表示です。詳細項目は付録に移動しています。',
+        'statement_appendix_title': '財務諸表詳細付録',
+        'values_in_currency_millions': '単位: {currency} 百万',
+        'values_in_currency_billions': '単位: {currency} 十億、倍率は x',
     },
 }
 
@@ -227,6 +253,54 @@ STATEMENT_KEYS = [
     ('cash_flow_statement', 'cash_flow_statement', ('cash_flow', 'cashflow', 'cf', 'cash')),
 ]
 RATIO_METRICS = {'Debt / EBITDA', 'Interest Coverage', 'FCF / Debt', 'Current Ratio'}
+SUMMARY_STATEMENT_LABELS = {
+    'income_statement': (
+        'Revenue',
+        'Total Revenue',
+        'Gross Profit',
+        'Operating Income',
+        'EBIT',
+        'EBITDA',
+        'Net Income',
+        'Normalized Income',
+    ),
+    'balance_sheet': (
+        'Cash',
+        'Cash and Cash Equivalents',
+        'Working Capital',
+        'Total Assets',
+        'Current Assets',
+        'Total Debt',
+        'Net Debt',
+        'Total Liabilities',
+        'Current Liabilities',
+        'Stockholders Equity',
+        'Total Equity',
+    ),
+    'cash_flow_statement': (
+        'Operating CF',
+        'Operating Cash Flow',
+        'Investing Cash Flow',
+        'Financing Cash Flow',
+        'Capital Expenditure',
+        'Capex',
+        'Free CF',
+        'Free Cash Flow',
+        'Repurchase of Capital Stock',
+        'Cash Dividends Paid',
+    ),
+}
+TOTAL_LABEL_HINTS = (
+    'total',
+    'gross profit',
+    'operating income',
+    'net income',
+    'ebit',
+    'ebitda',
+    'free cash flow',
+    'working capital',
+    'stockholders equity',
+)
 
 PDF_STYLE_TOKENS = {
     'bg': '#020617',
@@ -281,25 +355,6 @@ def _normalize_key(value: str) -> str:
     return re.sub(r'[^a-z0-9]+', '', value.lower())
 
 
-def _safe_number(value: Any) -> float | None:
-    if isinstance(value, bool):
-        return float(value)
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        text = value.strip()
-        if not text or text in {'--', '-', 'n/a', 'N/A'}:
-            return None
-        negative = text.startswith('(') and text.endswith(')')
-        text = text.strip('()').replace(',', '').replace('%', '')
-        try:
-            number = float(text)
-        except ValueError:
-            return None
-        return -number if negative else number
-    return None
-
-
 def _is_negative_display_value(value: Any) -> bool:
     number = _safe_number(value)
     return bool(number is not None and number < 0)
@@ -316,6 +371,44 @@ def _format_number(value: Any, decimals: int = 1, signed: bool = False, suffix: 
     if signed and number >= 0:
         text = '+' + text
     return text + suffix
+
+
+def _format_plain_number(value: float, decimals: int = 1) -> str:
+    if float(value).is_integer():
+        return f'{value:,.0f}'
+    if abs(value) < 1:
+        return f'{value:,.2f}'
+    return f'{value:,.{decimals}f}'
+
+
+def _format_statement_millions_value(value: Any, label: Any = None) -> str:
+    text = _clean_display_text(value)
+    if not text:
+        return '--'
+    lowered = text.lower()
+    if lowered in {'--', 'n/a', 'na', 'no data available'}:
+        return 'N/A' if lowered in {'n/a', 'na'} else '--'
+
+    number = _statement_value_to_millions(value, label)
+    if number is None:
+        return text
+    return _format_plain_number(number)
+
+
+def _format_statement_billions_value(value: Any, label: Any = None) -> str:
+    text = _clean_display_text(value)
+    if not text:
+        return '--'
+    lowered = text.lower()
+    if lowered in {'--', 'n/a', 'na', 'no data available'}:
+        return 'N/A' if lowered in {'n/a', 'na'} else '--'
+
+    number = _statement_value_to_millions(value, label)
+    if number is None:
+        return text
+    if _statement_label_supports_magnitude(label):
+        return _format_plain_number(number / 1000, decimals=1)
+    return _format_plain_number(number)
 
 
 def _format_value(value: Any) -> str:
@@ -344,6 +437,7 @@ def _format_value(value: Any) -> str:
 
 _STATEMENT_MAGNITUDE_LABEL_HINTS = (
     'revenue',
+    'profit',
     'income',
     'expense',
     'ebit',
@@ -396,13 +490,14 @@ _OCR_STRAY_UNIT_PUNCT_RE = re.compile(
     r'^(?P<num>[+-]?(?:\d[\d,]*)(?:\.\d+)?)(?:[.\u00B7]+)(?P<unit>[bmk])$',
     re.IGNORECASE,
 )
+_DECIMAL_COMMA_RE = re.compile(r'^(?P<num>[+-]?\d+),(?P<decimal>\d{1,2})$')
 
 
 def _statement_label_supports_magnitude(label: Any) -> bool:
     text = _clean_display_text(label).lower()
     if not text or text in {'--', 'n/a', 'na', 'no data available'}:
         return False
-    if any(blocker in text for blocker in _STATEMENT_MAGNITUDE_LABEL_BLOCKERS):
+    if any(re.search(rf'(?<![a-z]){re.escape(blocker)}(?![a-z])', text) for blocker in _STATEMENT_MAGNITUDE_LABEL_BLOCKERS):
         return False
     return any(hint in text for hint in _STATEMENT_MAGNITUDE_LABEL_HINTS)
 
@@ -420,48 +515,76 @@ def _format_magnitude_display(number: float) -> str:
     return f'{number:,.2f}'
 
 
-def _format_statement_display_value(value: Any, label: Any = None) -> str:
+def _statement_value_to_millions(value: Any, label: Any = None) -> float | None:
     text = _clean_display_text(value)
-    if not text:
-        return '--'
-    lowered = text.lower()
-    if lowered in {'--', 'n/a', 'na', 'no data available'}:
-        return text
-
-    if isinstance(value, str) and _statement_label_supports_magnitude(label):
+    if not text or text.lower() in {'--', 'n/a', 'na', 'no data available'}:
+        return None
+    if isinstance(value, str):
         compact = text.replace(' ', '')
-        unit_match = _MAGNITUDE_SUFFIX_RE.fullmatch(compact)
+        decimal_comma = _DECIMAL_COMMA_RE.fullmatch(compact)
+        if decimal_comma:
+            compact = f"{decimal_comma.group('num')}.{decimal_comma.group('decimal')}"
+        unit_match = _MAGNITUDE_SUFFIX_RE.fullmatch(compact) or _OCR_STRAY_UNIT_PUNCT_RE.fullmatch(compact)
         if unit_match:
-            number_text = unit_match.group('num').replace(',', '')
-            unit = unit_match.group('unit').upper()
-            return f'{number_text} {unit}'
+            number = _safe_number(unit_match.group('num'))
+            if number is None:
+                return None
+            unit = unit_match.group('unit').lower()
+            if unit == 'b':
+                return number * 1000
+            if unit == 'm':
+                return number
+            if unit == 'k':
+                return number / 1000
         ocr_match = _OCR_MAGNITUDE_SUFFIX_RE.fullmatch(compact)
         if ocr_match:
-            number_text = ocr_match.group('num').replace(',', '')
-            try:
-                float(number_text)
-            except ValueError:
-                pass
-            else:
-                if abs(float(number_text)) >= 10:
-                    return f'{number_text} B'
-        stray_unit_match = _OCR_STRAY_UNIT_PUNCT_RE.fullmatch(compact)
-        if stray_unit_match:
-            number_text = stray_unit_match.group('num').replace(',', '')
-            unit = stray_unit_match.group('unit').upper()
-            return f'{number_text} {unit}'
-
+            number = _safe_number(ocr_match.group('num'))
+            if number is not None and abs(number) >= 10:
+                return number * 1000
+        number = _safe_number(compact)
+        if number is not None and _statement_label_supports_magnitude(label):
+            if abs(number) >= 1_000_000:
+                return number / 1_000_000
+            return number
     number = _safe_number(value)
     if number is None:
-        return text
-    return _format_magnitude_display(number)
+        return None
+    if abs(number) >= 1_000_000:
+        return number / 1_000_000
+    return number
+
+
+def _format_statement_display_value(value: Any, label: Any = None) -> str:
+    return _format_statement_millions_value(value, label)
 
 
 def _format_ratio_value(label: str, value: Any) -> str:
+    if value is None:
+        return 'N/A'
     text = _format_value(value)
     if text == '--':
-        return text
+        return 'N/A'
     return f'{text}x' if label in RATIO_METRICS else text
+
+
+def _format_kpi_metric_value(value: Any, label: Any = None) -> str:
+    if value is None:
+        return 'N/A'
+    number = _safe_number(value)
+    if number is None:
+        return _format_value(value)
+    return _format_magnitude_display(number)
+
+
+def _format_kpi_table_value(value: Any, label: Any = None) -> str:
+    if value is None:
+        return 'N/A'
+    number = _safe_number(value)
+    if number is None:
+        return _format_value(value)
+    if label in RATIO_METRICS:
+        return _format_plain_number(number, decimals=2)
+    return _format_plain_number(number / 1_000_000_000, decimals=1)
 
 
 def _format_yoy_change(current: Any, previous: Any) -> str:
@@ -813,18 +936,26 @@ def _extract_summary(entry: dict[str, Any], lang: str = 'en') -> dict[str, Any]:
     covenant_rows: list[dict[str, str]] = []
     for item in _sequence(assessment.get('covenant_pre_check') or assessment.get('covenants') or entry.get('covenant_pre_check') or entry.get('covenants')):
         if isinstance(item, dict):
+            actual_value = item.get('actual') if 'actual' in item else item.get('value')
+            threshold_value = item.get('threshold') if 'threshold' in item else item.get('limit') if 'limit' in item else item.get('target')
+            actual_missing = _safe_number(actual_value) is None
             status = str(item.get('status') or item.get('result') or '').strip()
             signal = str(item.get('signal') or item.get('direction') or '--')
-            status_signal = status if status and status != '--' else _normalize_signal_text(signal, status)
+            if actual_missing:
+                status = _t(lang, 'insufficient_data')
+                signal = 'Neutral'
+                status_signal = status
+            else:
+                status_signal = status if status and status != '--' else _normalize_signal_text(signal, status)
             metric_name = _normalize_label_text(item.get('metric') or item.get('label') or item.get('name') or '--')
             description = _covenant_description(lang, metric_name)
             covenant_rows.append({
                 'metric': metric_name,
-                'actual': _format_value(item.get('actual') or item.get('value')),
-                'threshold': _format_value(item.get('threshold') or item.get('limit') or item.get('target')),
+                'actual': 'N/A' if actual_missing else _format_value(actual_value),
+                'threshold': _format_value(threshold_value),
                 'status_signal': status_signal,
                 'status_signal_tone': _signal_tone(signal, status),
-                'notes': _clean_display_text(item.get('notes') or item.get('note') or '--'),
+                'notes': _t(lang, 'insufficient_data') if actual_missing else _clean_display_text(item.get('notes') or item.get('note') or '--'),
                 'description': description,
             })
     if not covenant_rows:
@@ -845,7 +976,7 @@ def _extract_summary(entry: dict[str, Any], lang: str = 'en') -> dict[str, Any]:
                 label = _normalize_label_text(item.get('label') or item.get('name') or '--')
                 data_quality.append({'label': label, 'value': _format_data_quality_value(label, item.get('value') or item.get('score') or item.get('status')), 'notes': str(item.get('notes') or item.get('note') or '--')})
     if not data_quality:
-        data_quality.append({'label': 'Coverage', 'value': '--', 'notes': '--'})
+        data_quality = []
     covenant_notes = [
         {'metric': row['metric'], 'description': row['description']}
         for row in covenant_rows
@@ -923,13 +1054,22 @@ def _build_covenant_fallback_rows(entry: dict[str, Any], lang: str) -> list[dict
     rows: list[dict[str, str]] = []
     for spec in specs:
         actual = pick_number(spec['candidates'])
-        if actual is None:
-            continue
         threshold = float(spec['threshold'])
+        metric_name = _normalize_label_text(spec['metric'])
+        if actual is None:
+            rows.append({
+                'metric': metric_name,
+                'actual': 'N/A',
+                'threshold': _format_value(threshold),
+                'status_signal': _t(lang, 'insufficient_data'),
+                'status_signal_tone': 'neutral',
+                'notes': _t(lang, 'insufficient_data'),
+                'description': _covenant_description(lang, metric_name),
+            })
+            continue
         is_pass = bool(spec['passes'](actual, threshold))
         signal = spec['signal'][0] if is_pass else spec['signal'][1]
         status = 'Pass' if is_pass else 'Fail'
-        metric_name = _normalize_label_text(spec['metric'])
         rows.append({
             'metric': metric_name,
             'actual': _format_value(actual),
@@ -1151,9 +1291,17 @@ def _extract_profile(report: dict[str, Any], latest: dict[str, Any]) -> list[dic
     rows: list[dict[str, str]] = []
     if isinstance(profile, dict):
         for key, value in profile.items():
+            if value in (None, '', [], {}):
+                continue
             if isinstance(value, dict):
                 value = value.get('value') or value.get('text') or value.get('name') or '--'
-            rows.append({'label': _normalize_label_text(key), 'value': _format_value(value)})
+            if isinstance(value, (list, tuple, set)):
+                value = ', '.join(_clean_display_text(item) for item in value if _clean_display_text(item))
+            label = _normalize_label_text(key)
+            display_value = _format_value(value)
+            if not label or display_value in {'', '--', 'N/A', 'n/a', '[]', '{}'}:
+                continue
+            rows.append({'label': label, 'value': display_value})
     return rows
 
 
@@ -1220,7 +1368,7 @@ def _build_kpi_rows(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
             yoy_q = _format_yoy_change(quarter_values[0], quarter_values[1]) if len(quarter_values) > 1 else 'N/A'
             yoy_fy = _format_yoy_change(annual_values[0], annual_values[1]) if len(annual_values) > 1 else 'N/A'
         display_values = [
-            _format_ratio_value(label, v) if label in RATIO_METRICS else _format_statement_display_value(v, label)
+            _format_kpi_table_value(v, label)
             for v in values
         ]
         rows.append({
@@ -1322,6 +1470,54 @@ def _extract_statement_block(entry: dict[str, Any], statement_key: str, aliases:
     return []
 
 
+def _statement_label_depth(label: Any) -> int:
+    text = _clean_display_text(label)
+    lowered = text.lower()
+    if not text or any(hint in lowered for hint in TOTAL_LABEL_HINTS):
+        return 0
+    if any(token in lowered for token in ('current ', 'non current', 'operating ', 'investing ', 'financing ')):
+        return 1
+    return 2
+
+
+def _is_statement_total(label: Any) -> bool:
+    lowered = _clean_display_text(label).lower()
+    return any(hint in lowered for hint in TOTAL_LABEL_HINTS)
+
+
+def _statement_yoy_tone(value: Any) -> str:
+    text = _clean_display_text(value)
+    if not text or text in {'--', 'N/A', 'n/a', 'N/M'}:
+        return 'neutral'
+    number = _safe_number(text)
+    if number is None:
+        return 'neutral'
+    if abs(number) >= 100:
+        return 'alert'
+    if abs(number) >= 50:
+        return 'warning'
+    return 'neutral'
+
+
+def _summary_label_set(statement_key: str) -> set[str]:
+    return {_normalize_key(label) for label in SUMMARY_STATEMENT_LABELS.get(statement_key, ())}
+
+
+def _dedupe_statement_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    for row in rows:
+        key = (
+            _normalize_key(str(row.get('label') or '')),
+            tuple(str(value) for value in row.get('detail_display_values') or row.get('values', [])),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    return deduped
+
+
 def _build_statement_sections(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
     periods = [str(entry.get('fiscal_year') or entry.get('period') or entry.get('label') or '--') for entry in history]
     period_entries: list[dict[str, Any]] = []
@@ -1355,7 +1551,7 @@ def _build_statement_sections(history: list[dict[str, Any]]) -> list[dict[str, A
                 label = str(row.get('label') or '--')
                 if label not in labels:
                     labels.append(label)
-        normalized_rows: list[dict[str, Any]] = []
+        detail_rows: list[dict[str, Any]] = []
         for label in labels:
             values: list[Any] = []
             for rows in rows_by_period:
@@ -1379,12 +1575,29 @@ def _build_statement_sections(history: list[dict[str, Any]]) -> list[dict[str, A
                     yoy_q = _format_yoy_change(quarter_values[0], quarter_values[1])
                 if len(annual_values) > 1:
                     yoy_fy = _format_yoy_change(annual_values[0], annual_values[1])
-            normalized_rows.append({
+            row = {
                 'label': label,
-                'values': [_format_statement_display_value(v, label) for v in values],
+                'raw_values': values,
+                'values': [_format_statement_millions_value(v, label) for v in values],
+                'summary_display_values': [_format_statement_billions_value(v, label) for v in values],
+                'detail_display_values': [_format_statement_millions_value(v, label) for v in values],
                 'yoy_q': yoy_q,
                 'yoy_fy': yoy_fy,
-            })
+                'level': _statement_label_depth(label),
+                'depth': _statement_label_depth(label),
+                'is_total': _is_statement_total(label),
+                'yoy_q_tone': _statement_yoy_tone(yoy_q),
+                'yoy_fy_tone': _statement_yoy_tone(yoy_fy),
+            }
+            detail_rows.append(row)
+        detail_rows = _dedupe_statement_rows(detail_rows)
+        summary_labels = _summary_label_set(statement_key)
+        summary_rows = [
+            row for row in detail_rows
+            if _normalize_key(str(row.get('label') or '')) in summary_labels or row.get('is_total')
+        ]
+        if not summary_rows:
+            summary_rows = detail_rows[:12]
         if not quarter_entries and len(annual_entries) > 1:
             cq = annual_entries[0]['label']
             cmpq = annual_entries[1]['label']
@@ -1403,12 +1616,16 @@ def _build_statement_sections(history: list[dict[str, Any]]) -> list[dict[str, A
             'compare_quarter_period': cmpq,
             'current_annual_period': ca,
             'compare_annual_period': cmpa,
-            'rows': normalized_rows,
+            'rows': summary_rows,
+            'detail_rows': detail_rows,
+            'level_field': 'level',
+            'unit_note': '',
+            'detail_unit_note': '',
         })
     return sections
 
 
-def build_pdf_context(report: dict[str, Any], lang: str = 'en', theme: str = 'dark') -> dict[str, Any]:
+def build_pdf_context(report: dict[str, object], lang: str = 'en', theme: str = 'dark') -> dict[str, object]:
     lang = _lang(lang)
     theme = 'light' if str(theme).lower() == 'light' else 'dark'
     history = _extract_history(report)
@@ -1433,10 +1650,13 @@ def build_pdf_context(report: dict[str, Any], lang: str = 'en', theme: str = 'da
             annual_periods[1] if len(annual_periods) > 1 else None,
         )
     statement_sections = _build_statement_sections(history)
+    currency = str(report.get('currency') or latest.get('currency') or latest.get('reporting_currency') or '--')
     for section in statement_sections:
         section['yoy_label_q'] = _format_yoy_label(lang, section.get('current_quarter_period'), section.get('compare_quarter_period'))
         section['yoy_label_fy'] = _format_yoy_label(lang, section.get('current_annual_period'), section.get('compare_annual_period'))
         section['yoy_note'] = yoy_note
+        section['unit_note'] = _t(lang, 'values_in_currency_billions').format(currency=currency)
+        section['detail_unit_note'] = _t(lang, 'values_in_currency_millions').format(currency=currency)
     benchmark_period = next((label for raw, label in zip(periods, period_labels) if _period_kind(raw) == 'annual'), None)
     benchmark_note = ''
     altman_z_score = summary.get('altman_z_score')
@@ -1479,7 +1699,7 @@ def build_pdf_context(report: dict[str, Any], lang: str = 'en', theme: str = 'da
         'company_name': str(report.get('company_name') or latest.get('company_name') or latest.get('name') or 'Unknown Company'),
         'company_name_localized': '' if lang == 'en' else str(report.get('company_name_localized') or latest.get('company_name_localized') or report.get('company_name') or latest.get('company_name') or 'Unknown Company'),
         'ticker': str(report.get('ticker') or latest.get('ticker') or '--'),
-        'currency': str(report.get('currency') or latest.get('currency') or latest.get('reporting_currency') or '--'),
+        'currency': currency,
         'latest_period': period_labels[0],
         'generated_at': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'),
         'periods': [
@@ -1517,24 +1737,38 @@ def build_pdf_context(report: dict[str, Any], lang: str = 'en', theme: str = 'da
     }
 
 
-def build_pdf_document_model(report: dict[str, Any], lang: str = 'en', theme: str = 'dark') -> dict[str, Any]:
+def build_pdf_document_model(report: dict[str, object], lang: str = 'en', theme: str = 'dark') -> dict[str, object]:
     ctx = build_pdf_context(report, lang, theme)
     sections: list[dict[str, Any]] = []
     for section in ctx['statement_sections']:
         widths = [0.20] + [0.085] * len(section['periods']) + [0.16, 0.16]
+        headers = [_t(lang, 'metric')] + [p['label'] for p in section['periods']] + [section['yoy_label_q'], section['yoy_label_fy']]
+        table_rows = [
+            [row['label'], *(row.get('summary_display_values') or row.get('values', [])), row['yoy_q'], row['yoy_fy']]
+            for row in section['rows']
+        ]
+        detail_table_rows = [
+            [row['label'], *(row.get('detail_display_values') or row.get('values', [])), row['yoy_q'], row['yoy_fy']]
+            for row in section.get('detail_rows', [])
+        ]
         sections.append({
             'key': section['key'],
             'title': section['title'],
             'display_title': ctx['labels'][section['title']],
             'periods': section['periods'],
-            'headers': [_t(lang, 'metric')] + [p['label'] for p in section['periods']] + [section['yoy_label_q'], section['yoy_label_fy']],
+            'headers': headers,
             'rows': section['rows'],
+            'detail_rows': section.get('detail_rows', []),
+            'table_rows': table_rows,
+            'detail_table_rows': detail_table_rows,
             'widths': widths,
             'benchmark_cols': set(),
             'group_break_cols': {1 + idx for idx, period in enumerate(section['periods']) if period.get('group_start')},
             'yoy_label_q': section['yoy_label_q'],
             'yoy_label_fy': section['yoy_label_fy'],
             'yoy_note': section['yoy_note'],
+            'unit_note': section.get('unit_note', ''),
+            'detail_unit_note': section.get('detail_unit_note', ''),
             'current_period': section['current_annual_period'] or section['current_quarter_period'] or ctx['latest_period'],
         })
 
@@ -1570,6 +1804,7 @@ def build_pdf_document_model(report: dict[str, Any], lang: str = 'en', theme: st
             'title': ctx['kpi_title'],
             'benchmark_note': ctx['benchmark_note'],
             'yoy_note': ctx['yoy_note'],
+            'unit_note': _t(lang, 'values_in_currency_billions').format(currency=ctx['currency']),
             'headers': [_t(lang, 'metric')] + [p['label'] for p in ctx['periods']] + [ctx['kpi_yoy_label_q'], ctx['kpi_yoy_label_fy']],
             'rows': [[row['label'], *row['values'], row['yoy_q'], row['yoy_fy']] for row in ctx['kpi_rows']],
             'widths': [0.18] + [0.085] * len(ctx['periods']) + [0.16, 0.16],
@@ -1579,6 +1814,7 @@ def build_pdf_document_model(report: dict[str, Any], lang: str = 'en', theme: st
         'statements': sections,
         'appendix': {
             'title': _t(lang, 'methodology_note_title'),
+            'statement_detail_title': _t(lang, 'statement_appendix_title'),
             'benchmark_note': ctx['benchmark_note'],
             'notes': ctx['methodology_notes'],
             'covenant_note_title': ctx['covenant_note_title'],
@@ -1586,13 +1822,13 @@ def build_pdf_document_model(report: dict[str, Any], lang: str = 'en', theme: st
     }
 
 
-def generate_full_pdf_async(report: dict[str, Any], lang: str = 'en', theme: str = 'dark') -> bytes:
+def generate_full_pdf_async(report: dict[str, object], lang: str = 'en', theme: str = 'dark') -> bytes:
     from src.reportlab_pdf_exporter import generate_full_pdf_async as _generate_full_pdf_async
 
     return _generate_full_pdf_async(report, lang, theme)
 
 
-def generate_full_pdf(report: dict[str, Any], lang: str = 'en', theme: str = 'dark') -> bytes:
+def generate_full_pdf(report: dict[str, object], lang: str = 'en', theme: str = 'dark') -> bytes:
     from src.reportlab_pdf_exporter import generate_full_pdf as _generate_full_pdf
 
     return _generate_full_pdf(report, lang, theme)

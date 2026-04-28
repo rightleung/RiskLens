@@ -109,7 +109,7 @@
 ```text
 +----------------------------------------------------------------------------------+
 | RiskLens Full Report                                            2026-03-03      |
-| Apple Inc. (AAPL)                              Source: Yahoo Finance / Currency  |
+| NVIDIA Corp. (NVDA)                            Source: Yahoo Finance / Currency  |
 |----------------------------------------------------------------------------------|
 |  Altman Z-Score: 11.42 [Safe]      Implied Rating: AAA                           |
 |----------------------------------------------------------------------------------|
@@ -163,7 +163,7 @@
 2. **模板层**：实现 `renderFullPdfHtml(reportData, locale)`
 3. **导出层**：新增 `POST /api/v1/reports/pdf`，返回 PDF 文件流
 4. **前端层**：公司卡片增加 `Export PDF`，先单公司
-5. **验证层**：以 `AAPL / NIO / 0700.HK` 做快照对比
+5. **验证层**：以 `NVDA / AMD / 0700.HK` 做快照对比
 
 ---
 

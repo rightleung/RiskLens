@@ -199,7 +199,7 @@ def test_pdf_exporter_generates_pdf_bytes(tmp_path):
     assert context["data_quality_rows"][0]["value"] == "92%"
     assert len(context["methodology_notes"]) == 3
     assert context["benchmark_note"] == ""
-    assert context["kpi_rows"][3]["values"][0] == "1.90x"
+    assert context["kpi_rows"][3]["values"][0] == "1.90"
     cash_flow_section = next(section for section in context["statement_sections"] if section["title"] == "cash_flow_statement")
     capex_row = next(row for row in cash_flow_section["rows"] if row["label"] == "Capex")
     assert capex_row["yoy_q"] == "-16.7%"
@@ -267,10 +267,10 @@ def test_build_pdf_context_prefers_ratio_fields_and_weakness_fallback():
     context = pdf_report_core.build_pdf_context(report, "en")
 
     assert context["watch_items"] == ["Liquidity sensitivity"]
-    assert context["kpi_rows"][3]["values"][0] == "0.38x"
-    assert context["kpi_rows"][5]["values"][0] == "71.6 B"
-    assert context["kpi_rows"][6]["values"][0] == "0.22x"
-    assert context["kpi_rows"][0]["values"][0] == "18.3 M"
+    assert context["kpi_rows"][3]["values"][0] == "0.38"
+    assert context["kpi_rows"][5]["values"][0] == "71.6"
+    assert context["kpi_rows"][6]["values"][0] == "0.22"
+    assert context["kpi_rows"][0]["values"][0] == "0.02"
 
 
 def test_build_pdf_context_uses_none_state_and_covenant_fallback():
@@ -295,6 +295,42 @@ def test_build_pdf_context_uses_none_state_and_covenant_fallback():
         "Current Ratio",
     ]
     assert all(row["description"] for row in context["covenant_rows"])
+
+
+def test_build_pdf_context_marks_missing_covenant_actual_as_insufficient_data():
+    report = _sample_report()
+    report["history"][0]["assessment"]["covenant_pre_check"] = [
+        {
+            "metric": "Interest Coverage",
+            "actual": None,
+            "threshold": 3.0,
+            "status": "Fail",
+            "signal": "Red",
+            "notes": "Weak coverage",
+        }
+    ]
+
+    context = pdf_report_core.build_pdf_context(report, "en")
+
+    row = context["covenant_rows"][0]
+    assert row["actual"] == "N/A"
+    assert row["status_signal"] == "Insufficient Data"
+    assert row["status_signal_tone"] == "neutral"
+    assert row["notes"] == "Insufficient Data"
+
+
+def test_build_pdf_context_filters_empty_company_profile_fields():
+    report = _sample_report()
+    report["company_profile"] = {
+        "sector": "Industrials",
+        "products": [],
+        "coverage": "--",
+        "metadata": {},
+    }
+
+    context = pdf_report_core.build_pdf_context(report, "en")
+
+    assert context["company_profile_rows"] == [{"label": "Sector", "value": "Industrials"}]
 
 
 def test_build_pdf_context_uses_period_span_note_for_annual_only_tables():

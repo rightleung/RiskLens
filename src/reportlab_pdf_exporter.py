@@ -14,6 +14,7 @@ from src.pdf_report_core import build_pdf_document_model
 from src.reportlab_pdf_renderer import _render_reportlab_pdf
 
 _NUMERIC_TEXT_RE = re.compile(r'^[+-]?(?:\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?(?:\s?(?:x|%|pp))?$', re.IGNORECASE)
+_COMPANY_SUFFIX_RE = re.compile(r'\b(?:inc|incorporated|corp|corporation|co|company|ltd|limited|plc|sa|ag|nv|class|com)\b', re.IGNORECASE)
 
 
 def _validate_numeric_value(value: Any, path: str) -> None:
@@ -48,12 +49,54 @@ def _validate_statement_payload(payload: Any, path: str, allow_textual_values: b
                     _validate_numeric_value(item[1], f'{next_path}[1]')
 
 
+def _normalize_identity_text(value: Any) -> str:
+    text = re.sub(r'[^a-z0-9]+', ' ', str(value or '').lower())
+    text = _COMPANY_SUFFIX_RE.sub(' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _validate_company_identity(report: dict[str, Any]) -> None:
+    ticker = str(report.get('ticker') or '').strip().upper()
+    company_name = str(report.get('company_name') or '').strip()
+    profile = report.get('company_profile')
+    if not isinstance(profile, dict):
+        return
+    profile_ticker = profile.get('ticker') or profile.get('symbol')
+    if profile_ticker and ticker and str(profile_ticker).strip().upper() != ticker:
+        raise ValueError(f"Company profile ticker mismatch: report={ticker}, profile={profile_ticker}")
+    profile_name = profile.get('company_name') or profile.get('name') or profile.get('longName') or profile.get('shortName')
+    if profile_name and company_name:
+        report_identity = _normalize_identity_text(company_name)
+        profile_identity = _normalize_identity_text(profile_name)
+        if report_identity and profile_identity and report_identity not in profile_identity and profile_identity not in report_identity:
+            raise ValueError(f"Company profile name mismatch: report={company_name!r}, profile={profile_name!r}")
+
+
+def _validate_history_identity(report: dict[str, Any], history: list[Any]) -> None:
+    ticker = str(report.get('ticker') or '').strip().upper()
+    company_name = str(report.get('company_name') or '').strip()
+    report_identity = _normalize_identity_text(company_name)
+    for idx, entry in enumerate(history):
+        if not isinstance(entry, dict):
+            continue
+        entry_ticker = entry.get('ticker')
+        if entry_ticker and ticker and str(entry_ticker).strip().upper() != ticker:
+            raise ValueError(f"History entry {idx + 1} ticker mismatch: report={ticker}, entry={entry_ticker}")
+        entry_company = entry.get('company_name')
+        if entry_company and report_identity:
+            entry_identity = _normalize_identity_text(entry_company)
+            if entry_identity and report_identity not in entry_identity and entry_identity not in report_identity:
+                raise ValueError(f"History entry {idx + 1} company mismatch: report={company_name!r}, entry={entry_company!r}")
+
+
 def _validate_report_payload(report: dict[str, Any]) -> None:
     if not isinstance(report, dict):
         raise ValueError('Report payload must be a mapping.')
+    _validate_company_identity(report)
     history = report.get('history') or report.get('histories')
     if not isinstance(history, list) or not history:
         raise ValueError('No history available')
+    _validate_history_identity(report, history)
     for idx, entry in enumerate(history):
         if not isinstance(entry, dict):
             raise ValueError(f'History entry {idx + 1} must be an object.')

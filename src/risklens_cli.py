@@ -8,7 +8,8 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
+from collections.abc import Sequence
 
 from src.covenant_monitor import CovenantMonitor, FinancialCovenants
 from src.ratio_analyzer import CreditRatioAnalysis
@@ -253,7 +254,7 @@ def build_parser() -> argparse.ArgumentParser:
     assess_parser.add_argument(
         "tickers",
         nargs="+",
-        help="Ticker symbols, e.g. AAPL 0700.HK",
+        help="Ticker symbols, e.g. NVDA 0700.HK",
     )
     assess_parser.add_argument(
         "--data-source",
@@ -305,7 +306,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     covenants_parser.add_argument(
         "ticker",
-        help="Ticker symbol, e.g. AAPL",
+        help="Ticker symbol, e.g. NVDA",
     )
     covenants_parser.add_argument(
         "--data-source",

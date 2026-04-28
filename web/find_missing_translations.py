@@ -25,7 +25,7 @@ print(f"Loaded {len(existing_keys)} existing translation keys.")
 
 tickers_to_test = [
     # US
-    "AAPL", "MSFT", "AMZN", "JNJ", "JPM", "TSLA", "XOM", "DIS", "WMT", "NVDA",
+    "NVDA", "AMD", "AMZN", "JNJ", "JPM", "TSLA", "XOM", "DIS", "WMT", "TSM",
     # HK
     "0700.HK", "9988.HK", "3690.HK", "0005.HK", "1299.HK", "0941.HK", "0011.HK", "1211.HK", "0386.HK", "0883.HK",
     # A-Share
@@ -101,4 +101,4 @@ for norm_key in sorted(missing_keys):
 with open('missing_translations.txt', 'w', encoding='utf-8') as f:
     f.write('\n'.join(output_lines))
 
-print("Saved to web/missing_translations.txt")
+print("Saved to missing_translations.txt")

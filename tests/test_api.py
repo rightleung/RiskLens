@@ -5,12 +5,12 @@ Tests for FastAPI endpoints using TestClient.
 """
 
 import hashlib
+import asyncio
 import pytest
 from fastapi.testclient import TestClient
 import sys
-import os
 import types
-import time
+from unittest.mock import AsyncMock
 import pandas as pd
 
 import api
@@ -72,10 +72,9 @@ class TestAssessEndpoint:
         # Returns 404 when no results available
         assert response.status_code == 404
         data = response.json()
-        # FastAPI wraps HTTPException in "detail" key
-        detail = data.get("detail", data)
-        assert "errors" in detail
-        assert "suggestions" in detail
+        assert data["error_type"] == "http_error"
+        assert "errors" in data["details"]
+        assert "suggestions" in data["details"]
 
     def test_assess_valid_ticker(self, client, monkeypatch):
         """Test valid ticker returns analysis results."""
@@ -134,8 +133,7 @@ class TestAssessEndpoint:
             "/api/v1/assess",
             json={"tickers": [], "fiscal_year": 2024, "data_source": "yfinance"}
         )
-        # Should handle gracefully
-        assert response.status_code in [200, 422]
+        assert response.status_code == 422
 
     def test_assess_whitespace_tickers(self, client):
         """Whitespace-only tickers should be rejected."""
@@ -230,16 +228,15 @@ class TestSymbolSearch:
         assert suggestion["name_localized"] == suggestion["company_name_localized"]
 
     def test_symbol_search_timeout_returns_504(self, client, monkeypatch):
-        def _slow_search(*_args, **_kwargs):
-            time.sleep(0.8)
-            return []
-
-        monkeypatch.setattr(api, "_search_tickers", _slow_search)
+        monkeypatch.setattr(
+            "fastapi.concurrency.run_in_threadpool",
+            AsyncMock(side_effect=asyncio.TimeoutError),
+        )
         monkeypatch.setenv("SYMBOL_SEARCH_TIMEOUT_SECONDS", "0.05")
         response = client.get("/api/v1/symbols/search", params={"q": "nio", "limit": 20})
         assert response.status_code == 504
-        detail = response.json().get("detail", {})
-        assert detail.get("error_type") == "timeout"
+        data = response.json()
+        assert data.get("error_type") == "timeout"
 
 
 class TestCovenantEndpoint:
@@ -284,8 +281,8 @@ class TestCovenantEndpoint:
             }
         )
         assert response.status_code == 404
-        detail = response.json().get("detail", {})
-        assert detail.get("error_type") == "no_data_available"
+        data = response.json()
+        assert data.get("error_type") == "no_data_available"
 
     def test_covenant_missing_ticker(self, client):
         """Test missing ticker returns validation error."""

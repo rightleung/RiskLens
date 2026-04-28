@@ -22,7 +22,7 @@ def get_financial_data(ticker: str) -> Optional[Dict]:
         ticker: Stock ticker
             - A股: 600519, 000001 (without .SS/.SZ)
             - HK: 0700, 9988
-            - US: AAPL, MSFT
+            - US: NVDA, AMD
 
     Returns:
         Dict with company_name, income, balance, cashflow

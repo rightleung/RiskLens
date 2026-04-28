@@ -120,9 +120,9 @@ risklens version
 
 基本コマンド:
 
-- `risklens assess AAPL MSFT --data-source yfinance`
+- `risklens assess NVDA AMD --data-source yfinance`
 - `risklens search apple --limit 10`
-- `risklens covenants AAPL --min-current-ratio 1.2 --max-debt-to-equity 2.0`
+- `risklens covenants NVDA --min-current-ratio 1.2 --max-debt-to-equity 2.0`
 - `risklens sources`
 - `risklens version`
 
@@ -133,7 +133,7 @@ risklens version
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/assess \
   -H "Content-Type: application/json" \
-  -d '{"tickers":["AAPL","0700.HK"],"data_source":"yfinance"}'
+  -d '{"tickers":["NVDA","0700.HK"],"data_source":"yfinance"}'
 ```
 
 ### 5.2 企業検索
@@ -147,7 +147,7 @@ curl "http://127.0.0.1:8000/api/v1/symbols/search?q=apple&limit=20"
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
   -H "Content-Type: application/json" \
-  -d '{"ticker":"AAPL","data_source":"yfinance","covenants":{"min_current_ratio":1.2}}'
+  -d '{"ticker":"NVDA","data_source":"yfinance","covenants":{"min_current_ratio":1.2}}'
 ```
 
 ## 6. ドキュメント階層

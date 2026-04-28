@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import html as html_lib
 import io
+import logging
 import re
 from typing import Any
 
 from src.pdf_report_core import _clean_display_text, _estimate_table_row_height, _is_negative_display_value, _paginate_table_rows, _t, _wrap_cell_lines
 
 _INLINE_BREAK_RE = re.compile(r"<\s*br\s*/?\s*>", re.IGNORECASE)
+logger = logging.getLogger(__name__)
 
 
 def _ensure_no_inline_breaks(value: Any, path: str) -> None:
@@ -22,7 +24,7 @@ def _ensure_no_inline_breaks(value: Any, path: str) -> None:
         for idx, item in enumerate(value):
             _ensure_no_inline_breaks(item, f'{path}[{idx}]')
 
-def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
+def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
     try:
         from reportlab.lib import colors
         from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
@@ -93,6 +95,8 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
         'positive': colors.HexColor('#4ade80'),
         'warning': colors.HexColor('#f59e0b'),
         'danger': colors.HexColor('#f87171'),
+        'warning_soft': colors.HexColor('#3b2a10'),
+        'alert_soft': colors.HexColor('#3a1717'),
         'bench': colors.HexColor('#1e293b'),
         'header': colors.HexColor('#0b1220'),
         'header_text': colors.white,
@@ -110,6 +114,8 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
         'positive': colors.HexColor('#16A34A'),
         'warning': colors.HexColor('#D97706'),
         'danger': colors.HexColor('#DC2626'),
+        'warning_soft': colors.HexColor('#FEF3C7'),
+        'alert_soft': colors.HexColor('#FEE2E2'),
         'bench': colors.HexColor('#F8FAFC'),
         'header': colors.HexColor('#F1F5F9'),
         'header_text': colors.HexColor('#334155'),
@@ -419,7 +425,8 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
         numeric = re.sub(r'[^0-9.\-+]', '', cleaned)
         try:
             return palette['positive'] if float(numeric) > 0 else palette['ink']
-        except Exception:
+        except (ValueError, TypeError) as exc:
+            logger.debug("delta_color fallback: %s", exc)
             return palette['ink']
 
     def kpi_widths(total_width: float, column_count: int) -> list[float]:
@@ -578,14 +585,29 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
             notes_part = ''
         return Paragraph(f"<b>{label}</b>: {value}{notes_part}", styles['body'])
 
-    def report_table(headers: list[str], rows: list[list[Any]], widths: list[float], benchmark_cols: set[int] | None = None, group_break_cols: set[int] | None = None, alignments: list[str] | None = None, status_col_idx: int | None = None, delta_cols: set[int] | None = None, statement_mode: bool = False) -> LongTable:
+    def has_data_quality_rows(rows: list[dict[str, Any]]) -> bool:
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if any(_clean_display_text(row.get(field)) not in ('', '--', 'N/A', 'n/a') for field in ('value', 'notes')):
+                return True
+        return False
+
+    def report_table(headers: list[str], rows: list[list[Any]], widths: list[float], benchmark_cols: set[int] | None = None, group_break_cols: set[int] | None = None, alignments: list[str] | None = None, status_col_idx: int | None = None, delta_cols: set[int] | None = None, statement_mode: bool = False, row_meta: list[dict[str, Any]] | None = None) -> LongTable:
         _ensure_no_inline_breaks(headers, 'report_table.headers')
         _ensure_no_inline_breaks(rows, 'report_table.rows')
+        if len(widths) != len(headers):
+            raise ValueError(f'PDF table width/header mismatch: expected {len(headers)}, got {len(widths)}.')
+        for row_idx, row in enumerate(rows):
+            if len(row) != len(headers):
+                raise ValueError(
+                    f'PDF table row length mismatch at row {row_idx}: expected {len(headers)}, got {len(row)}.'
+                )
         is_empty_state = not rows
         header_rule_width = 0.8 if not theme_is_light else 1.0
         row_rule_width = 0.25
         alignments = alignments or ['left'] + ['right'] * (len(headers) - 1)
-        total_pattern = re.compile(r'(?i).*(total|subtotal|category|gross profit|operating income|net income).*')
+        total_pattern = re.compile(r'(?i).*(total|subtotal|category|gross profit|operating income|net income|ebitda?|free cash flow).*')
         # Header row: left-align the label column, right-align numeric/data columns to
         # match the right-aligned data cells and avoid a "floating" centred header over
         # right-justified numbers — standard practice in financial statement layout.
@@ -594,10 +616,12 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
             cell(header, 'header', header_aligns[idx] if idx < len(header_aligns) else 'right', statement_mode=statement_mode)
             for idx, header in enumerate(headers)
         ]]
-        for row in rows:
+        for row_idx, row in enumerate(rows):
             row_cells: list[Paragraph] = []
             row_label = str(_clean_display_text(row[0])) if row else ''
-            is_total = bool(total_pattern.match(row_label))
+            meta = row_meta[row_idx] if row_meta and row_idx < len(row_meta) else {}
+            level = int(meta.get('level') or meta.get('depth') or 0)
+            is_total = bool(meta.get('is_total') or total_pattern.match(row_label))
             for idx, value in enumerate(row):
                 align = alignments[idx] if idx < len(alignments) else ('left' if idx == 0 else 'right')
                 text = _clean_display_text(value)
@@ -645,13 +669,30 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
                 ('LINEBELOW', (0, 0), (-1, 0), header_rule_width, palette['line']),
             ])
         else:
-            for row_idx in range(0, len(table_data) - 1):
-                if row_idx == 0:
-                    style_cmds.append(('LINEBELOW', (0, row_idx), (-1, row_idx), header_rule_width, palette['line']))
+            for table_row_idx in range(0, len(table_data)):
+                if table_row_idx == 0:
+                    style_cmds.append(('LINEBELOW', (0, table_row_idx), (-1, table_row_idx), header_rule_width, palette['line']))
                     continue
-                row_label = str(_clean_display_text(rows[row_idx - 1][0])) if row_idx > 0 and row_idx - 1 < len(rows) and rows[row_idx - 1] else ''
-                if total_pattern.match(row_label):
-                    style_cmds.append(('LINEBELOW', (0, row_idx), (-1, row_idx), 0.8, palette['ink']))
+                source_idx = table_row_idx - 1
+                row_label = str(_clean_display_text(rows[source_idx][0])) if source_idx < len(rows) and rows[source_idx] else ''
+                meta = row_meta[source_idx] if row_meta and source_idx < len(row_meta) else {}
+                depth = int(meta.get('depth') or 0)
+                if statement_mode and depth > 0:
+                    style_cmds.append(('LEFTPADDING', (0, table_row_idx), (0, table_row_idx), 5.5 + depth * 7))
+                if total_pattern.match(row_label) or meta.get('is_total'):
+                    style_cmds.append(('LINEBELOW', (0, table_row_idx), (-1, table_row_idx), 0.8, palette['ink']))
+                if statement_mode and level > 0:
+                    style_cmds.append(('LEFTPADDING', (0, table_row_idx), (0, table_row_idx), 5.5 + level * 7))
+                if delta_cols and statement_mode:
+                    tone_by_col = {
+                        len(headers) - 2: meta.get('yoy_q_tone'),
+                        len(headers) - 1: meta.get('yoy_fy_tone'),
+                    }
+                    for col_idx, tone in tone_by_col.items():
+                        if tone == 'alert':
+                            style_cmds.append(('BACKGROUND', (col_idx, table_row_idx), (col_idx, table_row_idx), palette['alert_soft']))
+                        elif tone == 'warning':
+                            style_cmds.append(('BACKGROUND', (col_idx, table_row_idx), (col_idx, table_row_idx), palette['warning_soft']))
         table.setStyle(TableStyle(style_cmds))
         return table
 
@@ -662,28 +703,6 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
         canvas.setStrokeColor(palette['line'])
         canvas.setLineWidth(1 if theme_is_light else 0.6)
         canvas.line(margin, page_height - 13, page_width - margin, page_height - 13)
-        # Footer: display methodology note on cover page as a compact footnote
-        footer_rule_y = margin - 2
-        footer_text_y = margin - 12
-        canvas.setLineWidth(0.25)
-        canvas.setStrokeColor(palette['line'])
-        canvas.line(margin, footer_rule_y, page_width - margin, footer_rule_y)
-        
-        # In case methodology is in CJK, use localized font
-        methodology_text = ctx.get('hero_summary', {}).get('note', '')
-        localized_font = body_font
-        if any(ord(ch) > 127 for ch in methodology_text) and body_font in {'Helvetica', 'Helvetica-Bold'}:
-            lang = ctx.get('lang', 'en')
-            if lang == 'ja':
-                localized_font = 'HeiseiMin-W3'
-            elif lang == 'zh-TW':
-                localized_font = 'MSung-Light'
-            else:
-                localized_font = 'STSong-Light'
-        
-        canvas.setFont(localized_font, 6)
-        canvas.setFillColor(palette['muted'])
-        canvas.drawString(margin, footer_text_y, methodology_text)
         canvas.restoreState()
 
     def draw_content(canvas, doc):
@@ -1016,25 +1035,39 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
     ])
 
     # Summary section (Page 2: Company Profile & Data Quality)
+    company_profile_rows = summary['company_profile_rows']
+    data_quality_rows = summary['data_quality_rows']
+    if has_data_quality_rows(data_quality_rows):
+        profile_block = subtle_section_block(
+            None,
+            [label_value_line(row['label'], row['value']) for row in company_profile_rows],
+            (body_width - 6 * mm) / 2,
+            'flowables',
+        )
+        data_quality_block = subtle_section_block(
+            _t(lang, 'data_quality'),
+            [data_quality_line(row) for row in data_quality_rows],
+            (body_width - 6 * mm) / 2,
+            'flowables',
+        )
+        profile_panel = split_body(
+            profile_block,
+            data_quality_block,
+            body_width,
+        )
+    else:
+        profile_block = subtle_section_block(
+            None,
+            [label_value_line(row['label'], row['value']) for row in company_profile_rows],
+            body_width,
+            'flowables',
+        )
+        profile_panel = profile_block
     story.extend([
         p(ctx['company_profile_title'], 'section'),
         section_rule(body_width),
         Spacer(1, 1.5 * mm),
-        split_body(
-            subtle_section_block(
-                None,
-                [label_value_line(row['label'], row['value']) for row in summary['company_profile_rows']],
-                (body_width - 6 * mm) / 2,
-                'flowables',
-            ),
-            subtle_section_block(
-                _t(lang, 'data_quality'),
-                [data_quality_line(row) for row in summary['data_quality_rows']],
-                (body_width - 6 * mm) / 2,
-                'flowables',
-            ),
-            body_width,
-        ),
+        profile_panel,
         Spacer(1, 8 * mm),
     ])
     story.append(NextPageTemplate('content'))
@@ -1063,7 +1096,7 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
     # KPI page
     story.extend([
         p(kpi['title'], 'section'),
-        p(kpi['yoy_note'], 'note'),
+        p(' | '.join(item for item in (kpi.get('unit_note'), kpi.get('yoy_note')) if _clean_display_text(item)), 'note'),
         report_table(
             kpi['headers'],
             kpi['rows'],
@@ -1077,17 +1110,26 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
 
     # Statement sections — skip sections with no valid data rows
     for section in statements:
-        rows_for_section = [[row['label'], *row['values'], row['yoy_q'], row['yoy_fy']] for row in section['rows']]
+        rows_for_section = section.get('table_rows') or [[row['label'], *row['values'], row['yoy_q'], row['yoy_fy']] for row in section['rows']]
+        row_meta = [dict(row) for row in section['rows']]
         has_data = any(
             any(_clean_display_text(cell) not in ('', '--', 'N/A', 'n/a') for cell in row[1:])
             for row in rows_for_section
         )
         if not has_data and not section.get('force_show'):
             continue
+        statement_note = ' | '.join(
+            item for item in (
+                section.get('unit_note'),
+                _t(lang, 'statement_summary_note'),
+                section.get('yoy_note'),
+            )
+            if _clean_display_text(item)
+        )
         story.append(PageBreak())
         story.extend([
             p(section['display_title'], 'section'),
-            p(section['yoy_note'], 'note'),
+            p(statement_note, 'note'),
             report_table(
                 [_t(lang, 'metric')] + [period['label'] for period in section['periods']] + [section['yoy_label_q'], section['yoy_label_fy']],
                 rows_for_section,
@@ -1097,10 +1139,58 @@ def _render_reportlab_pdf(model: dict[str, Any]) -> bytes:
                 alignments=['left'] + ['right'] * (len(section['periods']) + 2),
                 delta_cols={len(section['periods']) + 1, len(section['periods']) + 2},
                 statement_mode=True,
+                row_meta=row_meta,
             ),
         ])
 
-    # Appendix page — covenant indicator descriptions only (methodology moved to cover)
+    # Appendix: statement details, methodology notes, and covenant indicator descriptions.
+    detail_sections = [section for section in statements if section.get('detail_rows')]
+    if detail_sections:
+        story.append(PageBreak())
+        story.extend([
+            p(appendix.get('statement_detail_title') or _t(lang, 'financial_statements'), 'section'),
+            section_rule(body_width),
+            Spacer(1, 2 * mm),
+        ])
+        first_detail = True
+        for section in detail_sections:
+            if not first_detail:
+                story.append(PageBreak())
+            first_detail = False
+            rows_for_section = [[row['label'], *row['values'], row['yoy_q'], row['yoy_fy']] for row in section['detail_rows']]
+            rows_for_section = section.get('detail_table_rows') or rows_for_section
+            row_meta = [dict(row) for row in section['detail_rows']]
+            detail_note = ' | '.join(
+                item for item in (section.get('detail_unit_note') or section.get('unit_note'), section.get('yoy_note'))
+                if _clean_display_text(item)
+            )
+            story.extend([
+                p(section['display_title'], 'section'),
+                p(detail_note, 'note'),
+                report_table(
+                    [_t(lang, 'metric')] + [period['label'] for period in section['periods']] + [section['yoy_label_q'], section['yoy_label_fy']],
+                    rows_for_section,
+                    statement_widths(body_width, len(section['periods'])),
+                    benchmark_cols=section['benchmark_cols'],
+                    group_break_cols=section['group_break_cols'],
+                    alignments=['left'] + ['right'] * (len(section['periods']) + 2),
+                    delta_cols={len(section['periods']) + 1, len(section['periods']) + 2},
+                    statement_mode=True,
+                    row_meta=row_meta,
+                ),
+            ])
+
+    methodology_notes = appendix.get('notes', [])
+    if methodology_notes:
+        story.append(PageBreak())
+        story.extend([
+            p(appendix['title'], 'section'),
+            section_rule(body_width),
+            Spacer(1, 2 * mm),
+        ])
+        for note in methodology_notes:
+            story.append(p(f'• {note}', 'bullet'))
+
     covenant_notes = covenant.get('notes', [])
     if covenant_notes:
         story.append(PageBreak())

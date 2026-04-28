@@ -261,6 +261,35 @@ def test_build_pdf_document_model_normalizes_statement_labels():
     assert cash_labels == ["Free CF", "Operating CF"]
 
 
+def test_build_pdf_document_model_exposes_statement_levels():
+    report = _build_report()
+    report["history"][0]["statements"]["balance"] = {
+        "current_assets": 100_000_000.0,
+        "total_assets": 200_000_000.0,
+        "current_liabilities": 50_000_000.0,
+        "total_liabilities": 125_000_000.0,
+    }
+
+    model = pdf_report_core.build_pdf_document_model(report, "en")
+
+    balance_rows = model["statements"][1]["detail_rows"]
+    levels = {row["label"]: row["level"] for row in balance_rows if row["label"] in {"Current Assets", "Total Assets", "Current Liabilities", "Total Liabilities"}}
+
+    assert levels["Total Assets"] == 0
+    assert levels["Total Liabilities"] == 0
+    assert levels["Current Assets"] == 1
+    assert levels["Current Liabilities"] == 1
+
+
+def test_build_pdf_document_model_validates_statement_table_matrix():
+    report = _build_report()
+    model = html_pdf_exporter.build_pdf_document_model(report, "en")
+    model["statements"][0]["rows"][0]["summary_display_values"] = ["105.2"]
+
+    with pytest.raises(ValueError, match="PDF table row length mismatch"):
+        pdf_report_core._sanitize_pdf_document_model(model)
+
+
 def test_build_pdf_document_model_separates_magnitude_units_and_repairs_ocr_suffixes(tmp_path):
     if not REPORTLAB_AVAILABLE:
         pytest.skip("reportlab is not installed")
@@ -277,15 +306,20 @@ def test_build_pdf_document_model_separates_magnitude_units_and_repairs_ocr_suff
 
     model = pdf_report_core.build_pdf_document_model(report, "en")
 
-    income_rows = model["statements"][0]["rows"][:5]
+    income_rows = model["statements"][0]["detail_rows"][:5]
     assert [row["values"][0] for row in income_rows] == [
-        "105.2 B",
-        "110.7 B",
-        "245.1 B",
-        "87.8 B",
+        "105,200",
+        "110,700",
+        "245,100",
+        "87,800",
         "0.18",
     ]
-    assert model["kpi"]["rows"][0][1] == "18.3 M"
+    assert model["kpi"]["rows"][0][1] == "0.02"
+    assert model["kpi"]["unit_note"] == "Values in USD billions; ratios in x"
+    assert model["statements"][0]["unit_note"] == "Values in USD billions; ratios in x"
+    assert model["statements"][0]["detail_unit_note"] == "Values in USD millions"
+    assert income_rows[0]["summary_display_values"][0] == "105.2"
+    assert income_rows[0]["detail_display_values"][0] == "105,200"
 
     pdf_bytes = generate_full_pdf(report, lang="en")
     pdf_file = tmp_path / "statement-unit-repair.pdf"
@@ -294,14 +328,15 @@ def test_build_pdf_document_model_separates_magnitude_units_and_repairs_ocr_suff
     if shutil.which("pdftotext"):
         extracted = subprocess.check_output(["pdftotext", str(pdf_file), "-"], text=True)
         normalized = re.sub(r"\s+", " ", extracted)
-        assert "105.2 B" in normalized
-        assert "110.7 B" in normalized
-        assert "245.1 B" in normalized
-        assert "87.8 B" in normalized
+        assert "105.2" in normalized
+        assert "110.7" in normalized
+        assert "245.1" in normalized
+        assert "87,800" in normalized
         assert "0.18" in normalized
         assert "105.28" not in normalized
-    assert html_pdf_exporter._format_statement_display_value("269.0. M", "Other Non Operating Income Expenses") == "269.0 M"
-    assert html_pdf_exporter._format_statement_display_value("76.7\nB", "Net Debt") == "76.7 B"
+    assert html_pdf_exporter._format_statement_display_value("269.0. M", "Other Non Operating Income Expenses") == "269"
+    assert html_pdf_exporter._format_statement_display_value("76.7\nB", "Net Debt") == "76,700"
+    assert html_pdf_exporter._format_statement_display_value("-0,06", "Working Capital") == "-0.06"
 
 
 def test_generate_full_pdf_rejects_invalid_numeric_payload():
@@ -312,6 +347,35 @@ def test_generate_full_pdf_rejects_invalid_numeric_payload():
 
     with pytest.raises(ValueError, match="Invalid numeric value"):
         generate_full_pdf(report, lang="en")
+
+
+def test_generate_full_pdf_rejects_company_identity_mismatch():
+    report = _build_report()
+    report["company_profile"]["ticker"] = "MSFT"
+
+    with pytest.raises(ValueError, match="Company profile ticker mismatch"):
+        generate_full_pdf(report, lang="en")
+
+
+def test_generate_full_pdf_rejects_history_identity_mismatch():
+    report = _build_report()
+    report["history"][0]["ticker"] = "MSFT"
+
+    with pytest.raises(ValueError, match="History entry 1 ticker mismatch"):
+        generate_full_pdf(report, lang="en")
+
+
+def test_generate_full_pdf_hides_empty_data_quality_panel(tmp_path):
+    report = _build_report()
+    report["history"][0]["assessment"]["data_quality"] = []
+
+    pdf_bytes = generate_full_pdf(report, lang="en")
+    pdf_file = tmp_path / "no-data-quality.pdf"
+    pdf_file.write_bytes(pdf_bytes)
+
+    if shutil.which("pdftotext"):
+        extracted = subprocess.check_output(["pdftotext", "-layout", str(pdf_file), "-"], text=True)
+        assert "Data Quality" not in extracted
 
 
 def test_generate_full_pdf_accepts_multiline_statement_rows(tmp_path):
@@ -334,11 +398,11 @@ def test_generate_full_pdf_accepts_multiline_statement_rows(tmp_path):
 
     model = pdf_report_core.build_pdf_document_model(report, lang="en")
 
-    assert [row["label"] for row in model["statements"][0]["rows"]] == ["EBITDA", "EBIT", "Net Interest Income"]
-    assert [row["values"][0] for row in model["statements"][0]["rows"]] == [
-        "160.2 B",
-        "126.0 B",
-        "262.0 M",
+    assert [row["label"] for row in model["statements"][0]["detail_rows"]] == ["EBITDA", "EBIT", "Net Interest Income"]
+    assert [row["values"][0] for row in model["statements"][0]["detail_rows"]] == [
+        "160,200",
+        "126,000",
+        "262",
     ]
 
     pdf_bytes = generate_full_pdf(report, lang="en")
@@ -421,7 +485,7 @@ def test_generate_full_pdf_renders_empty_statement_pages_without_table_headers(t
         assert "RiskLens Financial Report" not in pages[0]
         assert "Apple Inc." in pages[0]
         assert "Contents" not in pages[0]
-        assert "Methodology Note" in pages[0]
+        assert "Methodology Note" not in pages[0]
         empty_pages = [page for page in pages if ("Balance Sheet" in page or "Cash Flow Statement" in page) and "[No valid data provided for this period]" in page]
         assert len(empty_pages) == 0
 
@@ -636,12 +700,12 @@ def test_generate_full_pdf_keeps_long_statement_rows_and_interest_expense_alignm
 
     model = pdf_report_core.build_pdf_document_model(report, "en")
     income_section = next(section for section in model["statements"] if section["title"] == "income_statement")
-    interest_row = next(row for row in income_section["rows"] if row["label"] == "Interest Expense")
+    interest_row = next(row for row in income_section["detail_rows"] if row["label"] == "Interest Expense")
     assert interest_row["yoy_q"] == "-18.7%"
     assert interest_row["yoy_fy"] == "+49.1%"
 
     balance_section = next(section for section in model["statements"] if section["title"] == "balance_sheet")
-    assert [row["label"] for row in balance_section["rows"][:4]] == [
+    assert [row["label"] for row in balance_section["detail_rows"][:4]] == [
         "Net Tangible Assets",
         "Total Equity",
         "Retained Earnings",
@@ -649,7 +713,7 @@ def test_generate_full_pdf_keeps_long_statement_rows_and_interest_expense_alignm
     ]
 
     cash_section = next(section for section in model["statements"] if section["title"] == "cash_flow_statement")
-    assert [row["label"] for row in cash_section["rows"][:4]] == [
+    assert [row["label"] for row in cash_section["detail_rows"][:4]] == [
         "Sale of Investment",
         "Purchase of Investment",
         "Net Business Purchase and Sale",
