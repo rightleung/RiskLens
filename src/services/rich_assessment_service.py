@@ -11,7 +11,7 @@ import pandas as pd
 
 from src.data_fetcher import DataFetchError, FinancialDataFetcher
 from src.ratio_analyzer import CreditRatioAnalysis, RatioAnalyzer
-from src.zscore import calculate_z_score
+from src.zscore import build_z_score_breakdown, calculate_z_score
 from src.config import settings
 
 from src.services.assessment_service import AssessmentServiceError
@@ -224,6 +224,15 @@ class RichAssessmentService:
             sales=sales,
             market_cap=market_cap,
         )
+        z_breakdown = build_z_score_breakdown(
+            total_assets=total_assets,
+            total_liabilities=total_liabilities,
+            working_capital=(total_current_assets or 0) - (total_current_liabilities or 0),
+            retained_earnings=retained_earnings,
+            ebit=ebit,
+            sales=sales,
+            market_cap=market_cap,
+        )
 
         strengths: list[str] = []
         weaknesses: list[str] = []
@@ -285,6 +294,7 @@ class RichAssessmentService:
             "risk_score": float(round(z_result.z_score, 2)) if z_result.z_score is not None else 0.0,
             "overall_rating": z_result.zone,
             "implied_rating": z_result.implied_rating,
+            "zscore_breakdown": z_breakdown,
             "strengths": strengths,
             "weaknesses": weaknesses,
             "covenant_pre_check": [

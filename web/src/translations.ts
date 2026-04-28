@@ -1032,10 +1032,10 @@ export const getTooltip = (metricKey: string, lang: Language, label?: string): T
             'ja': { def: '自己株式数は保有中の自己株式の株数で、自己株式の金額とは別概念です。' }
         },
         'zscore': {
-            'en': { def: 'Altman Z-Score. Predicts the probability of a company going bankrupt within 2 years. >2.99 is safe, 1.81-2.99 is grey, <1.81 is distress.', formula: '1.2(Working Capital/Total Assets) + 1.4(Retained Earnings/Total Assets) + 3.3(EBIT/Total Assets) + 0.6(Market Value of Equity/Total Liabilities) + 1.0(Sales/Total Assets)' },
-            'zh-CN': { def: '奥特曼 Z-score。预测公司两年内破产的概率。>2.99 为安全，1.81-2.99 为灰色地带，<1.81 为财务困境。', formula: '1.2(营运资本/总资产) + 1.4(留存收益/总资产) + 3.3(EBIT/总资产) + 0.6(股权市值/总负债) + 1.0(销售额/总资产)' },
-            'zh-TW': { def: '奧特曼 Z-score。預測公司兩年內破產的概率。>2.99 為安全，1.81-2.99 為灰色地帶，<1.81 為財務困境。', formula: '1.2(營運資本/總資產) + 1.4(保留盈餘/總資產) + 3.3(EBIT/總資產) + 0.6(股權市值/總負債) + 1.0(銷售額/總資產)' },
-            'ja': { def: 'アルトマン Z-Score。2年以内に企業が倒産する確率を予測します。>2.99は安全、1.81-2.99はグレー、<1.81は苦境。', formula: '1.2(運転資本/総資産) + 1.4(利益剰余金/総資産) + 3.3(EBIT/総資産) + 0.6(株式時価総額/総負債) + 1.0(売上高/総資産)' }
+            'en': { def: 'Altman Z-Score. Predicts bankruptcy risk within 2 years. For mega-cap public companies, the market-value term can dominate, so treat very high scores as model output rather than a standalone credit opinion.', formula: '1.2(Working Capital/Total Assets) + 1.4(Retained Earnings/Total Assets) + 3.3(EBIT/Total Assets) + 0.6(Market Value of Equity/Total Liabilities) + 1.0(Sales/Total Assets)' },
+            'zh-CN': { def: '奥特曼 Z-score。预测公司两年内破产的概率。对超大市值上市公司，市值项可能主导分数，因此特别高的分数应视为模型输出，而不是单独的信用结论。', formula: '1.2(营运资本/总资产) + 1.4(留存收益/总资产) + 3.3(EBIT/总资产) + 0.6(股权市值/总负债) + 1.0(销售额/总资产)' },
+            'zh-TW': { def: '奧特曼 Z-score。預測公司兩年內破產的概率。對超大市值上市公司，市值項可能主導分數，因此特別高的分數應視為模型輸出，而不是單獨的信用結論。', formula: '1.2(營運資本/總資產) + 1.4(保留盈餘/總資產) + 3.3(EBIT/總資產) + 0.6(股權市值/總負債) + 1.0(銷售額/總資產)' },
+            'ja': { def: 'アルトマン Z-Score。2年以内に企業が倒産する確率を予測します。超大型時価総額の上場企業では時価総額項目が支配的になりやすいため、極端に高いスコアは単独の信用判断ではなくモデル出力として扱ってください。', formula: '1.2(運転資本/総資産) + 1.4(利益剰余金/総資産) + 3.3(EBIT/総資産) + 0.6(株式時価総額/総負債) + 1.0(売上高/総資産)' }
         },
         'implied_rating': {
             'en': { def: 'Experimental credit rating derived from Z-Score thresholds. Maps Z-Score probability of default into S&P global rating scale equivalents.' },

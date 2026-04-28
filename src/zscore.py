@@ -7,7 +7,7 @@ This module is intentionally side-effect free to support deterministic tests.
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 import math
 
 
@@ -87,3 +87,41 @@ def calculate_z_score(
     zone = map_z_score_to_zone(raw_z)
     implied_rating = map_z_score_to_implied_rating(raw_z)
     return ZScoreResult(raw_z, zone, implied_rating)
+
+
+def build_z_score_breakdown(
+    total_assets: Optional[float],
+    total_liabilities: Optional[float],
+    working_capital: Optional[float],
+    retained_earnings: Optional[float],
+    ebit: Optional[float],
+    sales: Optional[float],
+    market_cap: Optional[float],
+) -> list[dict[str, Any]]:
+    """Return the Altman Z-Score term breakdown with weighted contributions."""
+    def safe_ratio(numerator: Optional[float], denominator: Optional[float]) -> Optional[float]:
+        if numerator is None or denominator is None or denominator <= 0:
+            return None
+        value = numerator / denominator
+        return value if math.isfinite(value) else None
+
+    entries = [
+        ("WC / TA", working_capital, total_assets, 1.2),
+        ("RE / TA", retained_earnings, total_assets, 1.4),
+        ("EBIT / TA", ebit, total_assets, 3.3),
+        ("MVE / TL", market_cap, total_liabilities, 0.6),
+        ("Sales / TA", sales, total_assets, 1.0),
+    ]
+    breakdown: list[dict[str, Any]] = []
+    for label, numerator, denominator, weight in entries:
+        ratio = safe_ratio(numerator, denominator)
+        contribution = ratio * weight if ratio is not None else None
+        breakdown.append(
+            {
+                "label": label,
+                "ratio": ratio,
+                "weight": weight,
+                "contribution": contribution,
+            }
+        )
+    return breakdown

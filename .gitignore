@@ -33,7 +33,6 @@ dist/
 scratch_*.json
 msft.json
 missing_translations.txt
-web/missing_hk.txt
 
 # Logs and local runtime files
 .env

@@ -31,8 +31,7 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
         from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.units import mm
-        from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-        from reportlab.pdfbase.pdfmetrics import registerFont
+        from src.fonts import register_cjk_fonts
         from reportlab.platypus import (
             BaseDocTemplate,
             Frame,
@@ -66,19 +65,8 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
     body_width = page_width - margin * 2
     body_height = page_height - margin * 2
 
-    if lang == 'ja':
-        body_font = 'HeiseiMin-W3'
-        heading_font = 'HeiseiKakuGo-W5'
-        registerFont(UnicodeCIDFont(body_font))
-        registerFont(UnicodeCIDFont(heading_font))
-    elif lang == 'zh-TW':
-        body_font = 'MSung-Light'
-        heading_font = 'MSung-Light'
-        registerFont(UnicodeCIDFont(body_font))
-    elif lang == 'zh-CN':
-        body_font = 'STSong-Light'
-        heading_font = 'STSong-Light'
-        registerFont(UnicodeCIDFont(body_font))
+    if lang in ('ja', 'zh-TW', 'zh-CN'):
+        body_font, heading_font = register_cjk_fonts(lang)
     else:
         body_font = 'Helvetica'
         heading_font = 'Helvetica-Bold'
@@ -982,13 +970,8 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
 
     localized_font = body_font
     if any(ord(ch) > 127 for ch in str(cover['company_name_localized'])) and body_font in {'Helvetica', 'Helvetica-Bold'}:
-        if lang == 'ja':
-            localized_font = 'HeiseiMin-W3'
-        elif lang == 'zh-TW':
-            localized_font = 'MSung-Light'
-        else:
-            localized_font = 'STSong-Light'
-        registerFont(UnicodeCIDFont(localized_font))
+        cjk_lang = lang if lang in ('ja', 'zh-TW', 'zh-CN') else 'zh-CN'
+        localized_font, _ = register_cjk_fonts(cjk_lang)
     localized_style = ParagraphStyle(
         'localized_style',
         parent=styles['subtitle'],

@@ -12,7 +12,7 @@ import pandas as pd
 
 from src.data_fetcher import DataFetchError, FinancialDataFetcher
 from src.ratio_analyzer import CreditRatioAnalysis, RatioAnalyzer
-from src.zscore import ZScoreResult, calculate_z_score
+from src.zscore import ZScoreResult, build_z_score_breakdown, calculate_z_score
 
 
 class AssessmentServiceError(Exception):
@@ -107,6 +107,7 @@ class AssessmentService:
                 "z_score": safe_number(z_result.z_score),
                 "risk_zone": z_result.zone,
                 "implied_rating": z_result.implied_rating,
+                "zscore_breakdown": self._build_zscore_breakdown(balance_df, income_df, ratios, financial_data.get("market_cap") or 0),
             },
             "key_metrics": self._build_key_metrics(balance_df, income_df, cash_df, ratios),
             "ratios": ratios.to_dict(),
@@ -196,6 +197,31 @@ class AssessmentService:
         sales = ratios.revenue
 
         return calculate_z_score(
+            total_assets=total_assets,
+            total_liabilities=total_liabilities,
+            working_capital=(total_current_assets or 0) - (total_current_liabilities or 0),
+            retained_earnings=retained_earnings,
+            ebit=ebit,
+            sales=sales,
+            market_cap=market_cap,
+        )
+
+    def _build_zscore_breakdown(
+        self,
+        balance_df: pd.DataFrame,
+        income_df: pd.DataFrame,
+        ratios: CreditRatioAnalysis,
+        market_cap: float,
+    ) -> list[dict[str, Any]]:
+        total_assets = self.analyzer._get_value(balance_df, "total_assets")
+        total_liabilities = self.analyzer._get_value(balance_df, "total_liabilities")
+        total_current_assets = self.analyzer._get_value(balance_df, "total_current_assets")
+        total_current_liabilities = self.analyzer._get_value(balance_df, "total_current_liabilities")
+        retained_earnings = self.analyzer._get_value(balance_df, "retained_earnings")
+        ebit = self.analyzer._get_value(income_df, "operating_income")
+        sales = ratios.revenue
+
+        return build_z_score_breakdown(
             total_assets=total_assets,
             total_liabilities=total_liabilities,
             working_capital=(total_current_assets or 0) - (total_current_liabilities or 0),

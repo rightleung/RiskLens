@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, Fragment, useMemo, useRef } from 'react'
-import { Search, Loader2, Monitor, Sun, Moon, ArrowRight, CheckCircle2, AlertTriangle, ExternalLink, Info, Download, ChevronRight, ChevronDown, FileText } from 'lucide-react'
+import { Search, Loader2, Monitor, Sun, Moon, ArrowRight, Check, CheckCircle2, AlertTriangle, ExternalLink, Info, Download, ChevronRight, ChevronDown, FileText } from 'lucide-react'
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,12 @@ interface Period {
     implied_rating: string;
     strengths: string[];
     weaknesses: string[];
+    zscore_breakdown?: Array<{
+      label: string;
+      ratio: number | null;
+      weight: number;
+      contribution: number | null;
+    }>;
   };
   ratios: Record<string, number | null>;
   raw_metrics: Record<string, number | null>;
@@ -395,6 +401,8 @@ const translations = {
     didYouMean: 'Did you mean:',
     zScore: 'Altman Z-Score',
     impliedRating: 'Implied Rating',
+    zScoreNote: 'Market value can dominate; AAA is model output, not a formal credit opinion.',
+    zScoreDrivers: 'Z-Score Drivers',
     strengths: 'Strengths',
     watchItems: 'Watch Items',
     noStrengths: 'No major strengths detected.',
@@ -470,6 +478,8 @@ const translations = {
     didYouMean: '您是指：',
     zScore: '奥特曼 Z-Score',
     impliedRating: '隐含评级',
+    zScoreNote: '市值项可能主导；AAA 只是模型输出，不是正式信用意见。',
+    zScoreDrivers: 'Z 分数驱动项',
     strengths: '优势',
     watchItems: '关注事项',
     noStrengths: '未发现主要优势。',
@@ -545,6 +555,8 @@ const translations = {
     didYouMean: '您是指：',
     zScore: '奧特曼 Z-Score',
     impliedRating: '隱含評級',
+    zScoreNote: '市值項可能主導；AAA 只是模型輸出，不是正式信用意見。',
+    zScoreDrivers: 'Z 分數驅動項',
     strengths: '強項',
     watchItems: '關注事項',
     noStrengths: '未發現主要優勢。',
@@ -620,6 +632,8 @@ const translations = {
     didYouMean: 'もしかして：',
     zScore: 'アルトマン Z-Score',
     impliedRating: '予想格付け',
+    zScoreNote: '時価総額項目が主導しやすく、AAA はモデル出力で正式な信用判断ではありません。',
+    zScoreDrivers: 'Z スコアの要因',
     strengths: '強み',
     watchItems: '懸念事項',
     noStrengths: '主な強みは見つかりませんでした。',
@@ -1846,14 +1860,14 @@ const PDF_EXPORT_LANG_OPTIONS: Array<{ code: Language; label: string; note: stri
 const PDF_EXPORT_SECTIONS = [
   'Cover',
   'Risk Summary',
-  'Covenant Pre-check',
+  'Covenant Pre‑check',
   'KPI Trends',
   'Statements',
   'Appendix',
 ];
 
 const PDF_EXPORT_SECTION_LABELS: Record<Language, string[]> = {
-  en: PDF_EXPORT_SECTIONS,
+  en: ['Cover', 'Risk Summary', 'Covenant Pre‑check', 'KPI Trends', 'Statements', 'Appendix'],
   'zh-CN': ['封面', '风险摘要', '契约预检', 'KPI 趋势', '财务报表', '附录'],
   'zh-TW': ['封面', '風險摘要', '契約預檢', 'KPI 趨勢', '財務報表', '附錄'],
   ja: ['表紙', 'リスク要約', 'コベナンツ事前確認', 'KPIトレンド', '財務諸表', '付録'],
@@ -2154,26 +2168,28 @@ function PdfExportDialog({
               ))}
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4">
               <Card className="border-border bg-card text-card-foreground shadow-none">
                 <CardHeader className="space-y-2 border-b border-border px-4 py-4">
                   <CardTitle className="text-sm font-semibold uppercase tracking-[0.2em] text-foreground">{pdfText.structure}</CardTitle>
                   <CardDescription className="text-muted-foreground">{pdfText.structureHint}</CardDescription>
                 </CardHeader>
                 <CardContent className="px-4 py-4">
-                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="grid gap-2 sm:grid-cols-2">
                     {target.sections.map((section, idx) => (
                       <div
                         key={section}
                         className="flex items-center gap-3 rounded-xl border border-border bg-background/60 px-3 py-2.5"
                       >
                         <span
-                          className="flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold text-white"
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold leading-none text-white"
                           style={{ backgroundColor: themeAccent }}
                         >
                           {idx + 1}
                         </span>
-                        <span className="text-sm text-foreground">{sectionLabels[idx] ?? section}</span>
+                        <span className="min-w-0 flex-1 text-sm font-medium leading-tight text-foreground" style={{ hyphens: 'none' }}>
+                          {sectionLabels[idx] ?? section}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -2186,16 +2202,16 @@ function PdfExportDialog({
                   <CardDescription className="text-muted-foreground">{pdfText.notesHint}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3 px-4 py-4 text-sm text-muted-foreground">
-                  <div className="flex items-start gap-3">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4" style={{ color: themeAccent }} />
+                  <div className="flex items-start gap-2.5">
+                    <Check className="mt-1 h-3.5 w-3.5 shrink-0" style={{ color: themeAccent, strokeWidth: 2.75 }} />
                     <span>{pdfText.languageMatches}</span>
                   </div>
-                  <div className="flex items-start gap-3">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4" style={{ color: themeAccent }} />
+                  <div className="flex items-start gap-2.5">
+                    <Check className="mt-1 h-3.5 w-3.5 shrink-0" style={{ color: themeAccent, strokeWidth: 2.75 }} />
                     <span>{pdfText.filenameEditable}</span>
                   </div>
-                  <div className="flex items-start gap-3">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4" style={{ color: themeAccent }} />
+                  <div className="flex items-start gap-2.5">
+                    <Check className="mt-1 h-3.5 w-3.5 shrink-0" style={{ color: themeAccent, strokeWidth: 2.75 }} />
                     <span>{pdfText.serverRender}</span>
                   </div>
                 </CardContent>
@@ -3295,7 +3311,7 @@ export default function App() {
               </p>
             </div>
 
-            <Card className="w-full dashboard-panel bg-white/95 dark:bg-card border-border">
+            <Card className="w-full dashboard-panel bg-card/95 border-border">
               <CardContent className="p-4">
                 <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
                   <div className="relative flex-1">
@@ -3304,7 +3320,7 @@ export default function App() {
                       value={tickerInput}
                       onChange={(e) => setTickerInput(e.target.value)}
                       placeholder={t('placeholder')}
-                      className="pl-9 h-10 text-sm bg-white dark:bg-background border-input placeholder:text-muted-foreground/70 transition-colors focus-visible:ring-brand-500 shadow-sm"
+                      className="pl-9 h-10 text-sm bg-background border-input placeholder:text-muted-foreground/70 transition-colors focus-visible:ring-brand-500 shadow-sm"
                     />
                   </div>
                   <Button
@@ -3480,18 +3496,23 @@ export default function App() {
               const zZone = latest.assessment.overall_rating || 'N/A'
               const isSafe = zZone.includes('(S)')
               const isGrey = zZone.includes('(G)')
+              const zScoreBreakdown = Array.isArray(latest.assessment.zscore_breakdown) ? latest.assessment.zscore_breakdown : [];
+              const formatDriverValue = (value: number | null, digits = 2): string => {
+                if (value === null || !Number.isFinite(value)) return '--';
+                return `${value > 0 ? '+' : ''}${value.toFixed(digits)}`;
+              };
               const localizedName = resolveCompanyName(res, lang);
               const uniqueNames = getCompanyNameOptions(res);
               const otherNames = uniqueNames.filter(n => n !== localizedName);
               const hasMultipleNames = otherNames.length > 0;
 
               return (
-                <Card key={res.ticker} className="dashboard-panel overflow-hidden animate-in fade-in duration-500">
+            <Card key={res.ticker} className="dashboard-panel overflow-hidden animate-in fade-in duration-500">
                   <CardHeader className="bg-muted/10 border-b py-4">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div>
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="min-w-0 space-y-3 xl:max-w-[42%]">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <div className="flex items-center gap-2 min-w-0">
                             <CardTitle className="text-2xl">{localizedName}</CardTitle>
                             {hasMultipleNames && (
                               <Tooltip content={
@@ -3511,47 +3532,95 @@ export default function App() {
                           <span className="text-muted-foreground text-sm font-medium bg-muted/30 px-2 py-1 rounded">
                             {res.ticker}
                           </span>
-                          <div className="ml-2 flex items-center gap-1 rounded-full border border-border bg-background/85 p-1 shadow-sm backdrop-blur-sm">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 rounded-full px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                  onClick={() => { openPdfExport(res); }}
-                  title={t('exportPdf')}
-                >
-                  <FileText className="h-3.5 w-3.5" />
-                  {t('exportPdf')}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 rounded-full px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                  onClick={() => exportToExcel([res], t, lang)}
-                  title={t('exportExcel')}
-                >
-                  <Download className="h-3.5 w-3.5" />
-                  {t('exportExcel')}
-                </Button>
-              </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1 rounded-full border border-border bg-background/85 p-1 shadow-sm backdrop-blur-sm w-fit">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 rounded-full px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                            onClick={() => { openPdfExport(res); }}
+                            title={t('exportPdf')}
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                            {t('exportPdf')}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 rounded-full px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                            onClick={() => exportToExcel([res], t, lang)}
+                            title={t('exportExcel')}
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            {t('exportExcel')}
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex gap-4 p-3 bg-white dark:bg-background/50 rounded-lg shadow-inner border">
-                        <div className="flex flex-col items-center px-4 border-r">
-                          <div className="text-xs text-muted-foreground font-semibold tracking-wider uppercase">
-                            <MetricTooltip metricKey="zscore" label={t('zScore')} lang={lang} />
+
+                      <div className="w-full xl:max-w-[56%]">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="flex min-h-[6.25rem] flex-col items-center justify-center rounded-lg border border-border bg-card/95 px-4 py-3 shadow-inner">
+                            <div className="text-xs text-muted-foreground font-semibold tracking-wider uppercase">
+                              <MetricTooltip metricKey="zscore" label={t('zScore')} lang={lang} />
+                            </div>
+                            <div className="flex items-baseline gap-2 mt-1">
+                              <span className="text-2xl font-bold">{riskScore !== null ? riskScore.toFixed(2) : '--'}</span>
+                              <span className={`text-sm font-bold ${isSafe ? 'text-emerald-500' : isGrey ? 'text-amber-500' : 'text-rose-500'}`}>
+                                [{translateRatingStatus(zZone, lang)}]
+                              </span>
+                            </div>
                           </div>
-                          <div className="flex items-baseline gap-2 mt-1">
-                            <span className="text-2xl font-bold">{riskScore !== null ? riskScore.toFixed(2) : '--'}</span>
-                            <span className={`text-sm font-bold ${isSafe ? 'text-emerald-500' : isGrey ? 'text-amber-500' : 'text-rose-500'}`}>
-                              [{translateRatingStatus(zZone, lang)}]
-                            </span>
+                          <div className="flex min-h-[6.25rem] flex-col items-center justify-center rounded-lg border border-border bg-card/95 px-4 py-3 shadow-inner">
+                            <div className="text-xs text-muted-foreground font-semibold tracking-wider uppercase">
+                              <MetricTooltip metricKey="implied_rating" label={t('impliedRating')} lang={lang} />
+                            </div>
+                            <span className="text-2xl font-bold mt-1">{translateRatingStatus(latest.assessment.implied_rating || zZone.replace(/\s*\(.*\)/, ''), lang)}</span>
                           </div>
-                        </div>
-                        <div className="flex flex-col items-center px-4">
-                          <div className="text-xs text-muted-foreground font-semibold tracking-wider uppercase">
-                            <MetricTooltip metricKey="implied_rating" label={t('impliedRating')} lang={lang} />
+                          <div className="sm:col-span-2 rounded-lg border border-border bg-card/95 px-4 py-3 shadow-inner">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('zScoreDrivers')}</div>
+                                <div className="mt-1 text-[11px] leading-snug text-muted-foreground max-w-2xl">{t('zScoreNote')}</div>
+                              </div>
+                              <div className="rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                                {zScoreBreakdown.length} factors
+                              </div>
+                            </div>
+                            <div className="mt-3 overflow-x-auto pb-1">
+                              <div className="flex min-w-max gap-2">
+                              {zScoreBreakdown.map((driver) => {
+                                const isDominant = driver.label === 'MVE / TL';
+                                return (
+                                  <div
+                                    key={driver.label}
+                                    className={`w-[11rem] shrink-0 rounded-lg border px-3 py-2.5 shadow-sm ${
+                                      isDominant
+                                        ? 'border-emerald-500/30 bg-emerald-500/10'
+                                        : 'border-border bg-muted/20'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/75">{driver.label}</span>
+                                      {isDominant && (
+                                        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
+                                          dom
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="mt-1 flex items-end justify-between gap-2">
+                                      <div className="text-[11px] text-muted-foreground">
+                                        {`${formatDriverValue(driver.ratio, 2)} × ${driver.weight.toFixed(1)}`}
+                                      </div>
+                                      <div className={`text-sm font-semibold tabular-nums ${isDominant ? 'text-emerald-500' : 'text-foreground'}`}>
+                                        {formatDriverValue(driver.contribution)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              </div>
+                            </div>
                           </div>
-                          <span className="text-2xl font-bold mt-1">{translateRatingStatus(latest.assessment.implied_rating || zZone.replace(/\s*\(.*\)/, ''), lang)}</span>
                         </div>
                       </div>
                     </div>
@@ -3559,7 +3628,7 @@ export default function App() {
 
                   <CardContent className="p-0">
                     {numFormat === 'compact' && (
-                      <div className="flex items-center justify-end border-b border-white/10 bg-muted/20 px-6 py-2 text-[11px] font-medium text-muted-foreground">
+                      <div className="flex items-center justify-end border-b border-border bg-muted/25 px-6 py-2 text-[11px] font-medium text-muted-foreground">
                         <span>
                           {t('monetaryRowsUnit')}: {currencyDisplayUnit === 'million' ? t('unitMillions') : t('unitThousands')}
                         </span>
@@ -3570,7 +3639,7 @@ export default function App() {
                         <thead className="bg-muted/40 border-b">
                           <tr>
                             {/* ① Empty header — removed "Metric" label */}
-                            <th className="sticky left-0 z-30 border-r border-white/10 bg-background py-2.5 pl-6 pr-4 text-left font-medium text-muted-foreground text-xs uppercase tracking-wider min-w-[12rem]" />
+                            <th className="sticky left-0 z-30 border-r border-border bg-background py-2.5 pl-6 pr-4 text-left font-medium text-muted-foreground text-xs uppercase tracking-wider min-w-[12rem]" />
                             {/* column headers — only show valid periods */}
                             {displayHistory.map((period) => (
                               <th key={period.fiscal_year} className="py-2.5 px-4 text-right font-medium min-w-[7rem]">
@@ -3595,10 +3664,10 @@ export default function App() {
                             ))}
                           </tr>
                         </thead>
-                        <tbody className="divide-y border-white/5">
+                        <tbody className="divide-y border-border/60">
                           {metricRows.map((row) => (
                             <tr key={row.key} className="group hover:bg-muted/20 even:bg-muted/5 transition-colors text-sm">
-                              <td className="sticky left-0 z-20 border-r border-white/10 bg-background py-2.5 pl-6 pr-4 font-medium text-foreground/80 group-hover:bg-background">
+                              <td className="sticky left-0 z-20 border-r border-border bg-background py-2.5 pl-6 pr-4 font-medium text-foreground/80 group-hover:bg-background">
                                 <MetricTooltip metricKey={row.key} label={row.label} lang={lang} />
                               </td>
                               {displayHistory.map((period, j) => {
