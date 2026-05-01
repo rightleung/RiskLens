@@ -6,6 +6,7 @@ from typing import Any
 
 from src.services._utils import safe_number as _safe_number
 from src.statement_i18n import STATEMENT_I18N
+from src.config import settings
 
 LANG = {
     'en': {
@@ -1693,6 +1694,10 @@ def _dedupe_statement_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _build_statement_sections(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    max_periods = max(1, settings.max_pdf_periods)
+    if len(history) > max_periods:
+        history = history[:max_periods]
+
     periods = [str(entry.get('fiscal_year') or entry.get('period') or entry.get('label') or '--') for entry in history]
     period_entries: list[dict[str, Any]] = []
     prev_kind: str | None = None
@@ -1725,11 +1730,17 @@ def _build_statement_sections(history: list[dict[str, Any]]) -> list[dict[str, A
                 label = str(row.get('label') or '--')
                 if label not in labels:
                     labels.append(label)
+        # Pre-build per-period label→value maps to avoid O(N) next(...) scans
+        rows_by_period_maps: list[dict[str, Any]] = [
+            {str(r.get('label') or '--'): r.get('value') for r in rows}
+            for rows in rows_by_period
+        ]
+
         detail_rows: list[dict[str, Any]] = []
         for label in labels:
             values: list[Any] = []
-            for rows in rows_by_period:
-                matched = next((row.get('value') for row in rows if str(row.get('label') or '--') == label), None)
+            for rows_map in rows_by_period_maps:
+                matched = rows_map.get(label)
                 values.append(matched)
             yoy_q = 'N/A'
             yoy_fy = 'N/A'
@@ -1828,7 +1839,7 @@ def build_pdf_context(report: dict[str, object], lang: str = 'en', theme: str = 
         for section in statement_sections:
             for row in section.get('detail_rows', []):
                 row['label'] = _t_statement(lang, str(row.get('label', '')))
-            for row in section.get('summary_rows', []):
+            for row in section.get('rows', []):
                 row['label'] = _t_statement(lang, str(row.get('label', '')))
     currency = str(report.get('currency') or latest.get('currency') or latest.get('reporting_currency') or '--')
     for section in statement_sections:

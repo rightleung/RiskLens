@@ -39,7 +39,50 @@ _PROXY_ENV_KEYS = (
     "all_proxy",
 )
 
+_PROXY_ENV_ERROR_TOKENS = (
+    "proxy",
+    "curl",
+    "ProxyError",
+    "SSLError",
+    "ssl",
+    "CONNECT",
+    "tunnel",
+)
+
 _PROXY_CLEAR_LOCK = threading.Lock()
+
+
+def _clear_proxy_env():
+    """Remove proxy env vars and return a backup dict for restoration."""
+    backup = {k: _os.environ.get(k) for k in _PROXY_ENV_KEYS}
+    for k in _PROXY_ENV_KEYS:
+        _os.environ.pop(k, None)
+    return backup
+
+
+def _restore_proxy_env(backup):
+    """Restore proxy env vars from a backup dict."""
+    for k, v in backup.items():
+        if v is None:
+            _os.environ.pop(k, None)
+        else:
+            _os.environ[k] = v
+
+
+def _is_proxy_related_error(exc: Exception) -> bool:
+    """Return True if the exception suggests a proxy or TLS/curl problem."""
+    msg = str(exc).lower()
+    return any(token.lower() in msg for token in _PROXY_ENV_ERROR_TOKENS)
+
+
+def _run_with_cleared_proxy(fn):
+    """Execute *fn* with proxy env vars temporarily removed, holding the lock."""
+    with _PROXY_CLEAR_LOCK:
+        backup = _clear_proxy_env()
+        try:
+            return fn()
+        finally:
+            _restore_proxy_env(backup)
 
 
 def run_yfinance_call(fn, *, clear_proxy: bool = True):
@@ -55,21 +98,40 @@ def run_yfinance_call(fn, *, clear_proxy: bool = True):
     still holds the lock, preventing races with a concurrent clear-proxy
     call.
     """
-    with _PROXY_CLEAR_LOCK:
-        if clear_proxy:
-            backup = {k: _os.environ.get(k) for k in _PROXY_ENV_KEYS}
-            try:
-                for k in _PROXY_ENV_KEYS:
-                    _os.environ.pop(k, None)
-                return fn()
-            finally:
-                for k, v in backup.items():
-                    if v is None:
-                        _os.environ.pop(k, None)
-                    else:
-                        _os.environ[k] = v
-        else:
-            return fn()
+    mode = settings.yfinance_clear_proxy_mode
+
+    if mode == "never" or (mode == "retry_only" and clear_proxy):
+        pass  # handled below without default lock behaviour
+    else:
+        return _run_with_cleared_proxy(fn) if clear_proxy else fn()
+
+    if clear_proxy:
+        return _run_with_cleared_proxy(fn)
+    else:
+        return fn()
+
+
+def run_yfinance_call_with_proxy_retry(fn):
+    """Execute *fn* without the proxy lock first; retry with lock on proxy error.
+
+    In 'retry_only' mode (the default), this avoids serialising all yfinance
+    calls behind _PROXY_CLEAR_LOCK.  The lock is only acquired when the first
+    attempt fails with an error that looks proxy- or TLS-related.
+    """
+    mode = settings.yfinance_clear_proxy_mode
+
+    if mode == "always":
+        return _run_with_cleared_proxy(fn)
+    if mode == "never":
+        return fn()
+
+    try:
+        return fn()
+    except Exception as exc:
+        if _is_proxy_related_error(exc):
+            logger.debug("Proxy-related error on first attempt, retrying with cleared proxy: %s", exc)
+            return _run_with_cleared_proxy(fn)
+        raise
 
 
 # ── Simple In-Memory Cache with TTL ──────────────────────────────────────────
@@ -162,8 +224,28 @@ class SimpleCache:
 _data_cache = SimpleCache(default_ttl=settings.cache_ttl_seconds, maxsize=settings.data_cache_maxsize)
 
 # Single-flight coalescing: prevents concurrent cache misses for the same key
-_in_flight: dict[str, threading.Event] = {}
+class _InFlightEntry:
+    """Holds state for a single-flight upstream request.
+
+    The leader thread populates result or exception after the upstream call
+    completes; waiter threads block on *event* then read the outcome.
+    """
+    __slots__ = ("event", "result", "exception")
+
+    def __init__(self):
+        self.event = threading.Event()
+        self.result: Any | None = None
+        self.exception: BaseException | None = None
+
+
+_in_flight: dict[str, _InFlightEntry] = {}
 _in_flight_lock = threading.Lock()
+
+# Negative cache: caches failures to avoid repeated upstream requests.
+_error_cache = SimpleCache(
+    default_ttl=settings.negative_cache_ttl_seconds,
+    maxsize=max(200, settings.data_cache_maxsize // 2),
+)
 
 
 # ── Ticker Normalization ─────────────────────────────────────────────────────
@@ -285,6 +367,14 @@ class DataFetchError(Exception):
             "ticker": self.ticker,
             "details": self.details
         }
+
+
+_NEGATIVE_CACHE_TTLS: dict[str, int] = {
+    DataFetchErrorType.INVALID_TICKER.value: 900,
+    DataFetchErrorType.NO_DATA_AVAILABLE.value: 300,
+    DataFetchErrorType.RATE_LIMIT.value: 60,
+    DataFetchErrorType.NETWORK_ERROR.value: 10,
+}
 
 # Optional AKShare integration (akshare_data.py is a legacy module)
 try:
@@ -411,7 +501,7 @@ def _standardize_name(name: str) -> str:
 
 
 def _extract_single_column(df: pd.DataFrame | None, col_idx: int) -> pd.DataFrame:
-    """Extract a single column (period) from a yfinance statement DataFrame and 
+    """Extract a single column (period) from a yfinance statement DataFrame and
     standardize the index. Format: index = metric names, single 'Value' column."""
     if df is None or df.empty or col_idx >= len(df.columns):
         return pd.DataFrame()
@@ -505,7 +595,7 @@ def _akshare_row_to_df(row: pd.Series, field_map: dict) -> pd.DataFrame:
                         records[en_name] = fval
             except (TypeError, ValueError):
                 continue
-    
+
     # Compute derived fields
     if 'short_term_debt' in records or 'long_term_debt' in records:
         st = records.get('short_term_debt', 0)
@@ -519,7 +609,7 @@ def _akshare_row_to_df(row: pd.Series, field_map: dict) -> pd.DataFrame:
 
     # Note: EBITDA derivation is done after both income+cash DFs are built
     # (see _fetch_a_share_akshare post-processing)
-    
+
     if not records:
         # Log which Chinese field names were NOT matched
         if field_map:
@@ -592,9 +682,13 @@ def _merge_company_profiles(primary: dict[str, Any], fallback: dict[str, Any]) -
     backoff_factor=2.0,
     retriable_errors=(DataFetchError, ConnectionError, TimeoutError, OSError)
 )
-def _fetch_a_share_akshare(ticker: str) -> dict[str, Any] | None:
+def _fetch_a_share_akshare(ticker: str, *, include_profile: bool = True, include_supplement: bool = True) -> dict[str, Any] | None:
     """Fetch A-share data from AKShare's Sina Finance API.
-    
+
+    Parameters:
+        include_profile:  Fetch company info, profile, and product mix from AKShare.
+        include_supplement:  Fetch yfinance supplement for market cap / EBITDA.
+
     Returns the same dict format as the yfinance path:
         { ticker, company_name, market_cap, company_profile, history: [...] }
     """
@@ -602,7 +696,7 @@ def _fetch_a_share_akshare(ticker: str) -> dict[str, Any] | None:
         import akshare as ak
     except ImportError:
         return None
-    
+
     try:
         # Fetch all 3 statements
         logger.info(f"Fetching AKShare data for {ticker}")
@@ -619,7 +713,7 @@ def _fetch_a_share_akshare(ticker: str) -> dict[str, Any] | None:
 
         # Get company info first
         try:
-            stock_info = ak.stock_individual_info_em(symbol=ticker)
+            stock_info = ak.stock_individual_info_em(symbol=ticker) if include_profile else None
             if stock_info is not None and not stock_info.empty:
                 stock_info_map: dict[str, Any] = {}
                 if {'item', 'value'}.issubset(set(stock_info.columns)):
@@ -654,7 +748,7 @@ def _fetch_a_share_akshare(ticker: str) -> dict[str, Any] | None:
             logger.warning(f"AKShare individual info error for {ticker}: {e}")
 
         try:
-            profile_df = ak.stock_profile_cninfo(symbol=ticker)
+            profile_df = ak.stock_profile_cninfo(symbol=ticker) if include_profile else None
             if profile_df is not None and not profile_df.empty:
                 row_dict = profile_df.iloc[0].to_dict()
                 for key, value in row_dict.items():
@@ -682,7 +776,7 @@ def _fetch_a_share_akshare(ticker: str) -> dict[str, Any] | None:
         try:
             market_prefix = 'SH' if ticker.startswith('6') else 'SZ'
             zygc_symbol = f"{market_prefix}{ticker}"
-            zygc_df = ak.stock_zygc_em(symbol=zygc_symbol)
+            zygc_df = ak.stock_zygc_em(symbol=zygc_symbol) if include_profile else None
             if zygc_df is not None and not zygc_df.empty:
                 data_df = zygc_df
                 if '分类方向' in data_df.columns:
@@ -832,79 +926,80 @@ def _fetch_a_share_akshare(ticker: str) -> dict[str, Any] | None:
     # Get market cap and EBITDA/D&A from yfinance (AKShare Sina lacks D&A)
     market_cap = 0
     # company_name defaults to ticker, might have been updated by akshare above
-    try:
-        yf_ticker = ticker + ('.SS' if ticker.startswith('6') else '.SZ')
+    if include_supplement:
+        try:
+            yf_ticker = ticker + ('.SS' if ticker.startswith('6') else '.SZ')
 
-        def _do_aks_yfinance_calls():
-            _yf_stock = yf.Ticker(yf_ticker)
-            _info_yf = _yf_stock.info or {}
-            _yf_inc = _yf_stock.income_stmt
-            return _yf_stock, _info_yf, _yf_inc
+            def _do_aks_yfinance_calls():
+                _yf_stock = yf.Ticker(yf_ticker)
+                _info_yf = _yf_stock.info or {}
+                _yf_inc = _yf_stock.income_stmt
+                return _yf_stock, _info_yf, _yf_inc
 
-        yf_stock, info_yf, yf_inc = run_yfinance_call(_do_aks_yfinance_calls, clear_proxy=True)
-        yf_profile = _build_company_profile_from_yfinance_info(info_yf)
-        company_profile = _merge_company_profiles(company_profile, yf_profile)
-        market_cap = info_yf.get('marketCap', 0)
-        
-        # Only fallback to yfinance name if AKShare didn't find one
-        if company_name == ticker:
-            yf_name = info_yf.get('longName', info_yf.get('shortName', ''))
-            if yf_name:
-                company_name = yf_name
-        
-        # Supplement EBITDA from yfinance income statement (already fetched above)
-        if yf_inc is not None and not yf_inc.empty:
-            # Build a map: year -> (ebitda, d&a) from yfinance
-            yf_ebitda_map = {}
-            for col_idx in range(len(yf_inc.columns)):
-                col_date = str(yf_inc.columns[col_idx])[:4]  # e.g. '2024'
-                ebitda_val = None
-                da_val = None
-                if 'EBITDA' in yf_inc.index:
-                    try:
-                        ebitda_val = float(yf_inc.loc['EBITDA'].iloc[col_idx])
-                    except (TypeError, ValueError, KeyError, IndexError):
-                        pass
-                if 'Reconciled Depreciation' in yf_inc.index:
-                    try:
-                        da_val = float(yf_inc.loc['Reconciled Depreciation'].iloc[col_idx])
-                    except (TypeError, ValueError, KeyError, IndexError):
-                        pass
-                if ebitda_val is not None:
-                    yf_ebitda_map[col_date] = (ebitda_val, da_val)
-            
-            # Apply to history entries — process annuals first to establish D&A ratio
-            latest_da_ratio = None
-            annual_entries_h = [e for e in history if not e.get('is_quarterly')]
-            quarterly_entries_h = [e for e in history if e.get('is_quarterly')]
-            
-            for entry in annual_entries_h + quarterly_entries_h:
-                inc_e = entry.get('income')
-                if inc_e is None or inc_e.empty or 'ebitda' in inc_e.index:
-                    continue
-                ebit = inc_e.loc['operating_income', 'Value'] if 'operating_income' in inc_e.index else None
-                if ebit is None:
-                    continue
-                    
-                # Try to match by FY year label
-                label = entry.get('year_label', '')
-                year_2d = ''.join(c for c in label if c.isdigit())[-2:]
-                year_4d = '20' + year_2d if year_2d else ''
-                
-                if year_4d in yf_ebitda_map:
-                    ebitda_val, da_val = yf_ebitda_map[year_4d]
-                    inc_e.loc['ebitda', 'Value'] = ebitda_val
-                    if da_val is not None:
-                        inc_e.loc['reconciled_depreciation', 'Value'] = da_val
-                        if ebit != 0:
-                            latest_da_ratio = abs(da_val) / abs(ebit)
-                elif latest_da_ratio is not None and entry.get('is_quarterly'):
-                    # Estimate quarterly EBITDA using latest D&A ratio
-                    est_da = abs(ebit) * latest_da_ratio
-                    inc_e.loc['ebitda', 'Value'] = ebit + est_da
-                    inc_e.loc['reconciled_depreciation', 'Value'] = est_da
-    except Exception as e:
-        logger.warning(f"yfinance EBITDA supplement error for {ticker}: {e}")
+            yf_stock, info_yf, yf_inc = run_yfinance_call_with_proxy_retry(_do_aks_yfinance_calls)
+            yf_profile = _build_company_profile_from_yfinance_info(info_yf)
+            company_profile = _merge_company_profiles(company_profile, yf_profile)
+            market_cap = info_yf.get('marketCap', 0)
+
+            # Only fallback to yfinance name if AKShare didn't find one
+            if company_name == ticker:
+                yf_name = info_yf.get('longName', info_yf.get('shortName', ''))
+                if yf_name:
+                    company_name = yf_name
+
+            # Supplement EBITDA from yfinance income statement (already fetched above)
+            if yf_inc is not None and not yf_inc.empty:
+                # Build a map: year -> (ebitda, d&a) from yfinance
+                yf_ebitda_map = {}
+                for col_idx in range(len(yf_inc.columns)):
+                    col_date = str(yf_inc.columns[col_idx])[:4]  # e.g. '2024'
+                    ebitda_val = None
+                    da_val = None
+                    if 'EBITDA' in yf_inc.index:
+                        try:
+                            ebitda_val = float(yf_inc.loc['EBITDA'].iloc[col_idx])
+                        except (TypeError, ValueError, KeyError, IndexError):
+                            pass
+                    if 'Reconciled Depreciation' in yf_inc.index:
+                        try:
+                            da_val = float(yf_inc.loc['Reconciled Depreciation'].iloc[col_idx])
+                        except (TypeError, ValueError, KeyError, IndexError):
+                            pass
+                    if ebitda_val is not None:
+                        yf_ebitda_map[col_date] = (ebitda_val, da_val)
+
+                # Apply to history entries — process annuals first to establish D&A ratio
+                latest_da_ratio = None
+                annual_entries_h = [e for e in history if not e.get('is_quarterly')]
+                quarterly_entries_h = [e for e in history if e.get('is_quarterly')]
+
+                for entry in annual_entries_h + quarterly_entries_h:
+                    inc_e = entry.get('income')
+                    if inc_e is None or inc_e.empty or 'ebitda' in inc_e.index:
+                        continue
+                    ebit = inc_e.loc['operating_income', 'Value'] if 'operating_income' in inc_e.index else None
+                    if ebit is None:
+                        continue
+
+                    # Try to match by FY year label
+                    label = entry.get('year_label', '')
+                    year_2d = ''.join(c for c in label if c.isdigit())[-2:]
+                    year_4d = '20' + year_2d if year_2d else ''
+
+                    if year_4d in yf_ebitda_map:
+                        ebitda_val, da_val = yf_ebitda_map[year_4d]
+                        inc_e.loc['ebitda', 'Value'] = ebitda_val
+                        if da_val is not None:
+                            inc_e.loc['reconciled_depreciation', 'Value'] = da_val
+                            if ebit != 0:
+                                latest_da_ratio = abs(da_val) / abs(ebit)
+                    elif latest_da_ratio is not None and entry.get('is_quarterly'):
+                        # Estimate quarterly EBITDA using latest D&A ratio
+                        est_da = abs(ebit) * latest_da_ratio
+                        inc_e.loc['ebitda', 'Value'] = ebit + est_da
+                        inc_e.loc['reconciled_depreciation', 'Value'] = est_da
+        except Exception as e:
+            logger.warning(f"yfinance EBITDA supplement error for {ticker}: {e}")
 
     return {
         'ticker': ticker,
@@ -919,13 +1014,14 @@ class FinancialDataFetcher:
     """Fetches financial statements from external sources."""
 
     @staticmethod
-    @retry_with_backoff(
-        max_retries=3,
-        initial_delay=1.0,
-        backoff_factor=2.0,
-        retriable_errors=(DataFetchError, ConnectionError, TimeoutError, OSError)
-    )
-    def get_financial_data(ticker: str, data_source: str = 'auto') -> dict[str, Any] | None:
+    def get_financial_data(
+        ticker: str,
+        data_source: str = 'auto',
+        *,
+        mode: str = 'dashboard',
+        include_profile: bool = True,
+        include_supplement: bool = True,
+    ) -> dict[str, Any] | None:
         """
         Fetch financial data with auto-detection of market.
 
@@ -933,6 +1029,14 @@ class FinancialDataFetcher:
             - 6-digit numbers (e.g. 600519) → A股 → AKShare (Sina), fallback yfinance
             - .HK suffix (e.g. 0700.HK)    → 港股 → yfinance
             - Letters (e.g. NVDA)           → 美股 → yfinance
+
+        Modes:
+            - 'dashboard': full multi-period history with quarterly + annual.
+            - 'latest': only the most recent period (for covenant checks).
+
+        Parameters:
+            include_profile:  Fetch company profile (Ticker.info / AKShare info).
+            include_supplement:  Fetch yfinance supplement for A-share (market cap, EBITDA).
 
         Returns a dict with keys:
             ticker, company_name, market_cap, company_profile, history
@@ -956,42 +1060,46 @@ class FinancialDataFetcher:
         # Normalize special ticker formats
         ticker = _normalize_ticker(ticker)
 
-        # Build cache key: ticker + data_source
-        cache_key = f"{ticker.upper()}:{source}"
+        # Build cache key: ticker + data_source + mode + profile/supplement flags
+        _flag_suffix = f"{'p' if include_profile else 'n'}{'s' if include_supplement else 'n'}"
+        cache_key = f"{ticker.upper()}:{source}:{mode}:{_flag_suffix}"
 
-        # Check cache first
+        # Check positive cache first
         cached_result = _data_cache.get(cache_key)
         if cached_result is not None:
             logger.debug(f"Cache hit for {cache_key}")
             return cached_result
 
-        # Single-flight coalescing: only one upstream call per cache key
-        event: threading.Event | None = None
-        with _in_flight_lock:
-            if cache_key in _in_flight:
-                event = _in_flight[cache_key]
-            else:
-                _in_flight[cache_key] = threading.Event()
+        # Check negative cache (failures with type-specific TTL)
+        cached_error = _error_cache.get(cache_key)
+        if cached_error is not None:
+            logger.debug(f"Negative cache hit for {cache_key}: {cached_error}")
+            raise DataFetchError(
+                cached_error.get("message", "Cached upstream failure"),
+                error_type=cached_error.get("error_type", DataFetchErrorType.UNKNOWN),
+                ticker=cached_error.get("ticker", ticker),
+                details=cached_error.get("details"),
+            )
 
-        if event is not None:
+        # Single-flight coalescing: only one upstream call per cache key.
+        in_flight_entry: _InFlightEntry | None = None
+        is_leader = False
+        with _in_flight_lock:
+            existing = _in_flight.get(cache_key)
+            if existing is not None:
+                in_flight_entry = existing
+            else:
+                in_flight_entry = _InFlightEntry()
+                _in_flight[cache_key] = in_flight_entry
+                is_leader = True
+
+        if not is_leader:
             logger.debug(f"Waiting for in-flight fetch of {cache_key}")
-            event.wait()
-            # Re-check cache after in-flight fetch completes
-            cached_result = _data_cache.get(cache_key)
-            if cached_result is not None:
-                return cached_result
-            # If still not cached (e.g., fetch failed), re-acquire the in-flight slot
-            with _in_flight_lock:
-                if cache_key in _in_flight:
-                    event = _in_flight[cache_key]
-                else:
-                    _in_flight[cache_key] = threading.Event()
-                    event = None
-            if event is not None:
-                event.wait()
-                cached_result = _data_cache.get(cache_key)
-                if cached_result is not None:
-                    return cached_result
+            in_flight_entry.event.wait()
+            if in_flight_entry.result is not None:
+                return in_flight_entry.result
+            if in_flight_entry.exception is not None:
+                raise in_flight_entry.exception
 
         logger.debug(f"Cache miss for {cache_key}, fetching from source...")
 
@@ -1008,7 +1116,7 @@ class FinancialDataFetcher:
             if ticker.isdigit() and len(ticker) == 6:
                 if source in ("auto", "akshare"):
                     try:
-                        result = _fetch_a_share_akshare(ticker)
+                        result = _fetch_a_share_akshare(ticker, include_profile=include_profile, include_supplement=include_supplement)
                     except DataFetchError as exc:
                         if source == "akshare":
                             raise
@@ -1023,6 +1131,10 @@ class FinancialDataFetcher:
                         # Cache successful AKShare result
                         _data_cache.set(cache_key, result)
                         logger.debug(f"Cached AKShare result for {cache_key}")
+                        with _in_flight_lock:
+                            entry = _in_flight.get(cache_key)
+                            if entry is not None:
+                                entry.result = result
                         return result
                     if source == "akshare":
                         # Caller explicitly requested AKShare; surface explicit failure.
@@ -1039,135 +1151,158 @@ class FinancialDataFetcher:
                 ticker = ticker + suffix
 
             # ── yfinance (US / HK / A-share) ──
-            # All yfinance network calls go through run_yfinance_call for
-            # proxy-safety: no concurrent thread sees an inconsistent os.environ.
+            # Rate-limit before upstream I/O to avoid Yahoo Finance throttling.
+            # In retry_only mode (default) the proxy lock is only acquired on a
+            # proxy/curl-related retry, letting concurrent yfinance misses run in
+            # parallel rather than serialising behind _PROXY_CLEAR_LOCK.
             try:
-                # Collect all network-calling property accesses in a closure
-                # so run_yfinance_call can hold the proxy lock around them.
                 _stock = None
                 _info = None
                 _inc = _bal = _cf = None
                 _inc_q = _bal_q = _cf_q = None
+                _is_latest = (mode == 'latest')
 
                 def _do_yfinance_calls():
                     nonlocal _stock, _info, _inc, _bal, _cf, _inc_q, _bal_q, _cf_q
                     _stock = yf.Ticker(ticker)
-                    # Rate-limit: brief pause to avoid Yahoo Finance throttling
-                    time.sleep(0.3)
-                    _info = _stock.info or {}
+                    if include_profile:
+                        _info = _stock.info or {}
+                    else:
+                        _info = {}
                     _inc = _stock.income_stmt
                     _bal = _stock.balance_sheet
                     _cf = _stock.cashflow
-                    _inc_q = _stock.quarterly_income_stmt
-                    _bal_q = _stock.quarterly_balance_sheet
-                    _cf_q = _stock.quarterly_cashflow
+                    if not _is_latest:
+                        _inc_q = _stock.quarterly_income_stmt
+                        _bal_q = _stock.quarterly_balance_sheet
+                        _cf_q = _stock.quarterly_cashflow
 
-                run_yfinance_call(_do_yfinance_calls, clear_proxy=True)
+                time.sleep(0.3)
+                run_yfinance_call_with_proxy_retry(_do_yfinance_calls)
                 stock, info = _stock, _info
                 inc, bal, cf = _inc, _bal, _cf
                 inc_q, bal_q, cf_q = _inc_q, _bal_q, _cf_q
 
-                history = []
-
-                # 1. Fetch Annual Data first (Up to 3 Years) — establishes the cutoff
-                cols_count = 0
-                for stmt in [inc, bal, cf]:
-                    if stmt is not None and not stmt.empty:
-                        cols_count = max(cols_count, len(stmt.columns))
-                cols_count = min(3, cols_count)
-
-                latest_annual_date = None
-                annual_entries = []
-                for i in range(cols_count):
-                    year_label = f"Year {i+1}"
+                if _is_latest:
+                    # Latest-only mode: single period from first annual column.
+                    year_label = "Latest"
                     col_date_str = None
                     for stmt in [inc, bal, cf]:
-                        if stmt is not None and not stmt.empty and i < len(stmt.columns):
-                            col_date_str = str(stmt.columns[i])[:10]
+                        if stmt is not None and not stmt.empty and len(stmt.columns) > 0:
+                            col_date_str = str(stmt.columns[0])[:10]
                             if len(col_date_str) >= 10:
                                 year_label = f"FY{col_date_str[2:4]}"
                             break
-
-                    annual_entries.append({
+                    history = [{
                         'year_label': year_label,
                         'is_quarterly': False,
-                        'income': _extract_single_column(inc, i),
-                        'balance': _extract_single_column(bal, i),
-                        'cash': _extract_single_column(cf, i),
-                    })
-                    # Track latest annual date (first column = most recent)
-                    if i == 0 and col_date_str and len(col_date_str) >= 10:
-                        latest_annual_date = col_date_str
+                        'income': _extract_single_column(inc, 0),
+                        'balance': _extract_single_column(bal, 0),
+                        'cash': _extract_single_column(cf, 0),
+                    }]
+                else:
+                    history = []
 
-                # 2. Process Quarterly Data — keep quarters newer than latest annual
-                # plus latest-quarter YoY baseline (same quarter last year).
+                # 1. Fetch Annual Data first (Up to 3 Years) — establishes the cutoff
+                if not _is_latest:
+                    cols_count = 0
+                    for stmt in [inc, bal, cf]:
+                        if stmt is not None and not stmt.empty:
+                            cols_count = max(cols_count, len(stmt.columns))
+                    cols_count = min(3, cols_count)
 
-                cols_count_q = 0
-                for stmt in [inc_q, bal_q, cf_q]:
-                    if stmt is not None and not stmt.empty:
-                        cols_count_q = max(cols_count_q, len(stmt.columns))
-                cols_count_q = min(cols_count_q, 12)  # safety cap
+                    latest_annual_date = None
+                    annual_entries = []
+                    for i in range(cols_count):
+                        year_label = f"Year {i+1}"
+                        col_date_str = None
+                        for stmt in [inc, bal, cf]:
+                            if stmt is not None and not stmt.empty and i < len(stmt.columns):
+                                col_date_str = str(stmt.columns[i])[:10]
+                                if len(col_date_str) >= 10:
+                                    year_label = f"FY{col_date_str[2:4]}"
+                                break
 
-                quarterly_candidates = []
-                for i in range(cols_count_q):
-                    col_date_str = None
-                    year_label = f"Q{i+1} Unaudited"
-                    quarter_meta = None
+                        annual_entries.append({
+                            'year_label': year_label,
+                            'is_quarterly': False,
+                            'income': _extract_single_column(inc, i),
+                            'balance': _extract_single_column(bal, i),
+                            'cash': _extract_single_column(cf, i),
+                        })
+                        # Track latest annual date (first column = most recent)
+                        if i == 0 and col_date_str and len(col_date_str) >= 10:
+                            latest_annual_date = col_date_str
+
+                    # 2. Process Quarterly Data — keep quarters newer than latest annual
+                    # plus latest-quarter YoY baseline (same quarter last year).
+
+                    cols_count_q = 0
                     for stmt in [inc_q, bal_q, cf_q]:
-                        if stmt is not None and not stmt.empty and i < len(stmt.columns):
-                            col_date_str = str(stmt.columns[i])[:10]
-                            if len(col_date_str) >= 10:
-                                m = int(col_date_str[5:7])
-                                q = (m - 1) // 3 + 1
-                                quarter_meta = (int(col_date_str[:4]), q)
-                                year_label = f"Q{q} '{col_date_str[2:4]} (U)"
+                        if stmt is not None and not stmt.empty:
+                            cols_count_q = max(cols_count_q, len(stmt.columns))
+                    cols_count_q = min(cols_count_q, 12)  # safety cap
+
+                    quarterly_candidates = []
+                    for i in range(cols_count_q):
+                        col_date_str = None
+                        year_label = f"Q{i+1} Unaudited"
+                        quarter_meta = None
+                        for stmt in [inc_q, bal_q, cf_q]:
+                            if stmt is not None and not stmt.empty and i < len(stmt.columns):
+                                col_date_str = str(stmt.columns[i])[:10]
+                                if len(col_date_str) >= 10:
+                                    m = int(col_date_str[5:7])
+                                    q = (m - 1) // 3 + 1
+                                    quarter_meta = (int(col_date_str[:4]), q)
+                                    year_label = f"Q{q} '{col_date_str[2:4]} (U)"
+                                break
+
+                        quarterly_candidates.append({
+                            'year_label': year_label,
+                            'is_quarterly': True,
+                            'income': _extract_single_column(inc_q, i),
+                            'balance': _extract_single_column(bal_q, i),
+                            'cash': _extract_single_column(cf_q, i),
+                            '_quarter_meta': quarter_meta,
+                        })
+
+                    latest_quarter_meta = None
+                    for candidate in quarterly_candidates:
+                        candidate_meta = candidate.get('_quarter_meta')
+                        if candidate_meta is not None:
+                            latest_quarter_meta = candidate_meta
                             break
 
-                    quarterly_candidates.append({
-                        'year_label': year_label,
-                        'is_quarterly': True,
-                        'income': _extract_single_column(inc_q, i),
-                        'balance': _extract_single_column(bal_q, i),
-                        'cash': _extract_single_column(cf_q, i),
-                        '_quarter_meta': quarter_meta,
-                    })
+                    annual_year = int(latest_annual_date[:4]) if latest_annual_date else None
+                    prior_year_same_quarter = None
+                    latest_quarter_is_displayed = (
+                        latest_quarter_meta is not None
+                        and (annual_year is None or latest_quarter_meta[0] > annual_year)
+                    )
+                    if latest_quarter_is_displayed:
+                        prior_year_same_quarter = (latest_quarter_meta[0] - 1, latest_quarter_meta[1])
 
-                latest_quarter_meta = None
-                for candidate in quarterly_candidates:
-                    candidate_meta = candidate.get('_quarter_meta')
-                    if candidate_meta is not None:
-                        latest_quarter_meta = candidate_meta
-                        break
+                    quarterly_entries = []
+                    seen_quarters = set()
+                    for candidate in quarterly_candidates:
+                        candidate_meta = candidate.get('_quarter_meta')
+                        keep = True
+                        if annual_year is not None and candidate_meta is not None:
+                            keep = candidate_meta[0] > annual_year
+                            if prior_year_same_quarter is not None and candidate_meta == prior_year_same_quarter:
+                                keep = True
+                        if not keep:
+                            continue
+                        if candidate_meta is not None and candidate_meta in seen_quarters:
+                            continue
+                        if candidate_meta is not None:
+                            seen_quarters.add(candidate_meta)
+                        candidate.pop('_quarter_meta', None)
+                        quarterly_entries.append(candidate)
 
-                annual_year = int(latest_annual_date[:4]) if latest_annual_date else None
-                prior_year_same_quarter = None
-                latest_quarter_is_displayed = (
-                    latest_quarter_meta is not None
-                    and (annual_year is None or latest_quarter_meta[0] > annual_year)
-                )
-                if latest_quarter_is_displayed:
-                    prior_year_same_quarter = (latest_quarter_meta[0] - 1, latest_quarter_meta[1])
-
-                quarterly_entries = []
-                seen_quarters = set()
-                for candidate in quarterly_candidates:
-                    candidate_meta = candidate.get('_quarter_meta')
-                    keep = True
-                    if annual_year is not None and candidate_meta is not None:
-                        keep = candidate_meta[0] > annual_year
-                        if prior_year_same_quarter is not None and candidate_meta == prior_year_same_quarter:
-                            keep = True
-                    if not keep:
-                        continue
-                    if candidate_meta is not None and candidate_meta in seen_quarters:
-                        continue
-                    if candidate_meta is not None:
-                        seen_quarters.add(candidate_meta)
-                    candidate.pop('_quarter_meta', None)
-                    quarterly_entries.append(candidate)
-
-                # Final order: quarterly (newest first) then annual (newest first)
-                history = quarterly_entries + annual_entries
+                    # Final order: quarterly (newest first) then annual (newest first)
+                    history = quarterly_entries + annual_entries
 
                 # Validate that we have actual financial data before returning success
                 if not history:
@@ -1181,19 +1316,34 @@ class FinancialDataFetcher:
 
                 result = {
                     'ticker': ticker,
-                    'company_name': info.get('longName', info.get('shortName', ticker)),
-                    'market_cap': info.get('marketCap'),
-                    'company_profile': _build_company_profile_from_yfinance_info(info),
+                    'company_name': info.get('longName', info.get('shortName', ticker)) if info else ticker,
+                    'market_cap': info.get('marketCap') if info else None,
+                    'company_profile': _build_company_profile_from_yfinance_info(info) if include_profile else {},
                     'history': history
                 }
 
                 # Cache successful result
                 _data_cache.set(cache_key, result)
                 logger.debug(f"Cached result for {cache_key}")
+                with _in_flight_lock:
+                    entry = _in_flight.get(cache_key)
+                    if entry is not None:
+                        entry.result = result
 
                 return result
-            except DataFetchError:
-                # Re-raise our custom exceptions
+            except DataFetchError as exc:
+                # Cache failures with type-specific TTL
+                ttl = _NEGATIVE_CACHE_TTLS.get(exc.error_type.value, settings.negative_cache_ttl_seconds)
+                _error_cache.set(cache_key, {
+                    "message": exc.message,
+                    "error_type": exc.error_type.value,
+                    "ticker": exc.ticker,
+                    "details": exc.details,
+                }, ttl=ttl)
+                with _in_flight_lock:
+                    entry = _in_flight.get(cache_key)
+                    if entry is not None:
+                        entry.exception = exc
                 raise
             except Exception as e:
                 error_msg = str(e).lower()
@@ -1237,12 +1387,18 @@ class FinancialDataFetcher:
                     message = f"Error fetching data for '{ticker}': {e}"
 
                 logger.error(f"yfinance error for {ticker}: {e}")
-                raise DataFetchError(message, error_type=error_type, ticker=ticker)
+                exc_to_raise = DataFetchError(message, error_type=error_type, ticker=ticker)
+                with _in_flight_lock:
+                    entry = _in_flight.get(cache_key)
+                    if entry is not None:
+                        entry.exception = exc_to_raise
+                raise exc_to_raise
         finally:
-            # Signal any waiters that this in-flight request has completed
+            # Signal any waiters that this in-flight request has completed.
             with _in_flight_lock:
-                if cache_key in _in_flight:
-                    _in_flight[cache_key].set()
+                entry = _in_flight.get(cache_key)
+                if entry is not None:
+                    entry.event.set()
                     del _in_flight[cache_key]
 
     @staticmethod

@@ -647,6 +647,24 @@ class RiskFactorsValidator:
 # Main Analyzer Class
 # =============================================================================
 
+def dataframe_to_value_map(df: pd.DataFrame) -> dict[str, float]:
+    """Convert a standardized DataFrame to a dict snapshot for fast lookups.
+
+    Each call to ``get_dataframe_value`` does a ``.loc`` lookup on the
+    DataFrame.  For a batch of ratio calculations this becomes a hot loop.
+    Building a plain dict once and passing it to ``_get_value`` avoids
+    repeated pandas index scans.
+    """
+    if df is None or df.empty or "Value" not in df.columns:
+        return {}
+    result: dict[str, float] = {}
+    for idx, row in df.iterrows():
+        val = row.get("Value")
+        if val is not None and not (isinstance(val, float) and (np.isnan(val) or np.isinf(val))):
+            result[str(idx)] = float(val)
+    return result
+
+
 class RatioAnalyzer:
     """
     Calculate financial ratios from financial statements.
@@ -712,16 +730,14 @@ class RatioAnalyzer:
                 reason=str(e)
             ) from e
     
-    def _get_value(self, df: pd.DataFrame, key: str) -> float | None:
+    def _get_value(self, df: pd.DataFrame | dict[str, float], key: str) -> float | None:
         """Extract a single value from standardized financial data.
-        
-        Args:
-            df: DataFrame with financial data
-            key: Key to look up
-            
-        Returns:
-            Value as float or None if not found
+
+        Accepts either a DataFrame or a pre-computed dict snapshot
+        (from ``dataframe_to_value_map``) for faster repeated lookups.
         """
+        if isinstance(df, dict):
+            return df.get(key)
         return get_dataframe_value(df, key)
     
     def calculate_liquidity_ratios(self, bs_data: pd.DataFrame) -> dict[str, float | None]:
@@ -737,93 +753,92 @@ class RatioAnalyzer:
             ValidationError: If data validation fails
         """
         RiskFactorsValidator.validate_dataframe(bs_data)
-        
+        bs_map = dataframe_to_value_map(bs_data)
+
         ratios: dict[str, float | None] = {}
-        
+
         # Current Ratio = Current Assets / Current Liabilities
-        ca = self._get_value(bs_data, 'total_current_assets')
-        cl = self._get_value(bs_data, 'total_current_liabilities')
+        ca = bs_map.get('total_current_assets')
+        cl = bs_map.get('total_current_liabilities')
         ratios['current_ratio'] = self._safe_divide(ca, cl)
-        
+
         # Quick Ratio = (Current Assets - Inventory) / Current Liabilities
-        inv = self._get_value(bs_data, 'inventory')
+        inv = bs_map.get('inventory')
         if ca is not None:
             quick_assets = ca - (inv if inv is not None else 0)
         else:
             quick_assets = None
         ratios['quick_ratio'] = self._safe_divide(quick_assets, cl)
-        
+
         # Cash Ratio = Cash / Current Liabilities
-        cash = self._get_value(bs_data, 'cash')
+        cash = bs_map.get('cash')
         ratios['cash_ratio'] = self._safe_divide(cash, cl)
-        
+
         return ratios
-    
+
     def calculate_leverage_ratios(
-        self, 
-        bs_data: pd.DataFrame, 
+        self,
+        bs_data: pd.DataFrame,
         is_data: pd.DataFrame = None
     ) -> dict[str, float | None]:
         """Calculate leverage/solvency ratios.
-        
+
         Args:
             bs_data: Balance sheet data (standardized DataFrame)
             is_data: Income statement data (standardized DataFrame)
-            
+
         Returns:
             Dictionary of leverage ratios
         """
         RiskFactorsValidator.validate_dataframe(bs_data)
-        
+        bs_map = dataframe_to_value_map(bs_data)
+        is_map = dataframe_to_value_map(is_data) if is_data is not None else {}
+
         ratios: dict[str, float | None] = {}
         
         # Debt to Equity = Total Debt / Total Equity
-        debt = self._get_value(bs_data, 'total_debt')
-        equity = self._get_value(bs_data, 'total_equity')
-        
+        debt = bs_map.get('total_debt')
+        equity = bs_map.get('total_equity')
+
         # OR-001: Negative equity makes D/E misleading (shows falsely low leverage).
-        # Return None so the UI can display N/A instead of a negative ratio.
         if equity is not None and equity < 0:
             ratios['debt_to_equity'] = None  # Insolvent: equity is negative
         else:
             ratios['debt_to_equity'] = self._safe_divide(debt, equity)
-        
+
         # Debt to Assets = Total Debt / Total Assets
-        assets = self._get_value(bs_data, 'total_assets')
+        assets = bs_map.get('total_assets')
         ratios['debt_to_assets'] = self._safe_divide(debt, assets)
-        
+
         # Financial Leverage = Total Assets / Total Equity
         ratios['financial_leverage'] = self._safe_divide(assets, equity)
-        
+
         # Interest Coverage = EBIT / Interest Expense
         if is_data is not None:
             RiskFactorsValidator.validate_dataframe(is_data)
-            ebit = self._get_value(is_data, 'operating_income')
-            interest = self._get_value(is_data, 'interest_expense')
+            ebit = is_map.get('operating_income')
+            interest = is_map.get('interest_expense')
             # Normalize sign: yFinance may report interest_expense as negative
             if interest is not None:
                 interest = abs(interest)
-            
+
             # OR-001: If EBIT ≤ 0 (operating loss), interest coverage is N/A.
-            # A company that cannot cover interest from operations is already
-            # in distress; returning 0 would understate that.
             if ebit is not None and ebit <= 0:
-                ratios['interest_coverage'] = None  # Mark as N/A for negative/zero EBIT
+                ratios['interest_coverage'] = None
             else:
                 ratios['interest_coverage'] = self._safe_divide(ebit, interest)
-            
+
             # EBITDA: prefer direct value, fallback to EBIT + D&A
-            ebitda_direct = self._get_value(is_data, 'ebitda')
-            da = self._get_value(is_data, 'reconciled_depreciation')
+            ebitda_direct = is_map.get('ebitda')
+            da = is_map.get('reconciled_depreciation')
             if ebitda_direct is not None:
                 ebitda = ebitda_direct
             elif ebit is not None and da is not None:
                 ebitda = ebit + abs(da)
             else:
                 ebitda = ebit  # Last resort fallback
-            
+
             # OR-001: If EBITDA ≤ 0, debt_to_ebitda is not meaningful
-            # (a negative value would imply 'safe' leverage which is wrong).
             if ebitda is not None and ebitda <= 0:
                 ratios['debt_to_ebitda'] = None  # Mark as N/A for loss-making
             else:
@@ -851,73 +866,77 @@ class RatioAnalyzer:
             Dictionary of profitability ratios
         """
         RiskFactorsValidator.validate_dataframe(bs_data)
-        
+        bs_map = dataframe_to_value_map(bs_data)
+        is_map = dataframe_to_value_map(is_data) if is_data is not None else {}
+
         ratios: dict[str, float | None] = {}
-        
+
         if is_data is not None:
             RiskFactorsValidator.validate_dataframe(is_data)
-            revenue = self._get_value(is_data, 'revenue')
-            gross_profit = self._get_value(is_data, 'gross_profit')
-            operating_income = self._get_value(is_data, 'operating_income')
-            net_income = self._get_value(is_data, 'net_income')
-            
+            revenue = is_map.get('revenue')
+            gross_profit = is_map.get('gross_profit')
+            operating_income = is_map.get('operating_income')
+            net_income = is_map.get('net_income')
+
             # Fallback for gross_profit if missing
             if gross_profit is None and revenue is not None:
-                cost = self._get_value(is_data, 'cost_of_revenue')
+                cost = is_map.get('cost_of_revenue')
                 if cost is not None:
                     gross_profit = revenue - cost
 
             gm = self._safe_divide(gross_profit, revenue)
             ratios['gross_margin'] = gm * 100 if gm is not None else None
-            
+
             om = self._safe_divide(operating_income, revenue)
             ratios['operating_margin'] = om * 100 if om is not None else None
-            
+
             nm = self._safe_divide(net_income, revenue)
             ratios['net_margin'] = nm * 100 if nm is not None else None
-            
+
             ratios['revenue'] = revenue
-        
+
         # Return on Assets = Net Income / Total Assets
-        net_income = self._get_value(is_data, 'net_income') if is_data is not None else None
-        assets = self._get_value(bs_data, 'total_assets')
+        net_income = is_map.get('net_income') if is_data is not None else None
+        assets = bs_map.get('total_assets')
         roa_val = self._safe_divide(net_income, assets)
         ratios['roa'] = roa_val * 100 if roa_val is not None else None
-        
+
         # Return on Equity = Net Income / Total Equity
-        equity = self._get_value(bs_data, 'total_equity')
+        equity = bs_map.get('total_equity')
         roe_val = self._safe_divide(net_income, equity)
         ratios['roe'] = roe_val * 100 if roe_val is not None else None
-        
+
         return ratios
-    
+
     def calculate_efficiency_ratios(
-        self, 
-        bs_data: pd.DataFrame, 
+        self,
+        bs_data: pd.DataFrame,
         is_data: pd.DataFrame = None
     ) -> dict[str, float | None]:
         """Calculate efficiency ratios.
-        
+
         Args:
             bs_data: Balance sheet data (standardized DataFrame)
             is_data: Income statement data (standardized DataFrame)
-            
+
         Returns:
             Dictionary of efficiency ratios
         """
         RiskFactorsValidator.validate_dataframe(bs_data)
-        
+        bs_map = dataframe_to_value_map(bs_data)
+        is_map = dataframe_to_value_map(is_data) if is_data is not None else {}
+
         ratios: dict[str, float | None] = {}
-        
+
         if is_data is not None:
             RiskFactorsValidator.validate_dataframe(is_data)
-            revenue = self._get_value(is_data, 'revenue')
-            cogs = self._get_value(is_data, 'cost_of_revenue')
-            
-            assets = self._get_value(bs_data, 'total_assets')
-            ar = self._get_value(bs_data, 'accounts_receivable')
-            inv = self._get_value(bs_data, 'inventory')
-            ap = self._get_value(bs_data, 'accounts_payable')
+            revenue = is_map.get('revenue')
+            cogs = is_map.get('cost_of_revenue')
+
+            assets = bs_map.get('total_assets')
+            ar = bs_map.get('accounts_receivable')
+            inv = bs_map.get('inventory')
+            ap = bs_map.get('accounts_payable')
             
             # Asset Turnover = Revenue / Total Assets
             ratios['asset_turnover'] = self._safe_divide(revenue, assets)
@@ -951,16 +970,19 @@ class RatioAnalyzer:
             Dictionary of cash flow ratios
         """
         RiskFactorsValidator.validate_dataframe(cf_data)
+        cf_map = dataframe_to_value_map(cf_data)
+        bs_map = dataframe_to_value_map(bs_data) if bs_data is not None else {}
+        is_map = dataframe_to_value_map(is_data) if is_data is not None else {}
 
         ratios: dict[str, float | None] = {}
 
-        ocf = self._get_value(cf_data, 'operating_cf')
-        fcf = self._get_value(cf_data, 'free_cf')
-        debt = self._get_value(bs_data, 'total_debt') if bs_data is not None else None
+        ocf = cf_map.get('operating_cf')
+        fcf = cf_map.get('free_cf')
+        debt = bs_map.get('total_debt') if bs_data is not None else None
         # Revenue: prefer income statement; fallback to cash-flow statement (some providers include it there)
-        revenue = self._get_value(is_data, 'revenue') if is_data is not None else None
+        revenue = is_map.get('revenue') if is_data is not None else None
         if revenue is None:
-            revenue = self._get_value(cf_data, 'revenue')
+            revenue = cf_map.get('revenue')
 
         # FCF to Debt = Free Cash Flow / Total Debt
         ratios['fcf_to_debt'] = self._safe_divide(fcf, debt)

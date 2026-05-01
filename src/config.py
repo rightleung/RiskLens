@@ -27,8 +27,15 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 600
 
     upstream_max_workers: int = 12
+    pdf_max_workers: int = 2
+    search_max_workers: int = 3
     data_cache_maxsize: int = 1000
     localized_name_cache_maxsize: int = 500
+    negative_cache_ttl_seconds: int = 300
+
+    yfinance_clear_proxy_mode: str = "retry_only"
+    max_pdf_periods: int = 12
+    max_pdf_detail_rows: int = 80
 
     assess_timeout_seconds: float = 25.0
     api_report_dir: str = "/tmp/credit_api_reports"

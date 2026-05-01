@@ -6,6 +6,8 @@ import importlib
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 
@@ -26,3 +28,13 @@ _MODULE_ALIASES = {
 
 for alias, target in _MODULE_ALIASES.items():
     sys.modules.setdefault(alias, importlib.import_module(target))
+
+
+@pytest.fixture(autouse=True)
+def _clear_data_fetcher_caches():
+    """Clear data_fetcher caches and in-flight state between tests."""
+    from data_fetcher import _data_cache, _error_cache, _in_flight, _in_flight_lock
+    _data_cache.clear()
+    _error_cache.clear()
+    with _in_flight_lock:
+        _in_flight.clear()

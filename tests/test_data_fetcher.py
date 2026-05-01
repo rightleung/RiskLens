@@ -511,7 +511,7 @@ class TestFinancialDataFetcher:
     def test_akshare_network_error_falls_back_to_yfinance_in_auto_mode(self, monkeypatch):
         import logging
 
-        def _raise_network_error(ticker):
+        def _raise_network_error(ticker, **kwargs):
             raise DataFetchError(
                 f"AKShare API error: {ticker}",
                 error_type=DataFetchErrorType.NETWORK_ERROR,
@@ -532,7 +532,7 @@ class TestFinancialDataFetcher:
         assert result["company_name"] == "Fake Corp"
 
     def test_akshare_network_error_surfaces_in_explicit_akshare_mode(self, monkeypatch):
-        def _raise_network_error(ticker):
+        def _raise_network_error(ticker, **kwargs):
             raise DataFetchError(
                 f"AKShare API error: {ticker}",
                 error_type=DataFetchErrorType.NETWORK_ERROR,
@@ -673,3 +673,77 @@ def test_single_flight_cleanup_on_failure(monkeypatch):
     # After fetch failure, in_flight should be clean
     with _in_flight_lock:
         assert "FAIL:yfinance" not in _in_flight
+
+
+# ── run_yfinance_call wrapper ───────────────────────────────────────────────
+
+def test_run_yfinance_call_wraps_upstream_fetch(monkeypatch):
+    """All yf.Ticker calls in get_financial_data must go through a proxy wrapper."""
+    wrapper_count = [0]
+
+    def _counting_wrapper(fn):
+        wrapper_count[0] += 1
+        return fn()
+
+    monkeypatch.setattr(data_fetcher, "run_yfinance_call_with_proxy_retry", _counting_wrapper)
+    monkeypatch.setattr(data_fetcher.yf, "Ticker", _FakeTicker)
+
+    result = FinancialDataFetcher.get_financial_data("AAPL", "yfinance")
+    assert result is not None
+    assert wrapper_count[0] >= 1, (
+        f"yfinance Ticker calls must go through run_yfinance_call_with_proxy_retry, got {wrapper_count[0]}"
+    )
+
+
+def test_run_yfinance_call_wraps_akshare_yfinance_supplement(monkeypatch):
+    """AKShare's yfinance supplement path must also use a proxy wrapper."""
+    wrapper_count = [0]
+
+    def _counting_wrapper(fn):
+        wrapper_count[0] += 1
+        return fn()
+
+    monkeypatch.setattr(data_fetcher, "run_yfinance_call_with_proxy_retry", _counting_wrapper)
+
+    # Build a minimal AKShare mock that triggers the yfinance supplement path
+    class FakeAk:
+        @staticmethod
+        def stock_individual_info_em(symbol):
+            return pd.DataFrame({"item": ["股票简称"], "value": ["测试"]})
+        @staticmethod
+        def stock_profile_cninfo(symbol):
+            return pd.DataFrame()
+        @staticmethod
+        def stock_zygc_em(symbol):
+            return pd.DataFrame()
+        @staticmethod
+        def stock_financial_report_sina(stock, symbol):
+            if symbol == "利润表":
+                return pd.DataFrame({"报告日": ["2024-12-31"], "营业总收入": [1000.0], "营业利润": [200.0], "净利润": [150.0]})
+            if symbol == "资产负债表":
+                return pd.DataFrame({"报告日": ["2024-12-31"], "资产总计": [2000.0], "负债合计": [800.0]})
+            if symbol == "现金流量表":
+                return pd.DataFrame({"报告日": ["2024-12-31"], "经营活动产生的现金流量净额": [300.0]})
+            raise AssertionError(f"Unexpected: {symbol}")
+
+    monkeypatch.setitem(sys.modules, "akshare", types.SimpleNamespace(
+        stock_individual_info_em=FakeAk.stock_individual_info_em,
+        stock_profile_cninfo=FakeAk.stock_profile_cninfo,
+        stock_zygc_em=FakeAk.stock_zygc_em,
+        stock_financial_report_sina=FakeAk.stock_financial_report_sina,
+    ))
+    monkeypatch.setattr(data_fetcher, "akshare_get_data", None)
+
+    class FakeYFTicker:
+        def __init__(self, symbol):
+            assert symbol == "600519.SS"
+            self.info = {"marketCap": 100_000}
+            self.income_stmt = pd.DataFrame()
+
+    monkeypatch.setattr(data_fetcher.yf, "Ticker", FakeYFTicker)
+
+    result = data_fetcher._fetch_a_share_akshare("600519")
+    assert result is not None
+    assert wrapper_count[0] >= 1, (
+        f"AKShare yfinance supplement must go through run_yfinance_call, got {wrapper_count[0]}"
+    )

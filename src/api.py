@@ -74,6 +74,7 @@ from src.services._utils import convert_simplified_to_traditional
 
 # Must be initialized after SimpleCache is imported above
 _LOCALIZED_NAME_CACHE = SimpleCache(default_ttl=86400, maxsize=settings.localized_name_cache_maxsize)  # 24h TTL
+_SEARCH_SUGGESTIONS_CACHE = SimpleCache(default_ttl=3600, maxsize=1000)  # 1h TTL for ticker search
 
 # ── FastAPI App ──────────────────────────────────────────────────────────────
 
@@ -195,6 +196,16 @@ _FETCH_EXECUTOR = ThreadPoolExecutor(
 )
 _FETCH_CAPACITY = threading.BoundedSemaphore(settings.upstream_max_workers)
 
+_PDF_EXECUTOR = ThreadPoolExecutor(
+    max_workers=max(1, settings.pdf_max_workers),
+    thread_name_prefix="risklens-pdf-",
+)
+_PDF_CAPACITY = threading.BoundedSemaphore(settings.pdf_max_workers)
+
+_SEARCH_CAPACITY = threading.BoundedSemaphore(
+    max(1, settings.search_max_workers)
+)
+
 
 def _run_in_fetch_executor(func, *args):
     """Submit *func* to the bounded fetch executor, or raise UpstreamCapacityError.
@@ -215,6 +226,46 @@ def _run_in_fetch_executor(func, *args):
             return await f
         finally:
             _FETCH_CAPACITY.release()
+
+    return _release_after(fut)
+
+
+def _run_in_pdf_executor(func, *args):
+    """Submit *func* to the bounded PDF executor, or raise UpstreamCapacityError."""
+    if not _PDF_CAPACITY.acquire(blocking=False):
+        raise UpstreamCapacityError("PDF export capacity exhausted")
+    import asyncio as _asyncio
+    loop = _asyncio.get_running_loop()
+    fut = loop.run_in_executor(_PDF_EXECUTOR, func, *args)
+
+    async def _release_after(f):
+        try:
+            return await f
+        finally:
+            _PDF_CAPACITY.release()
+
+    return _release_after(fut)
+
+
+def _run_in_search_executor(func, *args):
+    """Submit *func* to the bounded search capacity, returning [] on exhaustion.
+
+    Shares the fetch thread pool but uses a separate capacity semaphore so
+    that search traffic cannot starve main assessment fetches.
+    """
+    if not _SEARCH_CAPACITY.acquire(blocking=False):
+        async def _empty():
+            return []
+        return _empty()
+    import asyncio as _asyncio
+    loop = _asyncio.get_running_loop()
+    fut = loop.run_in_executor(_FETCH_EXECUTOR, func, *args)
+
+    async def _release_after(f):
+        try:
+            return await f
+        finally:
+            _SEARCH_CAPACITY.release()
 
     return _release_after(fut)
 
@@ -248,6 +299,10 @@ class AssessmentRequest(BaseModel):
     data_source: str = Field(
         default="yfinance",
         description="Data source: 'yfinance' or 'akshare'",
+    )
+    include_suggestions: bool = Field(
+        default=False,
+        description="Whether to search for similar ticker suggestions on failure",
     )
 
     @field_validator("tickers")
@@ -430,14 +485,31 @@ async def run_credit_assessment(request: AssessmentRequest):
     semaphore = asyncio.Semaphore(max_concurrency)
 
     async def fetch_suggestions(ticker: str) -> list:
-        """Bound suggestion lookup latency to avoid cascading slowdowns."""
+        """Bound suggestion lookup latency to avoid cascading slowdowns.
+
+        Uses a dedicated search capacity gate to avoid competing with main
+        assessment fetches for executor slots.
+        """
         try:
             return await asyncio.wait_for(
-                _run_in_fetch_executor(_search_tickers, ticker),
+                _run_in_search_executor(_search_tickers, ticker),
                 timeout=suggestions_timeout,
             )
         except (TimeoutError, DataFetchError, KeyError, AttributeError):
             return []
+
+    _SUGGESTIBLE_ERRORS = {
+        DataFetchErrorType.INVALID_TICKER.value,
+        DataFetchErrorType.NO_DATA_AVAILABLE.value,
+    }
+
+    async def maybe_fetch_suggestions(ticker: str, error_type: str) -> list:
+        """Fetch suggestions only when enabled and the error suggests a typo."""
+        if not request.include_suggestions:
+            return []
+        if error_type not in _SUGGESTIBLE_ERRORS:
+            return []
+        return await fetch_suggestions(ticker)
 
     async def process_ticker(ticker: str):
         async with semaphore:
@@ -452,28 +524,28 @@ async def run_credit_assessment(request: AssessmentRequest):
                 if result and result.get('history') and len(result['history']) > 0:
                     return {"type": "success", "data": result}
                 else:
-                    sugg = await fetch_suggestions(ticker)
+                    error_type = DataFetchErrorType.NO_DATA_AVAILABLE.value
+                    sugg = await maybe_fetch_suggestions(ticker, error_type)
                     return {
                         "type": "error",
                         "ticker": ticker,
                         "msg": "No financial data available",
-                        "error_type": DataFetchErrorType.NO_DATA_AVAILABLE.value,
+                        "error_type": error_type,
                         "status_code": 404,
                         "sugg": sugg
                     }
             except TimeoutError:
-                sugg = await fetch_suggestions(ticker)
                 return {
                     "type": "error",
                     "ticker": ticker,
                     "msg": f"Timed out after {per_ticker_timeout:.0f}s",
                     "error_type": "timeout",
                     "status_code": 504,
-                    "sugg": sugg,
+                    "sugg": [],
                 }
             except AssessmentServiceError as exc:
-                sugg = await fetch_suggestions(ticker)
                 error_type = _assessment_service_error_type(exc)
+                sugg = await maybe_fetch_suggestions(ticker, error_type)
                 return {
                     "type": "error",
                     "ticker": ticker,
@@ -485,7 +557,7 @@ async def run_credit_assessment(request: AssessmentRequest):
                 }
             except DataFetchError as exc:
                 # Handle detailed data fetching errors with specific error types
-                sugg = await fetch_suggestions(ticker)
+                sugg = await maybe_fetch_suggestions(ticker, exc.error_type.value)
                 return {
                     "type": "error",
                     "ticker": ticker,
@@ -506,14 +578,13 @@ async def run_credit_assessment(request: AssessmentRequest):
                 }
             except Exception as exc:
                 logger.error("Unhandled exception processing ticker %s: %s", ticker, exc, exc_info=True)
-                sugg = await fetch_suggestions(ticker)
                 return {
                     "type": "error",
                     "ticker": ticker,
                     "msg": "Internal processing error",
                     "error_type": "internal_error",
                     "status_code": 500,
-                    "sugg": sugg,
+                    "sugg": [],
                 }
     # Gather results concurrently
     tasks = [process_ticker(t) for t in tickers]
@@ -661,6 +732,11 @@ def _search_tickers(query: str, limit: int = 5, strict: bool = False) -> list:
     - strict=True: raise the last upstream error (used by company finder endpoint)
     """
     query_symbol = query.strip().upper()
+    cache_key = f"{query_symbol}:{limit}:{strict}"
+    cached = _SEARCH_SUGGESTIONS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     allowed_quote_types = {"EQUITY"}
     last_error: Exception | None = None
 
@@ -699,6 +775,7 @@ def _search_tickers(query: str, limit: int = 5, strict: bool = False) -> list:
                 if len(suggestions) >= limit:
                     break
 
+            _SEARCH_SUGGESTIONS_CACHE.set(cache_key, suggestions)
             return suggestions
         except (KeyError, AttributeError, TypeError, ValueError) as exc:
             last_error = exc
@@ -706,6 +783,7 @@ def _search_tickers(query: str, limit: int = 5, strict: bool = False) -> list:
 
     if strict and last_error is not None:
         raise last_error
+    _SEARCH_SUGGESTIONS_CACHE.set(cache_key, [])
     return []
 
 
@@ -796,7 +874,7 @@ async def check_covenants(request: CovenantCheckRequest):
 
     def _fetch_and_check():
         try:
-            data = fetcher.get_financial_data(ticker, data_source)
+            data = fetcher.get_financial_data(ticker, data_source, mode='latest', include_profile=False)
         except DataFetchError as exc:
             raise exc
         except Exception as exc:
@@ -896,7 +974,7 @@ async def export_full_pdf(request: PdfExportRequest | dict[str, Any]):
     ticker = str(report.get("ticker") or "RiskLens").upper()
 
     try:
-        pdf_bytes = await _run_in_fetch_executor(generate_full_pdf, report, lang, theme)
+        pdf_bytes = await _run_in_pdf_executor(generate_full_pdf, report, lang, theme)
     except UpstreamCapacityError:
         raise HTTPException(
             status_code=503,

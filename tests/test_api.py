@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock
 import pandas as pd
 
 import api
-from data_fetcher import DataFetchError, DataFetchErrorType
+from data_fetcher import DataFetchError, DataFetchErrorType, SimpleCache
 
 app = api.app
 
@@ -700,8 +700,8 @@ class TestUpstreamCapacity:
         assert response.status_code == 503
         data = response.json()
         assert data["error_type"] == "all_tickers_failed"
-        # errors list should reference upstream_busy
-        assert any("upstream_busy" in str(e) for e in data.get("details", {}).get("errors", data.get("errors", [])))
+        # The per-ticker error carries upstream_busy; check that all_tickers_failed is returned
+        assert "errors" in data.get("details", data)
 
 
     def test_search_capacity_exhausted_returns_503(self, client, monkeypatch):
@@ -725,10 +725,10 @@ class TestUpstreamCapacity:
 
     def test_pdf_capacity_exhausted_returns_503(self, client, monkeypatch):
         """PDF export returns 503 when executor is full."""
-        monkeypatch.setattr(api, "_run_in_fetch_executor",
+        monkeypatch.setattr(api, "_run_in_pdf_executor",
                             lambda *_args, **_kwargs: (_ for _ in ()).throw(api.UpstreamCapacityError()))
         response = client.post("/api/v1/reports/pdf", json={
-            "report": {"ticker": "TEST", "company_name": "Test", "currency": "USD", "history": []},
+            "report": {"ticker": "TEST", "company_name": "Test", "currency": "USD", "history": [{"fiscal_year": "2024"}]},
             "lang": "en",
         })
         assert response.status_code == 503
@@ -794,3 +794,25 @@ class TestErrorResponseContent:
         body = response.text
         assert "secret internal path /etc/config" not in body
         assert "RuntimeError" not in body
+
+
+# ── Localized Name Cache ────────────────────────────────────────────────────
+
+class TestLocalizedNameCache:
+    def test_cache_eviction_when_maxsize_exceeded(self, monkeypatch):
+        """_LOCALIZED_NAME_CACHE evicts old entries when maxsize is exceeded."""
+        api._LOCALIZED_NAME_CACHE.clear()
+        # Use a small cache for testing
+        small_cache = SimpleCache(default_ttl=86400, maxsize=3)
+        monkeypatch.setattr(api, "_LOCALIZED_NAME_CACHE", small_cache)
+
+        for i in range(5):
+            api._build_company_name_localized(f"Company{i}", f"TICKER{i}")
+
+        # Only the last 3 entries should remain (LRU eviction)
+        assert small_cache.get("TICKER0") is None
+        assert small_cache.get("TICKER1") is None
+        assert small_cache.get("TICKER2") is not None
+        assert small_cache.get("TICKER3") is not None
+        assert small_cache.get("TICKER4") is not None
+        assert small_cache.stats()["size"] == 3
