@@ -59,8 +59,9 @@ def calculate_z_score(
     """
     Calculate Altman Z-Score using public-company formulation.
 
-    Required inputs: total_assets, total_liabilities, ebit, sales.
-    Optional inputs default to 0 where appropriate to preserve prior behavior.
+    Required inputs: total_assets, total_liabilities, working_capital, ebit, sales.
+    Optional inputs (retained_earnings, market_cap) default to 0 where appropriate.
+    Missing working_capital returns N/A (WC/TA is a core Altman term).
 
     Note: Market cap is typically current market value; historical market cap
     is not available for past periods in this project.
@@ -69,12 +70,14 @@ def calculate_z_score(
         return ZScoreResult(None, "N/A", "N/A")
     if total_assets <= 0:
         return ZScoreResult(None, "N/A", "N/A")
+    # WC/TA is a core Altman term; missing working capital makes the score unreliable.
+    if working_capital is None:
+        return ZScoreResult(None, "N/A", "N/A")
 
-    wc = working_capital or 0
     re = retained_earnings or 0
     mc = market_cap or 0
 
-    A = wc / total_assets
+    A = working_capital / total_assets
     B = re / total_assets
     C = ebit / total_assets
     D = mc / total_liabilities if total_liabilities and total_liabilities > 0 else 0

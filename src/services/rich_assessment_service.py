@@ -103,7 +103,7 @@ class RichAssessmentService:
                 }
                 ratios = self._calculate_ratios(period_data)
                 raw_metrics = self._build_raw_metrics(balance_df, income_df, cash_df, ratios)
-                assessment = self._build_assessment(balance_df, income_df, ratios, financial_data.get("market_cap") or 0)
+                assessment = self._build_assessment(balance_df, income_df, ratios, safe_number(financial_data.get("market_cap")))
 
                 if not is_quarterly and assessment.get("overall_rating") != "N/A":
                     latest_fy_assessment = assessment
@@ -123,10 +123,12 @@ class RichAssessmentService:
                     }
                 )
             except Exception as exc:
+                reason = "insufficient_data" if isinstance(exc, (KeyError, IndexError, TypeError)) else "calculation_error"
                 logger.warning(
-                    "Skipping period %s for %s: %s",
+                    "Skipping period %s for %s (reason=%s): %s",
                     period.get("year_label", "?"),
                     normalized_ticker,
+                    reason,
                     exc,
                     exc_info=True,
                 )
@@ -134,13 +136,29 @@ class RichAssessmentService:
                     {
                         "fiscal_year": period.get("year_label", "?"),
                         "is_quarterly": bool(period.get("is_quarterly", False)),
-                        "error": str(exc),
+                        "error": reason,
                         "assessment": None,
                         "ratios": {},
                         "raw_metrics": {},
                         "statements": {},
                     }
                 )
+
+        # After processing all periods, verify at least one produced a valid assessment.
+        if historical_results and not any(
+            isinstance(entry.get("assessment"), dict) and "error" not in entry
+            for entry in historical_results
+        ):
+            period_errors = [
+                {"fiscal_year": entry.get("fiscal_year"), "error": entry.get("error")}
+                for entry in historical_results
+                if entry.get("error")
+            ]
+            raise AssessmentServiceError(
+                "No valid financial periods could be analyzed.",
+                status_code=422,
+                details={"error_type": "calculation_failed", "period_errors": period_errors},
+            )
 
         if latest_fy_assessment is not None:
             for entry in historical_results:
@@ -150,6 +168,22 @@ class RichAssessmentService:
                 if assessment.get("overall_rating") == "N/A" and entry.get("is_quarterly"):
                     entry["assessment"] = dict(latest_fy_assessment)
 
+        # Build data_quality metadata
+        failed_periods = [
+            entry.get("fiscal_year") for entry in historical_results if entry.get("error")
+        ]
+        latest_period = historical_results[0] if historical_results else None
+        latest_period_valid = (
+            isinstance(latest_period, dict)
+            and latest_period.get("assessment") is not None
+            and not latest_period.get("error")
+        ) if latest_period else False
+        data_quality = {
+            "status": "partial" if failed_periods else "complete",
+            "failed_periods": failed_periods,
+            "latest_period_valid": latest_period_valid,
+        }
+
         return json_safe(
             {
                 "ticker": normalized_ticker,
@@ -158,6 +192,7 @@ class RichAssessmentService:
                 "currency": currency,
                 "company_profile": company_profile,
                 "history": historical_results,
+                "data_quality": data_quality,
             }
         )
 
@@ -170,10 +205,10 @@ class RichAssessmentService:
         except DataFetchError:
             raise
         except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.error("Financial data fetch unexpected error for %s: %s", ticker, exc, exc_info=True)
             raise AssessmentServiceError(
                 "财务数据获取失败。",
                 status_code=500,
-                details={"error": str(exc)},
             ) from exc
 
         if not result:
@@ -194,10 +229,11 @@ class RichAssessmentService:
                 fiscal_year=period_data["fiscal_year"],
             )
         except Exception as exc:
+            logger.error("Ratio calculation failed for %s: %s", period_data.get("company_name", "?"), exc, exc_info=True)
             raise AssessmentServiceError(
                 "财务比率计算失败，请检查 ticker 或数据源。",
                 status_code=422,
-                details={"error": str(exc)},
+                details={"error_type": "calculation_failed"},
             ) from exc
 
     def _build_assessment(
@@ -205,7 +241,7 @@ class RichAssessmentService:
         balance_df: pd.DataFrame,
         income_df: pd.DataFrame,
         ratios: CreditRatioAnalysis,
-        market_cap: float,
+        market_cap: float | None,
     ) -> Dict[str, Any]:
         total_assets = get_dataframe_value(balance_df, "total_assets")
         total_liabilities = get_dataframe_value(balance_df, "total_liabilities")
@@ -215,10 +251,16 @@ class RichAssessmentService:
         ebit = get_dataframe_value(income_df, "operating_income")
         sales = ratios.revenue
 
+        working_capital = (
+            (total_current_assets - total_current_liabilities)
+            if total_current_assets is not None and total_current_liabilities is not None
+            else None
+        )
+
         z_result = calculate_z_score(
             total_assets=total_assets,
             total_liabilities=total_liabilities,
-            working_capital=(total_current_assets or 0) - (total_current_liabilities or 0),
+            working_capital=working_capital,
             retained_earnings=retained_earnings,
             ebit=ebit,
             sales=sales,
@@ -227,7 +269,7 @@ class RichAssessmentService:
         z_breakdown = build_z_score_breakdown(
             total_assets=total_assets,
             total_liabilities=total_liabilities,
-            working_capital=(total_current_assets or 0) - (total_current_liabilities or 0),
+            working_capital=working_capital,
             retained_earnings=retained_earnings,
             ebit=ebit,
             sales=sales,
@@ -276,9 +318,9 @@ class RichAssessmentService:
                     "metric": metric,
                     "actual": None,
                     "threshold": threshold,
-                    "status": "Insufficient Data",
-                    "signal": "Neutral",
-                    "notes": "Insufficient data",
+                    "status": "Breach",
+                    "signal": "Red",
+                    "notes": "Data unavailable; defaulting to breach pending manual verification",
                 }
             passed = actual <= threshold if passes_when == "lte" else actual >= threshold
             return {

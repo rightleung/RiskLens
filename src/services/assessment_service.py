@@ -91,7 +91,7 @@ class AssessmentService:
             balance_df=balance_df,
             income_df=income_df,
             ratios=ratios,
-            market_cap=financial_data.get("market_cap") or 0,
+            market_cap=safe_number(financial_data.get("market_cap")),
         )
 
         warnings = []
@@ -107,7 +107,7 @@ class AssessmentService:
                 "z_score": safe_number(z_result.z_score),
                 "risk_zone": z_result.zone,
                 "implied_rating": z_result.implied_rating,
-                "zscore_breakdown": self._build_zscore_breakdown(balance_df, income_df, ratios, financial_data.get("market_cap") or 0),
+                "zscore_breakdown": self._build_zscore_breakdown(balance_df, income_df, ratios, safe_number(financial_data.get("market_cap"))),
             },
             "key_metrics": self._build_key_metrics(balance_df, income_df, cash_df, ratios),
             "ratios": ratios.to_dict(),
@@ -186,7 +186,7 @@ class AssessmentService:
         balance_df: pd.DataFrame,
         income_df: pd.DataFrame,
         ratios: CreditRatioAnalysis,
-        market_cap: float,
+        market_cap: float | None,
     ) -> ZScoreResult:
         total_assets = self.analyzer._get_value(balance_df, "total_assets")
         total_liabilities = self.analyzer._get_value(balance_df, "total_liabilities")
@@ -196,10 +196,16 @@ class AssessmentService:
         ebit = self.analyzer._get_value(income_df, "operating_income")
         sales = ratios.revenue
 
+        working_capital = (
+            (total_current_assets - total_current_liabilities)
+            if total_current_assets is not None and total_current_liabilities is not None
+            else None
+        )
+
         return calculate_z_score(
             total_assets=total_assets,
             total_liabilities=total_liabilities,
-            working_capital=(total_current_assets or 0) - (total_current_liabilities or 0),
+            working_capital=working_capital,
             retained_earnings=retained_earnings,
             ebit=ebit,
             sales=sales,
@@ -211,7 +217,7 @@ class AssessmentService:
         balance_df: pd.DataFrame,
         income_df: pd.DataFrame,
         ratios: CreditRatioAnalysis,
-        market_cap: float,
+        market_cap: float | None,
     ) -> list[dict[str, Any]]:
         total_assets = self.analyzer._get_value(balance_df, "total_assets")
         total_liabilities = self.analyzer._get_value(balance_df, "total_liabilities")
@@ -221,10 +227,16 @@ class AssessmentService:
         ebit = self.analyzer._get_value(income_df, "operating_income")
         sales = ratios.revenue
 
+        working_capital = (
+            (total_current_assets - total_current_liabilities)
+            if total_current_assets is not None and total_current_liabilities is not None
+            else None
+        )
+
         return build_z_score_breakdown(
             total_assets=total_assets,
             total_liabilities=total_liabilities,
-            working_capital=(total_current_assets or 0) - (total_current_liabilities or 0),
+            working_capital=working_capital,
             retained_earnings=retained_earnings,
             ebit=ebit,
             sales=sales,

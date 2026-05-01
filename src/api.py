@@ -19,13 +19,14 @@ import io
 import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from typing import Any
 from datetime import datetime
 import pandas as pd
@@ -35,17 +36,7 @@ from src.config import settings
 
 logger = logging.getLogger(__name__)
 
-_PROXY_ENV_KEYS = (
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "ALL_PROXY",
-    "http_proxy",
-    "https_proxy",
-    "all_proxy",
-)
-
-_LOCALIZED_NAME_CACHE: dict[str, dict[str, str]] = {}
-_LOCALIZED_NAME_CACHE_LOCK = threading.Lock()
+# _LOCALIZED_NAME_CACHE is initialized below after SimpleCache import
 
 # ── Error Monitoring (Sentry) ─────────────────────────────────────────────────
 # Initialize Sentry for error tracking
@@ -73,13 +64,16 @@ if sentry_dsn:
 else:
     logger.info("Sentry disabled (set SENTRY_DSN env var to enable)")
 
-from src.data_fetcher import FinancialDataFetcher, DataFetchError, DataFetchErrorType
+from src.data_fetcher import FinancialDataFetcher, DataFetchError, DataFetchErrorType, SimpleCache, run_yfinance_call
 from src.ratio_analyzer import RatioAnalyzer, CreditRatioAnalysis
 from src.covenant_monitor import FinancialCovenants, CovenantMonitor, CovenantReport
 from src.zscore import calculate_z_score
 from src.reportlab_pdf_exporter import generate_full_pdf, generate_full_pdf_async
 from src.services import AssessmentServiceError, RichAssessmentService
 from src.services._utils import convert_simplified_to_traditional
+
+# Must be initialized after SimpleCache is imported above
+_LOCALIZED_NAME_CACHE = SimpleCache(default_ttl=86400, maxsize=settings.localized_name_cache_maxsize)  # 24h TTL
 
 # ── FastAPI App ──────────────────────────────────────────────────────────────
 
@@ -152,12 +146,19 @@ async def http_exception_handler(_request: Request, exc: HTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_request: Request, exc: RequestValidationError):
     """Normalize FastAPI/Pydantic validation errors."""
+    safe_errors: list[dict[str, Any]] = []
+    for err in exc.errors():
+        safe_errors.append({
+            "loc": [str(part) for part in err.get("loc", [])],
+            "msg": str(err.get("msg", "Validation error")),
+            "type": str(err.get("type", "value_error")),
+        })
     return JSONResponse(
         status_code=422,
         content=_api_error_response(
             "Validation failed",
             "validation_error",
-            {"errors": exc.errors()},
+            {"errors": safe_errors},
         ),
     )
 
@@ -166,9 +167,9 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
 async def global_exception_handler(request: Request, exc: Exception):
     """Catch unhandled exceptions and return proper error response."""
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    details = {"path": str(request.url)}
+    details: dict[str, Any] = {"path": str(request.url)}
     if debug_error_details_enabled:
-        details["message"] = str(exc)
+        details["message"] = "Internal server error — check server logs for details"
     return JSONResponse(
         status_code=500,
         content=_api_error_response("Internal server error", "internal_server_error", details),
@@ -176,6 +177,47 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # ── Shared Instances ─────────────────────────────────────────────────────────
+
+class UpstreamCapacityError(Exception):
+    """Raised when the upstream fetch executor is at capacity."""
+    pass
+
+
+# Bounded isolation for blocking upstream calls (yfinance, AKShare, PDF).
+# This prevents unbounded thread creation under concurrent load.  Note that
+# asyncio.wait_for cannot cancel a running OS thread — the timeout is a
+# *request wait timeout*; the underlying blocking call may continue running.
+# The bounded executor + semaphore ensure that abandoned work does not
+# saturate the thread pool.
+_FETCH_EXECUTOR = ThreadPoolExecutor(
+    max_workers=max(4, settings.upstream_max_workers),
+    thread_name_prefix="risklens-io-",
+)
+_FETCH_CAPACITY = threading.BoundedSemaphore(settings.upstream_max_workers)
+
+
+def _run_in_fetch_executor(func, *args):
+    """Submit *func* to the bounded fetch executor, or raise UpstreamCapacityError.
+
+    Acquires the capacity semaphore non-blocking; if the pool is full the
+    caller must catch UpstreamCapacityError and return a 503 response.
+    The semaphore is released in a finally block so that even timed-out or
+    errored work eventually frees a slot.
+    """
+    if not _FETCH_CAPACITY.acquire(blocking=False):
+        raise UpstreamCapacityError("Upstream fetch capacity exhausted")
+    import asyncio as _asyncio
+    loop = _asyncio.get_running_loop()
+    fut = loop.run_in_executor(_FETCH_EXECUTOR, func, *args)
+
+    async def _release_after(f):
+        try:
+            return await f
+        finally:
+            _FETCH_CAPACITY.release()
+
+    return _release_after(fut)
+
 
 fetcher = FinancialDataFetcher()
 analyzer = RatioAnalyzer(report_dir=settings.api_report_dir)
@@ -208,10 +250,23 @@ class AssessmentRequest(BaseModel):
         description="Data source: 'yfinance' or 'akshare'",
     )
 
+    @field_validator("tickers")
+    @classmethod
+    def _validate_ticker_items(cls, v: list[str]) -> list[str]:
+        for item in v:
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError("Each ticker must be a non-empty string")
+            stripped = item.strip()
+            if len(stripped) > 20:
+                raise ValueError(f"Ticker too long (max 20 chars): {stripped!r}")
+            if not re.fullmatch(r"[A-Za-z0-9._-]+", stripped):
+                raise ValueError(f"Ticker contains invalid characters: {stripped!r}")
+        return v
+
 
 class CovenantCheckRequest(BaseModel):
     """Request body for covenant breach checking."""
-    ticker: str = Field(..., description="Stock ticker to check")
+    ticker: str = Field(..., min_length=1, max_length=20, description="Stock ticker to check")
     fiscal_year: int | None = Field(
         default=None,
         ge=1900,
@@ -234,8 +289,81 @@ class PdfExportRequest(BaseModel):
     lang: str = Field(default="en", description="Language code")
     theme: str = Field(default="dark", description="PDF theme: 'dark' or 'light'")
 
+    @field_validator("report")
+    @classmethod
+    def _validate_report_size(cls, v: dict[str, Any]) -> dict[str, Any]:
+        import json
+        try:
+            serialized = json.dumps(v, default=str)
+        except (TypeError, ValueError):
+            raise ValueError("Report payload cannot be serialized")
+        max_bytes = 2 * 1024 * 1024  # 2 MB
+        if len(serialized.encode("utf-8")) > max_bytes:
+            raise ValueError(f"Report payload exceeds {max_bytes // 1024 // 1024} MB limit")
+        return v
+
 
 # ── Helper Functions ─────────────────────────────────────────────────────────
+
+def _assessment_service_error_type(exc: AssessmentServiceError) -> str:
+    """Extract a machine-readable error_type from an AssessmentServiceError.
+
+    When details already carry an explicit error_type, use it.
+    Otherwise, derive one from the status_code so the all-fail priority
+    logic can distinguish 404 (no-data) from 422 (business/validation).
+    """
+    explicit = exc.details.get("error_type")
+    if explicit:
+        return str(explicit)
+    if exc.status_code == 404:
+        return DataFetchErrorType.NO_DATA_AVAILABLE.value
+    if exc.status_code == 422:
+        return "validation_error"
+    if exc.status_code >= 500:
+        return DataFetchErrorType.UNKNOWN.value
+    return "business_error"
+
+
+def _error_type_to_http_status(error_type_value: str) -> int:
+    """Map a DataFetchErrorType value to the most appropriate HTTP status code."""
+    mapping: dict[str, int] = {
+        DataFetchErrorType.INVALID_TICKER.value: 404,
+        DataFetchErrorType.NO_DATA_AVAILABLE.value: 404,
+        DataFetchErrorType.RATE_LIMIT.value: 429,
+        DataFetchErrorType.NETWORK_ERROR.value: 503,
+        DataFetchErrorType.UNKNOWN.value: 502,
+        "timeout": 504,
+        "business_error": 422,
+        "calculation_failed": 422,
+        "validation_error": 422,
+    }
+    return mapping.get(error_type_value, 502)
+
+
+def _priority_status_for_all_fail(errors: list[dict]) -> int:
+    """When all tickers fail, pick the status code by error priority.
+
+    Priority (highest first): timeout (504) > rate_limit (429) >
+    network/upstream (503/502) > internal_error (500) >
+    no_data/invalid (404) > business/validation (422).
+    """
+    error_types = {e.get("error_type", "") for e in errors}
+    if "timeout" in error_types:
+        return 504
+    if DataFetchErrorType.RATE_LIMIT.value in error_types:
+        return 429
+    if DataFetchErrorType.NETWORK_ERROR.value in error_types:
+        return 503
+    if DataFetchErrorType.UNKNOWN.value in error_types:
+        return 502
+    if "upstream_busy" in error_types:
+        return 503
+    if "internal_error" in error_types:
+        return 500
+    if DataFetchErrorType.INVALID_TICKER.value in error_types or DataFetchErrorType.NO_DATA_AVAILABLE.value in error_types:
+        return 404
+    return 422
+
 
 def _calculate_ratios(data: dict) -> CreditRatioAnalysis:
     """Calculate financial ratios from fetched data (mirrors web/app.py logic)."""
@@ -305,7 +433,7 @@ async def run_credit_assessment(request: AssessmentRequest):
         """Bound suggestion lookup latency to avoid cascading slowdowns."""
         try:
             return await asyncio.wait_for(
-                run_in_threadpool(_search_tickers, ticker),
+                _run_in_fetch_executor(_search_tickers, ticker),
                 timeout=suggestions_timeout,
             )
         except (TimeoutError, DataFetchError, KeyError, AttributeError):
@@ -316,7 +444,7 @@ async def run_credit_assessment(request: AssessmentRequest):
             try:
                 # Dispatch blocking analysis logic to worker thread with a hard timeout.
                 result = await asyncio.wait_for(
-                    run_in_threadpool(
+                    _run_in_fetch_executor(
                         _analyze_single_ticker, ticker, fiscal_year, request.data_source
                     ),
                     timeout=per_ticker_timeout,
@@ -329,7 +457,8 @@ async def run_credit_assessment(request: AssessmentRequest):
                         "type": "error",
                         "ticker": ticker,
                         "msg": "No financial data available",
-                        "error_type": "no_data_available",
+                        "error_type": DataFetchErrorType.NO_DATA_AVAILABLE.value,
+                        "status_code": 404,
                         "sugg": sugg
                     }
             except TimeoutError:
@@ -339,11 +468,12 @@ async def run_credit_assessment(request: AssessmentRequest):
                     "ticker": ticker,
                     "msg": f"Timed out after {per_ticker_timeout:.0f}s",
                     "error_type": "timeout",
+                    "status_code": 504,
                     "sugg": sugg,
                 }
             except AssessmentServiceError as exc:
                 sugg = await fetch_suggestions(ticker)
-                error_type = str(exc.details.get("error_type") or "business_error")
+                error_type = _assessment_service_error_type(exc)
                 return {
                     "type": "error",
                     "ticker": ticker,
@@ -361,8 +491,29 @@ async def run_credit_assessment(request: AssessmentRequest):
                     "ticker": ticker,
                     "msg": exc.message,
                     "error_type": exc.error_type.value,
+                    "status_code": _error_type_to_http_status(exc.error_type.value),
                     "details": exc.details,
                     "sugg": sugg
+                }
+            except UpstreamCapacityError:
+                return {
+                    "type": "error",
+                    "ticker": ticker,
+                    "msg": "Service busy — please retry",
+                    "error_type": "upstream_busy",
+                    "status_code": 503,
+                    "sugg": [],
+                }
+            except Exception as exc:
+                logger.error("Unhandled exception processing ticker %s: %s", ticker, exc, exc_info=True)
+                sugg = await fetch_suggestions(ticker)
+                return {
+                    "type": "error",
+                    "ticker": ticker,
+                    "msg": "Internal processing error",
+                    "error_type": "internal_error",
+                    "status_code": 500,
+                    "sugg": sugg,
                 }
     # Gather results concurrently
     tasks = [process_ticker(t) for t in tickers]
@@ -376,7 +527,20 @@ async def run_credit_assessment(request: AssessmentRequest):
             suggestions[outcome['ticker']] = outcome["sugg"]
 
     if not results and errors:
-        raise HTTPException(status_code=404, detail={
+        # Collect per-ticker error metadata for priority status determination.
+        per_ticker_errors = [
+            {
+                "ticker": outcome["ticker"],
+                "error_type": outcome.get("error_type", ""),
+                "status_code": outcome.get("status_code"),
+            }
+            for outcome in outcomes
+            if outcome.get("type") == "error"
+        ]
+        status_code = _priority_status_for_all_fail(per_ticker_errors)
+        raise HTTPException(status_code=status_code, detail={
+            "error": "All tickers failed assessment",
+            "error_type": "all_tickers_failed",
             "errors": errors,
             "suggestions": suggestions,
         })
@@ -387,24 +551,6 @@ async def run_credit_assessment(request: AssessmentRequest):
         "suggestions": suggestions if suggestions else None,
         "results": results,
     }
-
-
-@contextmanager
-def _temporarily_clear_proxy_env(enabled: bool):
-    if not enabled:
-        yield
-        return
-    backup = {k: os.environ.get(k) for k in _PROXY_ENV_KEYS}
-    try:
-        for k in _PROXY_ENV_KEYS:
-            os.environ.pop(k, None)
-        yield
-    finally:
-        for k, v in backup.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
 
 
 def _contains_japanese_text(value: str) -> bool:
@@ -463,12 +609,11 @@ def _build_company_name_localized(
     fallback_name = str(company_name or normalized_ticker or "N/A").strip() or normalized_ticker or "N/A"
 
     cache_key = normalized_ticker or fallback_name
-    with _LOCALIZED_NAME_CACHE_LOCK:
-        cached = _LOCALIZED_NAME_CACHE.get(cache_key)
-        if cached is not None:
-            merged = dict(cached)
-            merged.setdefault("en", fallback_name)
-            return merged
+    cached = _LOCALIZED_NAME_CACHE.get(cache_key)
+    if cached is not None:
+        merged = dict(cached)
+        merged.setdefault("en", fallback_name)
+        return merged
 
     localized: dict[str, str] = {"en": fallback_name}
 
@@ -505,8 +650,7 @@ def _build_company_name_localized(
         except (ImportError, KeyError, AttributeError) as exc:
             logger.debug("Localized name lookup failed for %s: %s", normalized_ticker, exc)
 
-    with _LOCALIZED_NAME_CACHE_LOCK:
-        _LOCALIZED_NAME_CACHE[cache_key] = dict(localized)
+    _LOCALIZED_NAME_CACHE.set(cache_key, dict(localized))
     return localized
 
 
@@ -520,37 +664,42 @@ def _search_tickers(query: str, limit: int = 5, strict: bool = False) -> list:
     allowed_quote_types = {"EQUITY"}
     last_error: Exception | None = None
 
-    for clear_proxy in (False, True):
+    for attempt in range(2):
         try:
-            with _temporarily_clear_proxy_env(clear_proxy):
+            clear = (attempt == 1)
+
+            def _do_search():
                 import yfinance as yf
                 s = yf.Search(query)
                 quotes = s.quotes if hasattr(s, 'quotes') else []
+                return quotes
 
-                suggestions: list = []
-                seen_symbols: set[str] = set()
-                for q in quotes:
-                    symbol = str(q.get("symbol", "")).strip().upper()
-                    if not symbol or symbol == query_symbol or symbol in seen_symbols:
-                        continue
-                    quote_type = str(q.get("quoteType", "")).strip().upper()
-                    if quote_type not in allowed_quote_types:
-                        continue
+            quotes = run_yfinance_call(_do_search, clear_proxy=clear)
 
-                    seen_symbols.add(symbol)
-                    display_name = str(q.get("shortname") or q.get("longname") or "").strip() or symbol
-                    localized_name = _build_company_name_localized(display_name, symbol, q)
-                    suggestions.append({
-                        "symbol": symbol,
-                        "name": display_name,
-                        "company_name": display_name,
-                        "name_localized": dict(localized_name),
-                        "company_name_localized": dict(localized_name),
-                    })
-                    if len(suggestions) >= limit:
-                        break
+            suggestions: list = []
+            seen_symbols: set[str] = set()
+            for q in quotes:
+                symbol = str(q.get("symbol", "")).strip().upper()
+                if not symbol or symbol == query_symbol or symbol in seen_symbols:
+                    continue
+                quote_type = str(q.get("quoteType", "")).strip().upper()
+                if quote_type not in allowed_quote_types:
+                    continue
 
-                return suggestions
+                seen_symbols.add(symbol)
+                display_name = str(q.get("shortname") or q.get("longname") or "").strip() or symbol
+                localized_name = _build_company_name_localized(display_name, symbol, q)
+                suggestions.append({
+                    "symbol": symbol,
+                    "name": display_name,
+                    "company_name": display_name,
+                    "name_localized": dict(localized_name),
+                    "company_name_localized": dict(localized_name),
+                })
+                if len(suggestions) >= limit:
+                    break
+
+            return suggestions
         except (KeyError, AttributeError, TypeError, ValueError) as exc:
             last_error = exc
             continue
@@ -573,8 +722,17 @@ async def search_symbols(
 
     try:
         results = await asyncio.wait_for(
-            run_in_threadpool(_search_tickers, q, limit, True),
+            _run_in_fetch_executor(_search_tickers, q, limit, True),
             timeout=timeout_seconds,
+        )
+    except UpstreamCapacityError:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "Service busy — please retry",
+                "error_type": "upstream_busy",
+                "query": q,
+            },
         )
     except TimeoutError as exc:
         raise HTTPException(
@@ -587,11 +745,13 @@ async def search_symbols(
             },
         ) from exc
     except Exception as exc:
+        logger.error("Symbol search upstream error for query %s: %s", q, exc, exc_info=True)
         raise HTTPException(
             status_code=503,
             detail={
                 "error": "Symbol search upstream unavailable",
-                "message": f"Unable to search symbols right now: {exc}",
+                "error_type": "upstream_unavailable",
+                "message": "Unable to search symbols right now. Please try again later.",
                 "query": q,
             },
         ) from exc
@@ -603,7 +763,7 @@ async def search_symbols(
 
 
 @app.post("/api/v1/covenants/check", tags=["Post-Lending Monitoring"])
-def check_covenants(request: CovenantCheckRequest):
+async def check_covenants(request: CovenantCheckRequest):
     """
     Check a company's latest financials against internal credit covenants.
 
@@ -613,60 +773,110 @@ def check_covenants(request: CovenantCheckRequest):
     """
     ticker = request.ticker.strip().upper()
     if not ticker:
-        raise HTTPException(status_code=422, detail={"error": "Ticker cannot be empty."})
+        raise HTTPException(status_code=422, detail={"error": "Ticker cannot be empty.", "error_type": "validation_error"})
+
+    data_source = (request.data_source or "yfinance").strip().lower()
+    _ALLOWED_COVENANT_SOURCES = {"auto", "yfinance", "akshare", "demo"}
+    if data_source not in _ALLOWED_COVENANT_SOURCES:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": f"Unsupported data source: '{request.data_source}'",
+                "error_type": "validation_error",
+                "allowed": sorted(_ALLOWED_COVENANT_SOURCES),
+            },
+        )
 
     fiscal_year = request.fiscal_year or datetime.now().year
 
+    from fastapi.concurrency import run_in_threadpool
+    import asyncio
+
+    per_ticker_timeout = max(1.0, settings.assess_ticker_timeout_seconds)
+
+    def _fetch_and_check():
+        try:
+            data = fetcher.get_financial_data(ticker, data_source)
+        except DataFetchError as exc:
+            raise exc
+        except Exception as exc:
+            logger.error("Unexpected fetch error for %s: %s", ticker, exc, exc_info=True)
+            raise DataFetchError(
+                "Unexpected error fetching financial data",
+                error_type=DataFetchErrorType.UNKNOWN,
+                ticker=ticker,
+            ) from exc
+
+        if not data:
+            raise DataFetchError(
+                f"No financial data available for '{ticker}'",
+                error_type=DataFetchErrorType.NO_DATA_AVAILABLE,
+                ticker=ticker,
+                details={"reason": "empty_response"},
+            )
+
+        company_name = data.get("company_name", ticker)
+        history = data.get("history", [])
+        if not history:
+            raise DataFetchError(
+                f"No financial history available for '{ticker}'",
+                error_type=DataFetchErrorType.NO_DATA_AVAILABLE,
+                ticker=ticker,
+                details={"reason": "empty_history"},
+            )
+
+        latest_period = history[0]
+        period_data = {
+            'balance': latest_period.get('balance', pd.DataFrame()),
+            'income': latest_period.get('income', pd.DataFrame()),
+            'cash': latest_period.get('cash', pd.DataFrame()),
+            'company_name': company_name,
+            'fiscal_year': fiscal_year,
+        }
+        ratios = _calculate_ratios(period_data)
+
+        report: CovenantReport = covenant_monitor.check_covenants(
+            company_name=company_name,
+            fiscal_year=fiscal_year,
+            ratios=ratios,
+            covenants=request.covenants,
+        )
+        return report
+
     try:
-        data = fetcher.get_financial_data(ticker, request.data_source)
+        result = await asyncio.wait_for(
+            _run_in_fetch_executor(_fetch_and_check),
+            timeout=per_ticker_timeout,
+        )
+        return result
+    except UpstreamCapacityError:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "Service busy — please retry",
+                "error_type": "upstream_busy",
+                "ticker": ticker,
+            },
+        )
+    except TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "error": f"Covenant check timed out after {per_ticker_timeout:.0f}s",
+                "error_type": "timeout",
+                "ticker": ticker,
+            },
+        )
     except DataFetchError as exc:
         raise HTTPException(
-            status_code=404,
+            status_code=_error_type_to_http_status(exc.error_type.value),
             detail={
                 "error": exc.message,
                 "error_type": exc.error_type.value,
                 "ticker": exc.ticker,
-                "details": exc.details
-            }
-        )
-
-    if not data:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": f"No financial data available for '{ticker}'",
-                "error_type": DataFetchErrorType.NO_DATA_AVAILABLE.value,
-                "ticker": ticker,
-                "details": {"reason": "empty_response"},
+                "details": exc.details,
             },
         )
-
-    company_name = data.get("company_name", ticker)
-
-    # Extract the latest period's statements for ratio calculation
-    history = data.get("history", [])
-    if not history:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No financial history available for '{ticker}'",
-        )
-    latest_period = history[0]
-    period_data = {
-        'balance': latest_period.get('balance', pd.DataFrame()),
-        'income': latest_period.get('income', pd.DataFrame()),
-        'cash': latest_period.get('cash', pd.DataFrame()),
-        'company_name': company_name,
-        'fiscal_year': fiscal_year,
-    }
-    ratios = _calculate_ratios(period_data)
-
-    report: CovenantReport = covenant_monitor.check_covenants(
-        company_name=company_name,
-        fiscal_year=fiscal_year,
-        ratios=ratios,
-        covenants=request.covenants,
-    )
-    return report
 
 
 @app.post("/api/v1/reports/pdf", tags=["Reporting"])
@@ -686,9 +896,18 @@ async def export_full_pdf(request: PdfExportRequest | dict[str, Any]):
     ticker = str(report.get("ticker") or "RiskLens").upper()
 
     try:
-        pdf_bytes = await generate_full_pdf_async(report, lang, theme)
+        pdf_bytes = await _run_in_fetch_executor(generate_full_pdf, report, lang, theme)
+    except UpstreamCapacityError:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "Service busy — please retry", "error_type": "upstream_busy", "ticker": ticker},
+        )
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail={"error": str(exc), "ticker": ticker}) from exc
+        logger.warning("PDF export validation failed for %s: %s", ticker, exc)
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "Invalid PDF report structure", "error_type": "validation_error", "ticker": ticker},
+        ) from exc
     except Exception as exc:
         logger.error("PDF export failed for %s: %s", ticker, exc, exc_info=True)
         raise HTTPException(
@@ -696,7 +915,8 @@ async def export_full_pdf(request: PdfExportRequest | dict[str, Any]):
             detail={"error": "Failed to generate PDF report", "ticker": ticker},
         ) from exc
 
-    filename = f"{ticker}_Full_Report.pdf"
+    safe_ticker = re.sub(r'[^A-Za-z0-9._-]', '_', ticker).strip('_') or "RiskLens"
+    filename = f"{safe_ticker}_Full_Report.pdf"
     pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
     return StreamingResponse(
         io.BytesIO(pdf_bytes),

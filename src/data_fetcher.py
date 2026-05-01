@@ -26,19 +26,68 @@ from src.config import settings
 logger = logging.getLogger(__name__)
 
 
+# ── Proxy-Safe yfinance Call Wrapper ──────────────────────────────────────
+
+import os as _os
+
+_PROXY_ENV_KEYS = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+)
+
+_PROXY_CLEAR_LOCK = threading.Lock()
+
+
+def run_yfinance_call(fn, *, clear_proxy: bool = True):
+    """Execute a yfinance call under the proxy-safety lock.
+
+    All yfinance network operations (Ticker, Search, info, statement lookups)
+    MUST go through this wrapper so that no concurrent thread sees an
+    inconsistent os.environ state.
+
+    When *clear_proxy* is True the proxy env vars are temporarily removed
+    for the duration of the call (the default for all primary fetches).
+    When False the call runs with the current environment untouched but
+    still holds the lock, preventing races with a concurrent clear-proxy
+    call.
+    """
+    with _PROXY_CLEAR_LOCK:
+        if clear_proxy:
+            backup = {k: _os.environ.get(k) for k in _PROXY_ENV_KEYS}
+            try:
+                for k in _PROXY_ENV_KEYS:
+                    _os.environ.pop(k, None)
+                return fn()
+            finally:
+                for k, v in backup.items():
+                    if v is None:
+                        _os.environ.pop(k, None)
+                    else:
+                        _os.environ[k] = v
+        else:
+            return fn()
+
+
 # ── Simple In-Memory Cache with TTL ──────────────────────────────────────────
 
 class SimpleCache:
-    """Thread-safe in-memory cache with TTL support."""
+    """Thread-safe in-memory cache with TTL and LRU eviction."""
 
-    def __init__(self, default_ttl: int = 600):
+    def __init__(self, default_ttl: int = 600, maxsize: int = 1000):
         """Initialize cache.
 
         Args:
             default_ttl: Default time-to-live in seconds (default: 600 = 10 minutes)
+            maxsize: Maximum number of entries (LRU eviction when exceeded)
         """
-        self._cache: dict[str, tuple[Any, datetime]] = {}
+        from collections import OrderedDict
+        self._cache: OrderedDict[str, tuple[Any, datetime]] = OrderedDict()
         self._default_ttl = default_ttl
+        self._maxsize = max(1, maxsize)  # never allow zero-size cache
         self._hits = 0
         self._misses = 0
         self._lock = threading.RLock()
@@ -59,11 +108,12 @@ class SimpleCache:
 
             value, expiry = self._cache[key]
             if datetime.now() > expiry:
-                # Expired, remove from cache
                 del self._cache[key]
                 self._misses += 1
                 return None
 
+            # LRU: move to end (most recently used)
+            self._cache.move_to_end(key)
             self._hits += 1
             return value
 
@@ -78,7 +128,11 @@ class SimpleCache:
         ttl = ttl if ttl is not None else self._default_ttl
         expiry = datetime.now() + timedelta(seconds=ttl)
         with self._lock:
+            # LRU eviction: remove oldest entries if at capacity
+            while len(self._cache) >= self._maxsize:
+                self._cache.popitem(last=False)
             self._cache[key] = (value, expiry)
+            self._cache.move_to_end(key)
 
     def clear(self) -> None:
         """Clear all cached entries."""
@@ -105,7 +159,11 @@ class SimpleCache:
 
 
 # Global cache instance
-_data_cache = SimpleCache(default_ttl=settings.cache_ttl_seconds)
+_data_cache = SimpleCache(default_ttl=settings.cache_ttl_seconds, maxsize=settings.data_cache_maxsize)
+
+# Single-flight coalescing: prevents concurrent cache misses for the same key
+_in_flight: dict[str, threading.Event] = {}
+_in_flight_lock = threading.Lock()
 
 
 # ── Ticker Normalization ─────────────────────────────────────────────────────
@@ -146,7 +204,7 @@ def retry_with_backoff(
     initial_delay: float = 1.0,
     backoff_factor: float = 2.0,
     max_delay: float = 10.0,
-    retriable_errors: tuple = (Exception,)
+    retriable_errors: tuple = (ConnectionError, TimeoutError, OSError)
 ):
     """Decorator for retrying functions with exponential backoff.
 
@@ -532,7 +590,7 @@ def _merge_company_profiles(primary: dict[str, Any], fallback: dict[str, Any]) -
     max_retries=2,
     initial_delay=1.5,
     backoff_factor=2.0,
-    retriable_errors=(Exception,)
+    retriable_errors=(DataFetchError, ConnectionError, TimeoutError, OSError)
 )
 def _fetch_a_share_akshare(ticker: str) -> dict[str, Any] | None:
     """Fetch A-share data from AKShare's Sina Finance API.
@@ -653,9 +711,16 @@ def _fetch_a_share_akshare(ticker: str) -> dict[str, Any] | None:
         bal_df = ak.stock_financial_report_sina(stock=ticker, symbol='资产负债表')
         cf_df = ak.stock_financial_report_sina(stock=ticker, symbol='现金流量表')
         logger.debug(f"AKShare {ticker} statement sizes: income={len(inc_df) if inc_df is not None else 0}, balance={len(bal_df) if bal_df is not None else 0}, cashflow={len(cf_df) if cf_df is not None else 0}")
+    except DataFetchError:
+        raise
     except Exception as e:
         logger.error(f"AKShare Sina API error for {ticker}: {e}")
-        return None
+        raise DataFetchError(
+            f"AKShare statement fetch failed for '{ticker}': {e}",
+            error_type=DataFetchErrorType.NETWORK_ERROR,
+            ticker=ticker,
+            details={"source": "akshare"},
+        ) from e
 
     if inc_df is None or inc_df.empty:
         logger.warning(f"AKShare income statement is empty for {ticker}")
@@ -769,8 +834,14 @@ def _fetch_a_share_akshare(ticker: str) -> dict[str, Any] | None:
     # company_name defaults to ticker, might have been updated by akshare above
     try:
         yf_ticker = ticker + ('.SS' if ticker.startswith('6') else '.SZ')
-        yf_stock = yf.Ticker(yf_ticker)
-        info_yf = yf_stock.info or {}
+
+        def _do_aks_yfinance_calls():
+            _yf_stock = yf.Ticker(yf_ticker)
+            _info_yf = _yf_stock.info or {}
+            _yf_inc = _yf_stock.income_stmt
+            return _yf_stock, _info_yf, _yf_inc
+
+        yf_stock, info_yf, yf_inc = run_yfinance_call(_do_aks_yfinance_calls, clear_proxy=True)
         yf_profile = _build_company_profile_from_yfinance_info(info_yf)
         company_profile = _merge_company_profiles(company_profile, yf_profile)
         market_cap = info_yf.get('marketCap', 0)
@@ -781,8 +852,7 @@ def _fetch_a_share_akshare(ticker: str) -> dict[str, Any] | None:
             if yf_name:
                 company_name = yf_name
         
-        # Supplement EBITDA from yfinance income statement
-        yf_inc = yf_stock.income_stmt
+        # Supplement EBITDA from yfinance income statement (already fetched above)
         if yf_inc is not None and not yf_inc.empty:
             # Build a map: year -> (ebitda, d&a) from yfinance
             yf_ebitda_map = {}
@@ -853,7 +923,7 @@ class FinancialDataFetcher:
         max_retries=3,
         initial_delay=1.0,
         backoff_factor=2.0,
-        retriable_errors=(Exception,)
+        retriable_errors=(DataFetchError, ConnectionError, TimeoutError, OSError)
     )
     def get_financial_data(ticker: str, data_source: str = 'auto') -> dict[str, Any] | None:
         """
@@ -895,224 +965,285 @@ class FinancialDataFetcher:
             logger.debug(f"Cache hit for {cache_key}")
             return cached_result
 
+        # Single-flight coalescing: only one upstream call per cache key
+        event: threading.Event | None = None
+        with _in_flight_lock:
+            if cache_key in _in_flight:
+                event = _in_flight[cache_key]
+            else:
+                _in_flight[cache_key] = threading.Event()
+
+        if event is not None:
+            logger.debug(f"Waiting for in-flight fetch of {cache_key}")
+            event.wait()
+            # Re-check cache after in-flight fetch completes
+            cached_result = _data_cache.get(cache_key)
+            if cached_result is not None:
+                return cached_result
+            # If still not cached (e.g., fetch failed), re-acquire the in-flight slot
+            with _in_flight_lock:
+                if cache_key in _in_flight:
+                    event = _in_flight[cache_key]
+                else:
+                    _in_flight[cache_key] = threading.Event()
+                    event = None
+            if event is not None:
+                event.wait()
+                cached_result = _data_cache.get(cache_key)
+                if cached_result is not None:
+                    return cached_result
+
         logger.debug(f"Cache miss for {cache_key}, fetching from source...")
 
-        # OR-004: Strip A-share exchange suffixes before routing detection.
-        # Handles copy-pasted formats like "600519.SS", "000002.SZ", "000002.SH"
-        _raw = ticker.upper()
-        for _suffix in ('.SS', '.SZ', '.SH'):
-            if _raw.endswith(_suffix):
-                ticker = ticker[: -len(_suffix)]
-                break
-        
-        # Auto-detect A-share: 6-digit number → AKShare first, fallback yfinance
-        if ticker.isdigit() and len(ticker) == 6:
-            if source in ("auto", "akshare"):
-                result = _fetch_a_share_akshare(ticker)
-                if result and result.get('history'):
-                    # Cache successful AKShare result
-                    _data_cache.set(cache_key, result)
-                    logger.debug(f"Cached AKShare result for {cache_key}")
-                    return result
-                if source == "akshare":
-                    # Caller explicitly requested AKShare; surface explicit failure.
-                    logger.warning(f"AKShare failed for {ticker} (akshare requested)")
-                    raise DataFetchError(
-                        f"No financial data available from AKShare for '{ticker}'",
-                        error_type=DataFetchErrorType.NO_DATA_AVAILABLE,
-                        ticker=ticker,
-                        details={"source": "akshare"},
-                    )
-                # Fallback to yfinance for auto mode
-                logger.info(f"AKShare failed for {ticker}, falling back to yfinance")
-            suffix = '.SS' if ticker.startswith('6') else '.SZ'
-            ticker = ticker + suffix
-
-        # ── yfinance (US / HK / A-share) ──
         try:
-            stock = yf.Ticker(ticker)
-            # Rate-limit: brief pause to avoid Yahoo Finance throttling
-            time.sleep(0.3)
-            info = stock.info or {}
-
-            inc = stock.income_stmt
-            bal = stock.balance_sheet
-            cf = stock.cashflow
-
-            history = []
-            
-            # 1. Fetch Annual Data first (Up to 3 Years) — establishes the cutoff
-            cols_count = 0
-            for stmt in [inc, bal, cf]:
-                if stmt is not None and not stmt.empty:
-                    cols_count = max(cols_count, len(stmt.columns))
-            cols_count = min(3, cols_count)
-            
-            latest_annual_date = None
-            annual_entries = []
-            for i in range(cols_count):
-                year_label = f"Year {i+1}"
-                col_date_str = None
-                for stmt in [inc, bal, cf]:
-                    if stmt is not None and not stmt.empty and i < len(stmt.columns):
-                        col_date_str = str(stmt.columns[i])[:10]
-                        if len(col_date_str) >= 10:
-                            year_label = f"FY{col_date_str[2:4]}"
-                        break
-
-                annual_entries.append({
-                    'year_label': year_label,
-                    'is_quarterly': False,
-                    'income': _extract_single_column(inc, i),
-                    'balance': _extract_single_column(bal, i),
-                    'cash': _extract_single_column(cf, i),
-                })
-                # Track latest annual date (first column = most recent)
-                if i == 0 and col_date_str and len(col_date_str) >= 10:
-                    latest_annual_date = col_date_str
-            
-            # 2. Fetch Quarterly Data — keep quarters newer than latest annual plus
-            # latest-quarter YoY baseline (same quarter last year).
-            inc_q = stock.quarterly_income_stmt
-            bal_q = stock.quarterly_balance_sheet
-            cf_q = stock.quarterly_cashflow
-            
-            cols_count_q = 0
-            for stmt in [inc_q, bal_q, cf_q]:
-                if stmt is not None and not stmt.empty:
-                    cols_count_q = max(cols_count_q, len(stmt.columns))
-            cols_count_q = min(cols_count_q, 12)  # safety cap
-            
-            quarterly_candidates = []
-            for i in range(cols_count_q):
-                col_date_str = None
-                year_label = f"Q{i+1} Unaudited"
-                quarter_meta = None
-                for stmt in [inc_q, bal_q, cf_q]:
-                    if stmt is not None and not stmt.empty and i < len(stmt.columns):
-                        col_date_str = str(stmt.columns[i])[:10]
-                        if len(col_date_str) >= 10:
-                            m = int(col_date_str[5:7])
-                            q = (m - 1) // 3 + 1
-                            quarter_meta = (int(col_date_str[:4]), q)
-                            year_label = f"Q{q} '{col_date_str[2:4]} (U)"
-                        break
-
-                quarterly_candidates.append({
-                    'year_label': year_label,
-                    'is_quarterly': True,
-                    'income': _extract_single_column(inc_q, i),
-                    'balance': _extract_single_column(bal_q, i),
-                    'cash': _extract_single_column(cf_q, i),
-                    '_quarter_meta': quarter_meta,
-                })
-
-            latest_quarter_meta = None
-            for candidate in quarterly_candidates:
-                candidate_meta = candidate.get('_quarter_meta')
-                if candidate_meta is not None:
-                    latest_quarter_meta = candidate_meta
+            # OR-004: Strip A-share exchange suffixes before routing detection.
+            # Handles copy-pasted formats like "600519.SS", "000002.SZ", "000002.SH"
+            _raw = ticker.upper()
+            for _suffix in ('.SS', '.SZ', '.SH'):
+                if _raw.endswith(_suffix):
+                    ticker = ticker[: -len(_suffix)]
                     break
 
-            annual_year = int(latest_annual_date[:4]) if latest_annual_date else None
-            prior_year_same_quarter = None
-            latest_quarter_is_displayed = (
-                latest_quarter_meta is not None
-                and (annual_year is None or latest_quarter_meta[0] > annual_year)
-            )
-            if latest_quarter_is_displayed:
-                prior_year_same_quarter = (latest_quarter_meta[0] - 1, latest_quarter_meta[1])
+            # Auto-detect A-share: 6-digit number → AKShare first, fallback yfinance
+            if ticker.isdigit() and len(ticker) == 6:
+                if source in ("auto", "akshare"):
+                    try:
+                        result = _fetch_a_share_akshare(ticker)
+                    except DataFetchError as exc:
+                        if source == "akshare":
+                            raise
+                        logger.warning(
+                            "AKShare failed for %s in auto mode, falling back to yfinance: %s",
+                            ticker,
+                            exc,
+                        )
+                        result = None
 
-            quarterly_entries = []
-            seen_quarters = set()
-            for candidate in quarterly_candidates:
-                candidate_meta = candidate.get('_quarter_meta')
-                keep = True
-                if annual_year is not None and candidate_meta is not None:
-                    keep = candidate_meta[0] > annual_year
-                    if prior_year_same_quarter is not None and candidate_meta == prior_year_same_quarter:
-                        keep = True
-                if not keep:
-                    continue
-                if candidate_meta is not None and candidate_meta in seen_quarters:
-                    continue
-                if candidate_meta is not None:
-                    seen_quarters.add(candidate_meta)
-                candidate.pop('_quarter_meta', None)
-                quarterly_entries.append(candidate)
-            
-            # Final order: quarterly (newest first) then annual (newest first)
-            history = quarterly_entries + annual_entries
+                    if result and result.get('history'):
+                        # Cache successful AKShare result
+                        _data_cache.set(cache_key, result)
+                        logger.debug(f"Cached AKShare result for {cache_key}")
+                        return result
+                    if source == "akshare":
+                        # Caller explicitly requested AKShare; surface explicit failure.
+                        logger.warning(f"AKShare failed for {ticker} (akshare requested)")
+                        raise DataFetchError(
+                            f"No financial data available from AKShare for '{ticker}'",
+                            error_type=DataFetchErrorType.NO_DATA_AVAILABLE,
+                            ticker=ticker,
+                            details={"source": "akshare"},
+                        )
+                    # Fallback to yfinance for auto mode
+                    logger.info(f"AKShare failed for {ticker}, falling back to yfinance")
+                suffix = '.SS' if ticker.startswith('6') else '.SZ'
+                ticker = ticker + suffix
 
-            # Validate that we have actual financial data before returning success
-            if not history:
-                logger.warning(f"No financial history available for {ticker}")
-                raise DataFetchError(
-                    f"No financial data available for ticker '{ticker}'",
-                    error_type=DataFetchErrorType.NO_DATA_AVAILABLE,
-                    ticker=ticker,
-                    details={"reason": "Empty history after fetching statements"}
+            # ── yfinance (US / HK / A-share) ──
+            # All yfinance network calls go through run_yfinance_call for
+            # proxy-safety: no concurrent thread sees an inconsistent os.environ.
+            try:
+                # Collect all network-calling property accesses in a closure
+                # so run_yfinance_call can hold the proxy lock around them.
+                _stock = None
+                _info = None
+                _inc = _bal = _cf = None
+                _inc_q = _bal_q = _cf_q = None
+
+                def _do_yfinance_calls():
+                    nonlocal _stock, _info, _inc, _bal, _cf, _inc_q, _bal_q, _cf_q
+                    _stock = yf.Ticker(ticker)
+                    # Rate-limit: brief pause to avoid Yahoo Finance throttling
+                    time.sleep(0.3)
+                    _info = _stock.info or {}
+                    _inc = _stock.income_stmt
+                    _bal = _stock.balance_sheet
+                    _cf = _stock.cashflow
+                    _inc_q = _stock.quarterly_income_stmt
+                    _bal_q = _stock.quarterly_balance_sheet
+                    _cf_q = _stock.quarterly_cashflow
+
+                run_yfinance_call(_do_yfinance_calls, clear_proxy=True)
+                stock, info = _stock, _info
+                inc, bal, cf = _inc, _bal, _cf
+                inc_q, bal_q, cf_q = _inc_q, _bal_q, _cf_q
+
+                history = []
+
+                # 1. Fetch Annual Data first (Up to 3 Years) — establishes the cutoff
+                cols_count = 0
+                for stmt in [inc, bal, cf]:
+                    if stmt is not None and not stmt.empty:
+                        cols_count = max(cols_count, len(stmt.columns))
+                cols_count = min(3, cols_count)
+
+                latest_annual_date = None
+                annual_entries = []
+                for i in range(cols_count):
+                    year_label = f"Year {i+1}"
+                    col_date_str = None
+                    for stmt in [inc, bal, cf]:
+                        if stmt is not None and not stmt.empty and i < len(stmt.columns):
+                            col_date_str = str(stmt.columns[i])[:10]
+                            if len(col_date_str) >= 10:
+                                year_label = f"FY{col_date_str[2:4]}"
+                            break
+
+                    annual_entries.append({
+                        'year_label': year_label,
+                        'is_quarterly': False,
+                        'income': _extract_single_column(inc, i),
+                        'balance': _extract_single_column(bal, i),
+                        'cash': _extract_single_column(cf, i),
+                    })
+                    # Track latest annual date (first column = most recent)
+                    if i == 0 and col_date_str and len(col_date_str) >= 10:
+                        latest_annual_date = col_date_str
+
+                # 2. Process Quarterly Data — keep quarters newer than latest annual
+                # plus latest-quarter YoY baseline (same quarter last year).
+
+                cols_count_q = 0
+                for stmt in [inc_q, bal_q, cf_q]:
+                    if stmt is not None and not stmt.empty:
+                        cols_count_q = max(cols_count_q, len(stmt.columns))
+                cols_count_q = min(cols_count_q, 12)  # safety cap
+
+                quarterly_candidates = []
+                for i in range(cols_count_q):
+                    col_date_str = None
+                    year_label = f"Q{i+1} Unaudited"
+                    quarter_meta = None
+                    for stmt in [inc_q, bal_q, cf_q]:
+                        if stmt is not None and not stmt.empty and i < len(stmt.columns):
+                            col_date_str = str(stmt.columns[i])[:10]
+                            if len(col_date_str) >= 10:
+                                m = int(col_date_str[5:7])
+                                q = (m - 1) // 3 + 1
+                                quarter_meta = (int(col_date_str[:4]), q)
+                                year_label = f"Q{q} '{col_date_str[2:4]} (U)"
+                            break
+
+                    quarterly_candidates.append({
+                        'year_label': year_label,
+                        'is_quarterly': True,
+                        'income': _extract_single_column(inc_q, i),
+                        'balance': _extract_single_column(bal_q, i),
+                        'cash': _extract_single_column(cf_q, i),
+                        '_quarter_meta': quarter_meta,
+                    })
+
+                latest_quarter_meta = None
+                for candidate in quarterly_candidates:
+                    candidate_meta = candidate.get('_quarter_meta')
+                    if candidate_meta is not None:
+                        latest_quarter_meta = candidate_meta
+                        break
+
+                annual_year = int(latest_annual_date[:4]) if latest_annual_date else None
+                prior_year_same_quarter = None
+                latest_quarter_is_displayed = (
+                    latest_quarter_meta is not None
+                    and (annual_year is None or latest_quarter_meta[0] > annual_year)
                 )
+                if latest_quarter_is_displayed:
+                    prior_year_same_quarter = (latest_quarter_meta[0] - 1, latest_quarter_meta[1])
 
-            result = {
-                'ticker': ticker,
-                'company_name': info.get('longName', info.get('shortName', ticker)),
-                'market_cap': info.get('marketCap'),
-                'company_profile': _build_company_profile_from_yfinance_info(info),
-                'history': history
-            }
+                quarterly_entries = []
+                seen_quarters = set()
+                for candidate in quarterly_candidates:
+                    candidate_meta = candidate.get('_quarter_meta')
+                    keep = True
+                    if annual_year is not None and candidate_meta is not None:
+                        keep = candidate_meta[0] > annual_year
+                        if prior_year_same_quarter is not None and candidate_meta == prior_year_same_quarter:
+                            keep = True
+                    if not keep:
+                        continue
+                    if candidate_meta is not None and candidate_meta in seen_quarters:
+                        continue
+                    if candidate_meta is not None:
+                        seen_quarters.add(candidate_meta)
+                    candidate.pop('_quarter_meta', None)
+                    quarterly_entries.append(candidate)
 
-            # Cache successful result
-            _data_cache.set(cache_key, result)
-            logger.debug(f"Cached result for {cache_key}")
+                # Final order: quarterly (newest first) then annual (newest first)
+                history = quarterly_entries + annual_entries
 
-            return result
-        except DataFetchError:
-            # Re-raise our custom exceptions
-            raise
-        except Exception as e:
-            error_msg = str(e).lower()
+                # Validate that we have actual financial data before returning success
+                if not history:
+                    logger.warning(f"No financial history available for {ticker}")
+                    raise DataFetchError(
+                        f"No financial data available for ticker '{ticker}'",
+                        error_type=DataFetchErrorType.NO_DATA_AVAILABLE,
+                        ticker=ticker,
+                        details={"reason": "Empty history after fetching statements"}
+                    )
 
-            # Classify error type based on error message and provide helpful suggestions
-            if "404" in error_msg or "not found" in error_msg:
-                error_type = DataFetchErrorType.INVALID_TICKER
-                suggestions = []
+                result = {
+                    'ticker': ticker,
+                    'company_name': info.get('longName', info.get('shortName', ticker)),
+                    'market_cap': info.get('marketCap'),
+                    'company_profile': _build_company_profile_from_yfinance_info(info),
+                    'history': history
+                }
 
-                # Provide helpful suggestions based on ticker format
-                if '.' in ticker and not ticker.endswith(('.HK', '.SS', '.SZ', '.SH')):
-                    suggestions.append(f"Try using hyphen instead: {ticker.replace('.', '-')}")
-                if ticker.endswith('.B'):
-                    suggestions.append(f"Class B shares should use hyphen: {ticker[:-2]}-B")
-                if ticker.isdigit() and len(ticker) == 6:
-                    suggestions.append(f"A-share tickers need exchange suffix: {ticker}.SS or {ticker}.SZ")
+                # Cache successful result
+                _data_cache.set(cache_key, result)
+                logger.debug(f"Cached result for {cache_key}")
 
-                message = f"Ticker '{ticker}' not found in data source"
-                if suggestions:
-                    message += f". Suggestions: {'; '.join(suggestions)}"
+                return result
+            except DataFetchError:
+                # Re-raise our custom exceptions
+                raise
+            except Exception as e:
+                error_msg = str(e).lower()
 
-            elif "429" in error_msg or "rate limit" in error_msg or "too many requests" in error_msg:
-                error_type = DataFetchErrorType.RATE_LIMIT
-                message = f"Rate limit exceeded for '{ticker}'. Please wait a moment and try again."
-            elif any(
-                token in error_msg
-                for token in (
-                    "timeout",
-                    "connection",
-                    "network",
-                    "proxy",
-                    "failed to connect",
-                    "could not connect",
-                    "curl: (7)",
-                )
-            ):
-                error_type = DataFetchErrorType.NETWORK_ERROR
-                message = f"Network error when fetching '{ticker}'. Check your internet connection."
-            else:
-                error_type = DataFetchErrorType.UNKNOWN
-                message = f"Error fetching data for '{ticker}': {e}"
+                # Classify error type based on error message and provide helpful suggestions
+                if "404" in error_msg or "not found" in error_msg:
+                    error_type = DataFetchErrorType.INVALID_TICKER
+                    suggestions = []
 
-            logger.error(f"yfinance error for {ticker}: {e}")
-            raise DataFetchError(message, error_type=error_type, ticker=ticker, details={"original_error": str(e)})
+                    # Provide helpful suggestions based on ticker format
+                    if '.' in ticker and not ticker.endswith(('.HK', '.SS', '.SZ', '.SH')):
+                        suggestions.append(f"Try using hyphen instead: {ticker.replace('.', '-')}")
+                    if ticker.endswith('.B'):
+                        suggestions.append(f"Class B shares should use hyphen: {ticker[:-2]}-B")
+                    if ticker.isdigit() and len(ticker) == 6:
+                        suggestions.append(f"A-share tickers need exchange suffix: {ticker}.SS or {ticker}.SZ")
+
+                    message = f"Ticker '{ticker}' not found in data source"
+                    if suggestions:
+                        message += f". Suggestions: {'; '.join(suggestions)}"
+
+                elif "429" in error_msg or "rate limit" in error_msg or "too many requests" in error_msg:
+                    error_type = DataFetchErrorType.RATE_LIMIT
+                    message = f"Rate limit exceeded for '{ticker}'. Please wait a moment and try again."
+                elif any(
+                    token in error_msg
+                    for token in (
+                        "timeout",
+                        "connection",
+                        "network",
+                        "proxy",
+                        "failed to connect",
+                        "could not connect",
+                        "curl: (7)",
+                    )
+                ):
+                    error_type = DataFetchErrorType.NETWORK_ERROR
+                    message = f"Network error when fetching '{ticker}'. Check your internet connection."
+                else:
+                    error_type = DataFetchErrorType.UNKNOWN
+                    message = f"Error fetching data for '{ticker}': {e}"
+
+                logger.error(f"yfinance error for {ticker}: {e}")
+                raise DataFetchError(message, error_type=error_type, ticker=ticker)
+        finally:
+            # Signal any waiters that this in-flight request has completed
+            with _in_flight_lock:
+                if cache_key in _in_flight:
+                    _in_flight[cache_key].set()
+                    del _in_flight[cache_key]
 
     @staticmethod
     def get_cache_stats() -> dict[str, int]:

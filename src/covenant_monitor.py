@@ -6,18 +6,27 @@ Analyzes financial ratios against defined financial covenants.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from src.ratio_analyzer import CreditRatioAnalysis
+import math
 
 
 class FinancialCovenants(BaseModel):
     """Configuration for financial covenants / red lines."""
-    min_interest_coverage: float | None = Field(None, description="Minimum Interest Coverage ratio")
-    max_debt_to_ebitda: float | None = Field(None, description="Maximum Debt / EBITDA ratio")
-    max_debt_to_equity: float | None = Field(None, description="Maximum Debt / Equity ratio")
-    min_current_ratio: float | None = Field(None, description="Minimum Current Ratio")
-    min_quick_ratio: float | None = Field(None, description="Minimum Quick Ratio")
+    min_interest_coverage: float | None = Field(None, gt=0, description="Minimum Interest Coverage ratio")
+    max_debt_to_ebitda: float | None = Field(None, gt=0, description="Maximum Debt / EBITDA ratio")
+    max_debt_to_equity: float | None = Field(None, gt=0, description="Maximum Debt / Equity ratio")
+    min_current_ratio: float | None = Field(None, gt=0, description="Minimum Current Ratio")
+    min_quick_ratio: float | None = Field(None, gt=0, description="Minimum Quick Ratio")
     min_fcf_to_debt: float | None = Field(None, description="Minimum FCF / Debt ratio")
+
+    @model_validator(mode="after")
+    def _reject_non_finite(self) -> "FinancialCovenants":
+        for field_name in type(self).model_fields:
+            value = getattr(self, field_name)
+            if value is not None and not math.isfinite(value):
+                raise ValueError(f"'{field_name}' must be a finite number, got: {value!r}")
+        return self
 
 
 class CovenantAlert(BaseModel):

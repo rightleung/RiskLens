@@ -2087,7 +2087,7 @@ function PdfExportDialog({
     { label: pdfText.zScore, value: target.zScore, tone: 'primary' },
     { label: pdfText.rating, value: target.rating, tone: 'primary-soft' },
     { label: pdfText.latestPeriod, value: target.latestPeriod, tone: 'muted' },
-    { label: pdfText.sections, value: String(target.periodCount || 0), tone: 'accent' },
+    { label: pdfText.sections, value: String(target.sections.length), tone: 'accent' },
   ] as const;
 
   const handleExport = async () => {
@@ -2114,28 +2114,27 @@ function PdfExportDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next && !loading) onClose(); }}>
       <DialogContent
-        className="w-[min(1080px,96vw)] max-w-[min(1080px,96vw)] max-h-[92vh] overflow-hidden border border-border bg-background p-0 text-foreground shadow-[0_30px_100px_rgba(2,6,23,0.58)]"
+        className="w-[min(1080px,96vw)] max-w-[min(1080px,96vw)] max-h-[92vh] overflow-y-auto border border-border bg-background p-0 text-foreground shadow-[0_30px_100px_rgba(2,6,23,0.58)]"
       >
         <DialogHeader className="sr-only">
           <DialogTitle>{pdfText.workspace}</DialogTitle>
           <DialogDescription>{pdfText.structureHint}</DialogDescription>
         </DialogHeader>
         <div className="h-[3px] w-full" style={{ backgroundColor: themeAccent }} />
-        <div className="grid max-h-[92vh] min-h-[520px] lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="flex flex-col gap-6 border-b border-border bg-card px-6 py-6 lg:border-b-0 lg:border-r lg:border-border">
-            <div className="flex items-start gap-4">
+        <div className="grid min-h-[460px] lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="flex flex-col gap-5 border-b border-border bg-card px-5 py-5 lg:border-b-0">
+            <div className="flex items-center gap-3">
               <div
-                className="flex h-14 w-14 items-center justify-center rounded-2xl border shadow-[0_0_0_1px_rgba(0,0,0,0.08),0_18px_40px_rgba(2,6,23,0.22)]"
+                className="flex h-10 w-10 items-center justify-center rounded-xl border"
                 style={{ backgroundColor: themeAccentSoft, borderColor: themeAccentBorder, color: themeAccent }}
               >
-                <FileText className="h-7 w-7" />
+                <FileText className="h-5 w-5" />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">{pdfText.workspace}</div>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{target.companyName}</h2>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">{pdfText.structureHint}</p>
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                  <span className="rounded-full border border-border bg-background/70 px-3 py-1 font-medium tracking-wide text-foreground">{target.ticker}</span>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{pdfText.workspace}</div>
+                <h2 className="mt-0.5 text-lg font-semibold tracking-tight text-foreground truncate">{target.companyName}</h2>
+                <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="rounded-full border border-border bg-background/70 px-2 py-0.5 font-medium tracking-wide text-foreground">{target.ticker}</span>
                   <span>{target.currency}</span>
                   <span>•</span>
                   <span>{selectedLang.label}</span>
@@ -2143,172 +2142,140 @@ function PdfExportDialog({
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               {summaryCards.map((card) => (
                 <div
                   key={card.label}
-                  className="rounded-2xl border border-border bg-background/70 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                  className="rounded-lg border border-border bg-background/60 px-3 py-2.5"
                 >
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{card.label}</div>
-                  <div className="mt-3 text-lg font-semibold text-foreground">{card.value}</div>
-                  <div
-                    className="mt-2 h-1 w-16 rounded-full"
-                    style={{
-                      backgroundColor:
-                        card.tone === 'primary'
-                          ? themeAccent
-                          : card.tone === 'primary-soft'
-                            ? 'hsl(var(--theme-500) / 0.55)'
-                            : card.tone === 'muted'
-                              ? 'hsl(var(--muted-foreground) / 0.55)'
-                              : 'hsl(var(--theme-500) / 0.30)',
-                    }}
-                  />
+                  <div className="text-[9px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">{card.label}</div>
+                  <div className="mt-1 text-base font-semibold text-foreground">{card.value}</div>
                 </div>
               ))}
             </div>
 
-            <div className="grid gap-4">
-              <Card className="border-border bg-card text-card-foreground shadow-none">
-                <CardHeader className="space-y-2 border-b border-border px-4 py-4">
-                  <CardTitle className="text-sm font-semibold uppercase tracking-[0.2em] text-foreground">{pdfText.structure}</CardTitle>
-                  <CardDescription className="text-muted-foreground">{pdfText.structureHint}</CardDescription>
-                </CardHeader>
-                <CardContent className="px-4 py-4">
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {target.sections.map((section, idx) => (
-                      <div
-                        key={section}
-                        className="flex items-center gap-3 rounded-xl border border-border bg-background/60 px-3 py-2.5"
+            <div className="space-y-4">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">{pdfText.structure}</div>
+                <div className="grid gap-1.5 sm:grid-cols-2">
+                  {target.sections.map((section, idx) => (
+                    <div key={section} className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold leading-none text-white"
+                        style={{ backgroundColor: themeAccent }}
                       >
-                        <span
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold leading-none text-white"
-                          style={{ backgroundColor: themeAccent }}
-                        >
-                          {idx + 1}
-                        </span>
-                        <span className="min-w-0 flex-1 text-sm font-medium leading-tight text-foreground" style={{ hyphens: 'none' }}>
-                          {sectionLabels[idx] ?? section}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+                        {idx + 1}
+                      </span>
+                      <span className="text-foreground/80">{sectionLabels[idx] ?? section}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-              <Card className="border-border bg-card text-card-foreground shadow-none">
-                <CardHeader className="space-y-2 border-b border-border px-4 py-4">
-                  <CardTitle className="text-sm font-semibold uppercase tracking-[0.2em] text-foreground">{pdfText.notesTitle}</CardTitle>
-                  <CardDescription className="text-muted-foreground">{pdfText.notesHint}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3 px-4 py-4 text-sm text-muted-foreground">
-                  <div className="flex items-start gap-2.5">
-                    <Check className="mt-1 h-3.5 w-3.5 shrink-0" style={{ color: themeAccent, strokeWidth: 2.75 }} />
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">{pdfText.notesTitle}</div>
+                <div className="space-y-1.5 text-[11px] text-muted-foreground">
+                  <div className="flex items-start gap-2">
+                    <Check className="mt-0.5 h-3 w-3 shrink-0" style={{ color: themeAccent, strokeWidth: 2.75 }} />
                     <span>{pdfText.languageMatches}</span>
                   </div>
-                  <div className="flex items-start gap-2.5">
-                    <Check className="mt-1 h-3.5 w-3.5 shrink-0" style={{ color: themeAccent, strokeWidth: 2.75 }} />
+                  <div className="flex items-start gap-2">
+                    <Check className="mt-0.5 h-3 w-3 shrink-0" style={{ color: themeAccent, strokeWidth: 2.75 }} />
                     <span>{pdfText.filenameEditable}</span>
                   </div>
-                  <div className="flex items-start gap-2.5">
-                    <Check className="mt-1 h-3.5 w-3.5 shrink-0" style={{ color: themeAccent, strokeWidth: 2.75 }} />
+                  <div className="flex items-start gap-2">
+                    <Check className="mt-0.5 h-3 w-3 shrink-0" style={{ color: themeAccent, strokeWidth: 2.75 }} />
                     <span>{pdfText.serverRender}</span>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-col gap-5 bg-muted/20 px-6 py-6">
-            <Card className="border-border bg-card text-card-foreground shadow-none">
-              <CardHeader className="space-y-2 border-b border-border px-4 py-4">
-                <CardTitle className="text-sm font-semibold uppercase tracking-[0.2em] text-foreground">{pdfText.optionTitle}</CardTitle>
-                <CardDescription className="text-muted-foreground">{pdfText.optionHint}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5 px-4 py-4">
-                <div className="space-y-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{pdfText.language}</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {PDF_EXPORT_LANG_OPTIONS.map((option) => {
-                      const active = option.code === exportLang;
-                      return (
-                        <button
-                          key={option.code}
-                          type="button"
-                          onClick={() => {
-                            setExportLang(option.code);
-                            setSuccess('');
-                            setError('');
-                          }}
-                          className={`rounded-xl border px-3 py-3 text-left transition-all duration-200 ${
-                            active
-                              ? 'border-border text-foreground shadow-[0_0_0_1px_rgba(0,0,0,0.12)]'
-                              : 'border-border bg-background/60 text-muted-foreground hover:border-primary/30 hover:bg-muted/40'
-                          }`}
-                          style={active ? { backgroundColor: themeAccentSoft, borderColor: themeAccentBorder } : undefined}
-                        >
-                          <div className="text-sm font-semibold">{option.label}</div>
-                          <div className="mt-1 text-[11px] text-muted-foreground">{option.note}</div>
-                        </button>
-                      );
-                    })}
+          <div className="flex flex-col gap-5 bg-card px-5 py-5 lg:sticky lg:top-0">
+            <div className="space-y-5">
+              <div className="space-y-2">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{pdfText.language}</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {PDF_EXPORT_LANG_OPTIONS.map((option) => {
+                    const active = option.code === exportLang;
+                    return (
+                      <button
+                        key={option.code}
+                        type="button"
+                        onClick={() => {
+                          setExportLang(option.code);
+                          setSuccess('');
+                          setError('');
+                        }}
+                        className={`rounded-lg border px-2.5 py-2 text-left transition-all duration-200 ${
+                          active
+                            ? 'border-border text-foreground'
+                            : 'border-border bg-background/60 text-muted-foreground hover:border-primary/30 hover:bg-muted/40'
+                        }`}
+                        style={active ? { backgroundColor: themeAccentSoft, borderColor: themeAccentBorder } : undefined}
+                      >
+                        <div className="text-xs font-semibold">{option.label}</div>
+                        <div className="mt-0.5 text-[10px] text-muted-foreground">{option.note}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{pdfText.filename}</div>
+                <Input
+                  value={filename}
+                  onChange={(event) => {
+                    setFilename(event.target.value);
+                    setSuccess('');
+                    setError('');
+                  }}
+                  placeholder={`${target.ticker}_Full_Report.pdf`}
+                  className="h-10 border-border bg-background/70 text-foreground placeholder:text-muted-foreground focus-visible:ring-ring text-sm"
+                />
+                <div className="text-[11px] text-muted-foreground">
+                  {pdfText.preview}: <span className="font-mono text-foreground">{normalizedFilename}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{pdfText.scopeTitle}</div>
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <div className="flex items-center justify-between gap-4">
+                    <span>{pdfText.reportMode}</span>
+                    <span className="font-mono text-foreground">Full Report</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span>{pdfText.layout}</span>
+                    <span className="font-mono text-foreground">Desktop / print-ready</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span>{pdfText.sections}</span>
+                    <span className="font-mono text-foreground">{target.sections.length}</span>
                   </div>
                 </div>
+              </div>
 
-                <div className="space-y-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{pdfText.filename}</div>
-                  <Input
-                    value={filename}
-                    onChange={(event) => {
-                      setFilename(event.target.value);
-                      setSuccess('');
-                      setError('');
-                    }}
-                    placeholder={`${target.ticker}_Full_Report.pdf`}
-                    className="h-11 border-border bg-background/70 text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
-                  />
-                  <div className="text-xs text-muted-foreground">
-                    {pdfText.preview}: <span className="font-mono text-foreground">{normalizedFilename}</span>
+              {success ? (
+                <div className="rounded-lg border border-emerald-400/25 bg-emerald-400/10 px-3 py-2.5 text-xs text-emerald-200">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle2 className="mt-0.5 h-3.5 w-3.5" />
+                    <div className="whitespace-pre-line">{success}</div>
                   </div>
                 </div>
+              ) : null}
 
-                <div className="rounded-2xl border border-border bg-background/60 p-4">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{pdfText.scopeTitle}</div>
-                  <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                    <div className="flex items-center justify-between gap-4">
-                      <span>{pdfText.reportMode}</span>
-                      <span className="font-mono text-foreground">Full Report</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-4">
-                      <span>{pdfText.layout}</span>
-                      <span className="font-mono text-foreground">Desktop / print-ready</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-4">
-                      <span>{pdfText.sections}</span>
-                      <span className="font-mono text-foreground">{target.sections.length}</span>
-                    </div>
+              {error ? (
+                <div className="rounded-lg border border-rose-400/25 bg-rose-400/10 px-3 py-2.5 text-xs text-rose-200">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5" />
+                    <div>{error}</div>
                   </div>
                 </div>
-
-                {success ? (
-                  <div className="rounded-2xl border border-emerald-400/25 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">
-                    <div className="flex items-start gap-3">
-                      <CheckCircle2 className="mt-0.5 h-4 w-4" />
-                      <div className="whitespace-pre-line">{success}</div>
-                    </div>
-                  </div>
-                ) : null}
-
-                {error ? (
-                  <div className="rounded-2xl border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">
-                    <div className="flex items-start gap-3">
-                      <AlertTriangle className="mt-0.5 h-4 w-4" />
-                      <div>{error}</div>
-                    </div>
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
+              ) : null}
+            </div>
 
             <div className="mt-auto flex items-center justify-between gap-3 border-t border-border pt-4">
               <div className="text-xs text-muted-foreground">
@@ -2750,7 +2717,7 @@ function StatementDialog({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="w-[min(690px,70.5vw)] max-w-[min(690px,70.5vw)] max-h-[92vh] overflow-y-auto glass-panel border border-white/10 shadow-2xl">
+      <DialogContent className="w-[min(690px,70.5vw)] max-w-[min(690px,70.5vw)] max-h-[92vh] overflow-y-auto bg-card border border-border shadow-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3 flex-wrap">
             <span className="text-2xl font-semibold tracking-tight text-foreground">{companyName}</span>
@@ -2785,7 +2752,7 @@ function StatementDialog({
         </DialogHeader>
 
         {/* Tab bar */}
-        <div className="flex gap-1 p-1 rounded-lg bg-muted/30 border border-white/10">
+        <div className="flex gap-1 p-1 rounded-lg bg-muted/30 border border-border">
           {STATEMENT_TABS.map(tOption => (
             <button
               key={tOption.key}
@@ -2806,17 +2773,17 @@ function StatementDialog({
           <span className="font-semibold text-foreground/90 mr-1">{statementUiText.foldHintTitle}:</span>
           <span>{statementUiText.foldHintBody}</span>
         </p>
-        <div className="mt-2 rounded-lg border border-white/10 overflow-hidden">
+        <div className="mt-2 rounded-lg border border-border overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-muted/20 border-b border-white/10">
+              <tr className="bg-muted/20 border-b border-border">
                 <th className="py-2 px-4 text-left font-medium text-muted-foreground w-[65%]">
                   {statementUiText.lineItem}
                 </th>
                 <th className="py-2 px-4 text-right font-medium text-muted-foreground">{t('value')}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-border">
               {!tableGroups ? (
                 <tr><td colSpan={2} className="py-4 px-4 text-center text-muted-foreground text-xs">{t('noData')}</td></tr>
               ) : (
@@ -2924,6 +2891,9 @@ export default function App() {
   // PDF export workspace state
   const [pdfExportOpen, setPdfExportOpen] = useState(false)
   const [pdfExportTarget, setPdfExportTarget] = useState<PdfExportTarget | null>(null)
+
+  // Per-ticker expanded Z-Score drivers
+  const [expandedDrivers, setExpandedDrivers] = useState<Set<string>>(new Set())
 
   // Keep selected color theme and follow system light/dark mode.
   useEffect(() => {
@@ -3079,6 +3049,7 @@ export default function App() {
     setTickerInput('')
     setIsLoading(false)
     setData(null)
+    setExpandedDrivers(new Set())
     setFinderOpen(false)
     setFinderQuery('')
     setFinderLoading(false)
@@ -3174,10 +3145,10 @@ export default function App() {
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen text-foreground font-sans">
+      <div className="min-h-screen w-full max-w-[100vw] overflow-x-hidden text-foreground font-sans">
         <header className="dashboard-header">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-            <div className="flex items-center gap-2 font-semibold text-lg tracking-tight">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between min-w-0 overflow-hidden gap-2">
+            <div className="flex items-center gap-2 font-semibold text-lg tracking-tight shrink-0">
               <button
                 type="button"
                 onClick={resetToHome}
@@ -3187,8 +3158,8 @@ export default function App() {
                 RiskLens
               </button>
             </div>
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="flex bg-muted p-1 rounded-md border border-border hidden sm:flex">
+            <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:gap-2 overflow-hidden">
+              <div className="flex bg-muted p-0.5 rounded-md border border-border hidden sm:flex">
                 <button
                   onClick={() => setNumFormat('compact')}
                   className={`px-2 py-1 text-[11px] font-semibold rounded-sm transition-all ${numFormat === 'compact' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
@@ -3203,7 +3174,7 @@ export default function App() {
                 </button>
               </div>
               <select
-                className="bg-transparent border border-input rounded-md px-2 py-1 text-xs outline-none cursor-pointer h-8 text-muted-foreground focus:text-foreground hover:text-foreground transition-colors"
+                className="bg-transparent border border-input rounded-md px-2 py-1 text-xs outline-none cursor-pointer h-8 text-muted-foreground focus:text-foreground hover:text-foreground transition-colors w-[4.75rem] sm:w-auto shrink-0"
                 value={lang}
                 onChange={(e) => setLang(e.target.value as Language)}
               >
@@ -3254,16 +3225,16 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setThemeMenuOpen((prev) => !prev)}
-                  className="inline-flex items-center gap-2 rounded-md border border-input bg-muted/40 px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  className="inline-flex items-center gap-2 rounded-md border border-input bg-muted/40 px-1.5 sm:px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0"
                   aria-haspopup="menu"
                   aria-expanded={themeMenuOpen}
                   aria-label={t('themeSelect')}
                 >
-                  <span className={`w-3 h-3 rounded-full ${selectedTheme.color} shadow-sm`} />
-                  <span className="max-w-[7rem] truncate">
+                  <span className={`w-2.5 h-2.5 rounded-full ${selectedTheme.color} shadow-sm shrink-0`} />
+                  <span className="hidden sm:inline max-w-[7rem] truncate">
                     {selectedTheme.name[lang] || selectedTheme.name.en}
                   </span>
-                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${themeMenuOpen ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform hidden sm:block ${themeMenuOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {themeMenuOpen && (
                   <div className="absolute right-0 top-full z-50 mt-2 w-48 overflow-hidden rounded-lg border border-border bg-background p-1 shadow-lg">
@@ -3302,19 +3273,19 @@ export default function App() {
           </div>
         </header>
 
-        <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 py-10 flex flex-col items-center">
-          <div className="w-full mb-10 animate-in fade-in duration-500">
-            <div className="w-full max-w-3xl mx-auto text-center space-y-3 mb-6">
-              <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-foreground">{t('title')}</h1>
-              <p className="text-muted-foreground text-base md:text-lg">
+        <main className="w-full max-w-[100vw] overflow-x-hidden box-border px-4 sm:px-6 py-5 flex flex-col items-center min-w-0">
+          <div className="w-full max-w-full mb-5 animate-in fade-in duration-500">
+            <div className="w-full max-w-[21rem] sm:max-w-3xl mx-auto text-center space-y-1.5 mb-3 overflow-hidden">
+              <h1 className="text-[1.65rem] leading-[1.08] sm:text-3xl md:text-4xl font-extrabold tracking-tight text-foreground whitespace-normal [overflow-wrap:anywhere]">{t('title')}</h1>
+              <p className="text-muted-foreground text-sm md:text-base">
                 {t('subtitle')}
               </p>
             </div>
 
-            <Card className="w-full dashboard-panel bg-card/95 border-border">
-              <CardContent className="p-4">
-                <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
-                  <div className="relative flex-1">
+            <Card className="w-full max-w-full overflow-hidden dashboard-panel bg-card border-border">
+              <CardContent className="p-3 sm:p-4">
+                <form onSubmit={handleSearch} className="grid grid-cols-1 gap-2.5 sm:grid-cols-[minmax(0,1fr)_auto]">
+                  <div className="relative flex-1 min-w-0">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
                       value={tickerInput}
@@ -3323,21 +3294,25 @@ export default function App() {
                       className="pl-9 h-10 text-sm bg-background border-input placeholder:text-muted-foreground/70 transition-colors focus-visible:ring-brand-500 shadow-sm"
                     />
                   </div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-10 px-4 sm:w-48"
-                    onClick={() => {
-                      setFinderOpen(true)
-                      setFinderError('')
-                      setFinderResults([])
-                      setFinderSelected({})
-                      setFinderQuery(tickerInput.split(',')[0]?.trim() ?? '')
-                    }}
-                  >
-                    {t('companyFinder')}
-                  </Button>
-                  <Button type="submit" disabled={isLoading} className="h-10 px-6 font-medium shadow-sm">
+                  <div className="grid min-w-0 grid-cols-2 gap-2.5 sm:flex sm:w-auto">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="h-10 px-3 flex-shrink-0 min-w-0 justify-center"
+                      onClick={() => {
+                        setFinderOpen(true)
+                        setFinderError('')
+                        setFinderResults([])
+                        setFinderSelected({})
+                        setFinderQuery(tickerInput.split(',')[0]?.trim() ?? '')
+                      }}
+                      aria-label={t('companyFinder')}
+                    >
+                      <Search className="h-4 w-4 sm:hidden" />
+                      <span className="hidden sm:inline">{t('companyFinder')}</span>
+                    </Button>
+                    <Button type="submit" disabled={isLoading} className="h-10 px-5 font-medium shadow-sm flex-shrink-0 min-w-0 justify-center">
                     {isLoading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -3346,16 +3321,17 @@ export default function App() {
                     ) : (
                       <>
                         {t('synthesize')}
-                        <ArrowRight className="ml-2 w-4 h-4" />
+                        <ArrowRight className="ml-2 hidden sm:block w-4 h-4" />
                       </>
                     )}
                   </Button>
+                  </div>
                 </form>
               </CardContent>
             </Card>
           </div>
 
-          <div className="w-full space-y-6">
+          <div className="w-full min-w-0 space-y-5">
             {data?.results && data.results.length > 1 && (
               <div className="flex flex-wrap justify-end gap-2 animate-in fade-in slide-in-from-bottom-6">
                 <Button
@@ -3507,13 +3483,13 @@ export default function App() {
               const hasMultipleNames = otherNames.length > 0;
 
               return (
-            <Card key={res.ticker} className="dashboard-panel overflow-hidden animate-in fade-in duration-500">
-                  <CardHeader className="bg-muted/10 border-b py-4">
-                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                      <div className="min-w-0 space-y-3 xl:max-w-[42%]">
-                        <div className="flex flex-wrap items-center gap-3">
+            <Card key={res.ticker} className="dashboard-panel max-w-full overflow-x-hidden animate-in fade-in duration-500">
+                  <CardHeader className="bg-card border-b py-3">
+                    <div className="grid min-w-0 max-w-full gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(340px,0.9fr)]">
+                      <div className="min-w-0 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <div className="flex items-center gap-2 min-w-0">
-                            <CardTitle className="text-2xl">{localizedName}</CardTitle>
+                            <CardTitle className="text-xl">{localizedName}</CardTitle>
                             {hasMultipleNames && (
                               <Tooltip content={
                                 <div className="text-xs">
@@ -3533,92 +3509,122 @@ export default function App() {
                             {res.ticker}
                           </span>
                         </div>
-                        <div className="flex flex-wrap items-center gap-1 rounded-full border border-border bg-background/85 p-1 shadow-sm backdrop-blur-sm w-fit">
+                        <div className="flex flex-wrap items-center gap-0.5 rounded-full border border-border bg-background/85 p-0.5 shadow-sm backdrop-blur-sm w-fit">
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 rounded-full px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                            className="h-7 rounded-full px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
                             onClick={() => { openPdfExport(res); }}
                             title={t('exportPdf')}
                           >
-                            <FileText className="h-3.5 w-3.5" />
+                            <FileText className="h-3 w-3" />
                             {t('exportPdf')}
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 rounded-full px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                            className="h-7 rounded-full px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
                             onClick={() => exportToExcel([res], t, lang)}
                             title={t('exportExcel')}
                           >
-                            <Download className="h-3.5 w-3.5" />
+                            <Download className="h-3 w-3" />
                             {t('exportExcel')}
                           </Button>
                         </div>
                       </div>
 
-                      <div className="w-full xl:max-w-[56%]">
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div className="flex min-h-[6.25rem] flex-col items-center justify-center rounded-lg border border-border bg-card/95 px-4 py-3 shadow-inner">
+                      <div className="w-full min-w-0">
+                        <div className="grid min-w-0 max-w-full gap-3 sm:grid-cols-2">
+                          <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-card/95 px-4 py-2.5 shadow-inner min-w-0 max-w-full">
                             <div className="text-xs text-muted-foreground font-semibold tracking-wider uppercase">
                               <MetricTooltip metricKey="zscore" label={t('zScore')} lang={lang} />
                             </div>
-                            <div className="flex items-baseline gap-2 mt-1">
+                            <div className="flex items-baseline gap-2 mt-0.5">
                               <span className="text-2xl font-bold">{riskScore !== null ? riskScore.toFixed(2) : '--'}</span>
                               <span className={`text-sm font-bold ${isSafe ? 'text-emerald-500' : isGrey ? 'text-amber-500' : 'text-rose-500'}`}>
                                 [{translateRatingStatus(zZone, lang)}]
                               </span>
                             </div>
                           </div>
-                          <div className="flex min-h-[6.25rem] flex-col items-center justify-center rounded-lg border border-border bg-card/95 px-4 py-3 shadow-inner">
+                          <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-card/95 px-4 py-2.5 shadow-inner min-w-0 max-w-full">
                             <div className="text-xs text-muted-foreground font-semibold tracking-wider uppercase">
                               <MetricTooltip metricKey="implied_rating" label={t('impliedRating')} lang={lang} />
                             </div>
-                            <span className="text-2xl font-bold mt-1">{translateRatingStatus(latest.assessment.implied_rating || zZone.replace(/\s*\(.*\)/, ''), lang)}</span>
+                            <span className="text-2xl font-bold mt-0.5">{translateRatingStatus(latest.assessment.implied_rating || zZone.replace(/\s*\(.*\)/, ''), lang)}</span>
                           </div>
-                          <div className="sm:col-span-2 rounded-lg border border-border bg-card/95 px-4 py-3 shadow-inner">
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div>
-                                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('zScoreDrivers')}</div>
-                                <div className="mt-1 text-[11px] leading-snug text-muted-foreground max-w-2xl">{t('zScoreNote')}</div>
+                          <div className="sm:col-span-2 rounded-lg border border-border bg-card/95 px-4 py-2.5 min-w-0 max-w-full">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                                <MetricTooltip metricKey="zscore" label={t('zScoreDrivers')} lang={lang} />
                               </div>
-                              <div className="rounded-full border border-border bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                                {zScoreBreakdown.length} factors
-                              </div>
+                              {zScoreBreakdown.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setExpandedDrivers((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(res.ticker)) next.delete(res.ticker);
+                                      else next.add(res.ticker);
+                                      return next;
+                                    });
+                                  }}
+                                  className="text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                                >
+                                  {expandedDrivers.has(res.ticker)
+                                    ? 'Hide'
+                                    : `${zScoreBreakdown.length} factors`}
+                                </button>
+                              )}
                             </div>
-                            <div className="mt-3 overflow-x-auto pb-1">
-                              <div className="flex min-w-max gap-2">
-                              {zScoreBreakdown.map((driver) => {
-                                const isDominant = driver.label === 'MVE / TL';
+                            {(() => {
+                              const isExpanded = expandedDrivers.has(res.ticker);
+                              const significant = zScoreBreakdown
+                                .filter((d) => d.contribution !== null && Number.isFinite(d.contribution))
+                                .sort((a, b) => Math.abs(b.contribution!) - Math.abs(a.contribution!));
+                              const topN = 3;
+                              const hasMore = significant.length > topN;
+                              if (!isExpanded) {
+                                const visible = significant.slice(0, topN);
+                                if (visible.length === 0) {
+                                  return <div className="mt-1.5 text-xs text-muted-foreground/60">--</div>;
+                                }
                                 return (
-                                  <div
-                                    key={driver.label}
-                                    className={`w-[11rem] shrink-0 rounded-lg border px-3 py-2.5 shadow-sm ${
-                                      isDominant
-                                        ? 'border-emerald-500/30 bg-emerald-500/10'
-                                        : 'border-border bg-muted/20'
-                                    }`}
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-foreground/75">{driver.label}</span>
-                                      {isDominant && (
-                                        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
-                                          dom
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="mt-1 flex items-end justify-between gap-2">
-                                      <div className="text-[11px] text-muted-foreground">
-                                        {`${formatDriverValue(driver.ratio, 2)} × ${driver.weight.toFixed(1)}`}
-                                      </div>
-                                      <div className={`text-sm font-semibold tabular-nums ${isDominant ? 'text-emerald-500' : 'text-foreground'}`}>
-                                        {formatDriverValue(driver.contribution)}
-                                      </div>
-                                    </div>
+                                  <div className="mt-1.5 flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
+                                    {visible.map((driver, idx) => (
+                                      <span key={driver.label} className="inline-flex items-baseline gap-1">
+                                        <span className="font-semibold text-emerald-600">{driver.label}</span>
+                                        <span className="font-semibold tabular-nums text-emerald-500">{formatDriverValue(driver.contribution)}</span>
+                                        {idx < visible.length - 1 && <span className="text-muted-foreground/40 mx-0.5">·</span>}
+                                      </span>
+                                    ))}
+                                    {hasMore && (
+                                      <span className="text-muted-foreground/60">
+                                        +{significant.length - topN} more
+                                      </span>
+                                    )}
                                   </div>
                                 );
-                              })}
-                              </div>
+                              }
+                              return (
+                                <div className="mt-1.5 grid grid-cols-[1fr_auto_auto_auto] gap-x-3 gap-y-1 text-xs">
+                                  {significant.map((driver) => {
+                                    const isDominant = driver.label === 'MVE / TL';
+                                    return (
+                                      <Fragment key={driver.label}>
+                                        <span className={`font-semibold ${isDominant ? 'text-emerald-600' : 'text-foreground/80'}`}>{driver.label}</span>
+                                        <span className="text-muted-foreground tabular-nums">{formatDriverValue(driver.ratio, 2)}</span>
+                                        <span className="text-muted-foreground tabular-nums">× {driver.weight.toFixed(1)}</span>
+                                        <span className={`font-semibold tabular-nums text-right ${isDominant ? 'text-emerald-500' : 'text-foreground'}`}>
+                                          {formatDriverValue(driver.contribution)}
+                                        </span>
+                                      </Fragment>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })()}
+                            <div className="mt-2 text-[10px] leading-snug text-muted-foreground/70 border-t border-border pt-1.5">
+                              {t('zScoreNote')}
                             </div>
                           </div>
                         </div>
@@ -3780,7 +3786,7 @@ export default function App() {
         </main>
 
         <Dialog open={finderOpen} onOpenChange={setFinderOpen}>
-          <DialogContent className="w-[min(780px,94vw)] max-w-[min(780px,94vw)] max-h-[88vh] overflow-y-auto glass-panel border border-white/10 shadow-2xl">
+          <DialogContent className="w-[min(780px,94vw)] max-w-[min(780px,94vw)] max-h-[88vh] overflow-y-auto bg-card border border-border shadow-2xl">
             <DialogHeader>
               <DialogTitle className="text-xl">{t('finderTitle')}</DialogTitle>
               <DialogDescription>{t('finderHint')}</DialogDescription>

@@ -116,27 +116,27 @@ html.theme-monochrome.dark {
 
 /* ──── Celadon 青瓷 ──── */
 html.theme-celadon {
-  --background: 168 24% 91%;
-  --foreground: 170 26% 7%;
-  --card: 168 18% 96%;
-  --card-foreground: 170 24% 8%;
-  --popover: 168 18% 96%;
-  --popover-foreground: 170 24% 8%;
-  --primary: 170 28% 22%;
-  --primary-foreground: 170 10% 96%;
-  --secondary: 168 16% 87%;
-  --secondary-foreground: 170 22% 12%;
-  --muted: 168 14% 86%;
-  --muted-foreground: 170 12% 34%;
-  --accent: 168 16% 92%;
-  --accent-foreground: 170 22% 10%;
-  --border: 168 14% 74%;
-  --input: 168 14% 76%;
-  --ring: 170 24% 44%;
-  --theme-300: 170 20% 72%;
-  --theme-400: 170 22% 58%;
-  --theme-500: 170 24% 44%;
-  --theme-600: 170 26% 34%;
+  --background: 168 30% 84%;
+  --foreground: 170 30% 6%;
+  --card: 168 36% 98%;
+  --card-foreground: 170 28% 7%;
+  --popover: 168 36% 98%;
+  --popover-foreground: 170 28% 7%;
+  --primary: 170 34% 20%;
+  --primary-foreground: 170 12% 98%;
+  --secondary: 168 24% 78%;
+  --secondary-foreground: 170 28% 10%;
+  --muted: 168 22% 76%;
+  --muted-foreground: 170 24% 18%;
+  --accent: 168 26% 88%;
+  --accent-foreground: 170 28% 9%;
+  --border: 168 28% 48%;
+  --input: 168 28% 44%;
+  --ring: 170 32% 34%;
+  --theme-300: 170 30% 66%;
+  --theme-400: 170 34% 52%;
+  --theme-500: 170 38% 38%;
+  --theme-600: 170 42% 28%;
 }
 
 html.theme-celadon.dark {
@@ -165,23 +165,23 @@ html.theme-celadon.dark {
 
 /* ──── Cinnabar 朱砂 ──── */
 html.theme-cinnabar {
-  --background: 8 28% 91%;
-  --foreground: 8 28% 7%;
-  --card: 8 18% 96%;
-  --card-foreground: 8 24% 8%;
-  --popover: 8 18% 96%;
-  --popover-foreground: 8 24% 8%;
-  --primary: 8 32% 24%;
+  --background: 8 32% 87%;
+  --foreground: 8 30% 7%;
+  --card: 8 22% 92%;
+  --card-foreground: 8 26% 8%;
+  --popover: 8 22% 92%;
+  --popover-foreground: 8 26% 8%;
+  --primary: 8 34% 24%;
   --primary-foreground: 8 10% 96%;
-  --secondary: 8 16% 87%;
-  --secondary-foreground: 8 22% 12%;
-  --muted: 8 14% 86%;
-  --muted-foreground: 8 12% 34%;
-  --accent: 8 16% 92%;
-  --accent-foreground: 8 22% 10%;
-  --border: 8 14% 74%;
-  --input: 8 14% 76%;
-  --ring: 8 40% 48%;
+  --secondary: 8 20% 84%;
+  --secondary-foreground: 8 24% 12%;
+  --muted: 8 18% 82%;
+  --muted-foreground: 8 16% 32%;
+  --accent: 8 20% 88%;
+  --accent-foreground: 8 24% 10%;
+  --border: 8 18% 72%;
+  --input: 8 18% 74%;
+  --ring: 8 42% 48%;
   --theme-300: 8 38% 68%;
   --theme-400: 8 42% 55%;
   --theme-500: 8 44% 44%;
@@ -214,23 +214,23 @@ html.theme-cinnabar.dark {
 
 /* ──── Black Jade 墨玉 ──── */
 html.theme-blackjade {
-  --background: 140 22% 91%;
-  --foreground: 140 24% 7%;
-  --card: 140 16% 96%;
-  --card-foreground: 140 22% 8%;
-  --popover: 140 16% 96%;
-  --popover-foreground: 140 22% 8%;
-  --primary: 140 24% 20%;
+  --background: 140 26% 87%;
+  --foreground: 140 26% 7%;
+  --card: 140 20% 92%;
+  --card-foreground: 140 24% 8%;
+  --popover: 140 20% 92%;
+  --popover-foreground: 140 24% 8%;
+  --primary: 140 26% 20%;
   --primary-foreground: 140 8% 96%;
-  --secondary: 140 14% 87%;
-  --secondary-foreground: 140 20% 12%;
-  --muted: 140 12% 86%;
-  --muted-foreground: 140 10% 34%;
-  --accent: 140 14% 92%;
-  --accent-foreground: 140 20% 10%;
-  --border: 140 12% 74%;
-  --input: 140 12% 76%;
-  --ring: 140 20% 36%;
+  --secondary: 140 18% 84%;
+  --secondary-foreground: 140 22% 12%;
+  --muted: 140 16% 82%;
+  --muted-foreground: 140 14% 32%;
+  --accent: 140 18% 88%;
+  --accent-foreground: 140 22% 10%;
+  --border: 140 16% 72%;
+  --input: 140 16% 74%;
+  --ring: 140 22% 36%;
   --theme-300: 140 16% 56%;
   --theme-400: 140 18% 44%;
   --theme-500: 140 20% 34%;
@@ -263,23 +263,23 @@ html.theme-blackjade.dark {
 
 /* ──── Navy Blue 藏蓝 ──── */
 html.theme-navyblue {
-  --background: 224 22% 91%;
-  --foreground: 224 24% 7%;
-  --card: 224 16% 96%;
-  --card-foreground: 224 22% 8%;
-  --popover: 224 16% 96%;
-  --popover-foreground: 224 22% 8%;
-  --primary: 224 30% 22%;
+  --background: 224 26% 87%;
+  --foreground: 224 26% 7%;
+  --card: 224 20% 92%;
+  --card-foreground: 224 24% 8%;
+  --popover: 224 20% 92%;
+  --popover-foreground: 224 24% 8%;
+  --primary: 224 32% 22%;
   --primary-foreground: 224 10% 96%;
-  --secondary: 224 14% 87%;
-  --secondary-foreground: 224 20% 12%;
-  --muted: 224 12% 86%;
-  --muted-foreground: 224 10% 34%;
-  --accent: 224 14% 92%;
-  --accent-foreground: 224 20% 10%;
-  --border: 224 12% 74%;
-  --input: 224 12% 76%;
-  --ring: 224 36% 42%;
+  --secondary: 224 18% 84%;
+  --secondary-foreground: 224 22% 12%;
+  --muted: 224 16% 82%;
+  --muted-foreground: 224 14% 32%;
+  --accent: 224 18% 88%;
+  --accent-foreground: 224 22% 10%;
+  --border: 224 16% 72%;
+  --input: 224 16% 74%;
+  --ring: 224 38% 42%;
   --theme-300: 224 30% 64%;
   --theme-400: 224 34% 50%;
   --theme-500: 224 36% 40%;
@@ -312,23 +312,23 @@ html.theme-navyblue.dark {
 
 /* ──── Amber 琥珀 ──── */
 html.theme-amber {
-  --background: 38 28% 91%;
-  --foreground: 38 26% 7%;
-  --card: 38 18% 96%;
-  --card-foreground: 38 22% 8%;
-  --popover: 38 18% 96%;
-  --popover-foreground: 38 22% 8%;
-  --primary: 38 32% 24%;
+  --background: 38 32% 87%;
+  --foreground: 38 28% 7%;
+  --card: 38 22% 92%;
+  --card-foreground: 38 24% 8%;
+  --popover: 38 22% 92%;
+  --popover-foreground: 38 24% 8%;
+  --primary: 38 34% 24%;
   --primary-foreground: 38 12% 96%;
-  --secondary: 38 16% 87%;
-  --secondary-foreground: 38 22% 12%;
-  --muted: 38 14% 86%;
-  --muted-foreground: 38 12% 34%;
-  --accent: 38 16% 92%;
-  --accent-foreground: 38 22% 10%;
-  --border: 38 14% 74%;
-  --input: 38 14% 76%;
-  --ring: 38 52% 46%;
+  --secondary: 38 20% 84%;
+  --secondary-foreground: 38 24% 12%;
+  --muted: 38 18% 82%;
+  --muted-foreground: 38 16% 32%;
+  --accent: 38 20% 88%;
+  --accent-foreground: 38 24% 10%;
+  --border: 38 18% 72%;
+  --input: 38 18% 74%;
+  --ring: 38 54% 46%;
   --theme-300: 38 48% 65%;
   --theme-400: 38 52% 52%;
   --theme-500: 38 56% 42%;
@@ -361,23 +361,23 @@ html.theme-amber.dark {
 
 /* ──── Carmine 胭脂 ──── */
 html.theme-carmine {
-  --background: 348 26% 91%;
-  --foreground: 348 26% 7%;
-  --card: 348 18% 96%;
-  --card-foreground: 348 22% 8%;
-  --popover: 348 18% 96%;
-  --popover-foreground: 348 22% 8%;
-  --primary: 348 28% 24%;
+  --background: 348 30% 87%;
+  --foreground: 348 28% 7%;
+  --card: 348 22% 92%;
+  --card-foreground: 348 24% 8%;
+  --popover: 348 22% 92%;
+  --popover-foreground: 348 24% 8%;
+  --primary: 348 30% 24%;
   --primary-foreground: 348 10% 96%;
-  --secondary: 348 16% 87%;
-  --secondary-foreground: 348 22% 12%;
-  --muted: 348 14% 86%;
-  --muted-foreground: 348 12% 34%;
-  --accent: 348 16% 92%;
-  --accent-foreground: 348 22% 10%;
-  --border: 348 14% 74%;
-  --input: 348 14% 76%;
-  --ring: 348 38% 46%;
+  --secondary: 348 20% 84%;
+  --secondary-foreground: 348 24% 12%;
+  --muted: 348 18% 82%;
+  --muted-foreground: 348 16% 32%;
+  --accent: 348 20% 88%;
+  --accent-foreground: 348 24% 10%;
+  --border: 348 18% 72%;
+  --input: 348 18% 74%;
+  --ring: 348 40% 46%;
   --theme-300: 348 34% 67%;
   --theme-400: 348 38% 54%;
   --theme-500: 348 40% 44%;
@@ -410,23 +410,23 @@ html.theme-carmine.dark {
 
 /* ──── Clear Sky 晴空 ──── */
 html.theme-clearsky {
-  --background: 216 26% 91%;
-  --foreground: 216 26% 7%;
-  --card: 216 18% 96%;
-  --card-foreground: 216 22% 8%;
-  --popover: 216 18% 96%;
-  --popover-foreground: 216 22% 8%;
-  --primary: 216 34% 24%;
+  --background: 216 30% 87%;
+  --foreground: 216 28% 7%;
+  --card: 216 22% 92%;
+  --card-foreground: 216 24% 8%;
+  --popover: 216 22% 92%;
+  --popover-foreground: 216 24% 8%;
+  --primary: 216 36% 24%;
   --primary-foreground: 216 12% 96%;
-  --secondary: 216 16% 87%;
-  --secondary-foreground: 216 22% 12%;
-  --muted: 216 14% 86%;
-  --muted-foreground: 216 12% 34%;
-  --accent: 216 16% 92%;
-  --accent-foreground: 216 22% 10%;
-  --border: 216 14% 74%;
-  --input: 216 14% 76%;
-  --ring: 216 60% 50%;
+  --secondary: 216 20% 84%;
+  --secondary-foreground: 216 24% 12%;
+  --muted: 216 18% 82%;
+  --muted-foreground: 216 16% 32%;
+  --accent: 216 20% 88%;
+  --accent-foreground: 216 24% 10%;
+  --border: 216 18% 72%;
+  --input: 216 18% 74%;
+  --ring: 216 62% 50%;
   --theme-300: 216 56% 68%;
   --theme-400: 216 60% 56%;
   --theme-500: 216 64% 46%;
@@ -485,6 +485,18 @@ html.theme-clearsky.dark {
     @apply border-border;
   }
 
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
   body {
     @apply bg-background text-foreground tracking-wide font-sans leading-relaxed;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -494,7 +506,7 @@ html.theme-clearsky.dark {
 
 /* ═══ Dashboard Panel ═══ */
 .dashboard-panel {
-  @apply bg-card border border-border shadow-sm rounded-lg overflow-hidden;
+  @apply bg-card border border-border shadow-sm rounded-lg;
 }
 
 .dashboard-header {

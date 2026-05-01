@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     symbol_search_timeout_seconds: float = 8.0
     cache_ttl_seconds: int = 600
 
+    upstream_max_workers: int = 12
+    data_cache_maxsize: int = 1000
+    localized_name_cache_maxsize: int = 500
+
     assess_timeout_seconds: float = 25.0
     api_report_dir: str = "/tmp/credit_api_reports"
     rich_report_dir: str = "/tmp/risklens_rich_reports"

@@ -934,37 +934,43 @@ class RatioAnalyzer:
         return ratios
     
     def calculate_cash_flow_ratios(
-        self, 
-        cf_data: pd.DataFrame, 
-        bs_data: pd.DataFrame = None
+        self,
+        cf_data: pd.DataFrame,
+        bs_data: pd.DataFrame = None,
+        is_data: pd.DataFrame = None,
     ) -> dict[str, float | None]:
         """Calculate cash flow ratios.
-        
+
         Args:
             cf_data: Cash flow data (standardized DataFrame)
             bs_data: Balance sheet data (standardized DataFrame)
-            
+            is_data: Income statement data (standardized DataFrame) —
+                     preferred source for revenue (cf_data may lack it).
+
         Returns:
             Dictionary of cash flow ratios
         """
         RiskFactorsValidator.validate_dataframe(cf_data)
-        
+
         ratios: dict[str, float | None] = {}
-        
+
         ocf = self._get_value(cf_data, 'operating_cf')
         fcf = self._get_value(cf_data, 'free_cf')
         debt = self._get_value(bs_data, 'total_debt') if bs_data is not None else None
-        revenue = self._get_value(cf_data, 'revenue')  # Some CF statements include revenue
-        
+        # Revenue: prefer income statement; fallback to cash-flow statement (some providers include it there)
+        revenue = self._get_value(is_data, 'revenue') if is_data is not None else None
+        if revenue is None:
+            revenue = self._get_value(cf_data, 'revenue')
+
         # FCF to Debt = Free Cash Flow / Total Debt
         ratios['fcf_to_debt'] = self._safe_divide(fcf, debt)
-        
+
         # FCF to Revenue = Free Cash Flow / Revenue
         ratios['fcf_to_revenue'] = self._safe_divide(fcf, revenue)
-        
+
         # Operating CF ratio = OCF / Revenue
         ratios['operating_cf_ratio'] = self._safe_divide(ocf, revenue) if revenue else None
-        
+
         return ratios
     
     def calculate_all_ratios(
@@ -1012,7 +1018,7 @@ class RatioAnalyzer:
         profitability = self.calculate_profitability_ratios(bs_data, is_data)
         efficiency = self.calculate_efficiency_ratios(bs_data, is_data)
         cash_flow = (
-            self.calculate_cash_flow_ratios(cf_data, bs_data)
+            self.calculate_cash_flow_ratios(cf_data, bs_data, is_data)
             if cf_data is not None and not cf_data.empty
             else {}
         )

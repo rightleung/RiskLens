@@ -96,10 +96,17 @@ def _validate_report_payload(report: dict[str, Any]) -> None:
     history = report.get('history') or report.get('histories')
     if not isinstance(history, list) or not history:
         raise ValueError('No history available')
+    if len(history) > 50:
+        raise ValueError(f'History exceeds maximum of 50 periods (got {len(history)})')
     _validate_history_identity(report, history)
     for idx, entry in enumerate(history):
         if not isinstance(entry, dict):
             raise ValueError(f'History entry {idx + 1} must be an object.')
+        # Limit per-period string lengths to prevent oversized PDFs
+        for str_field in ('fiscal_year', 'year_label'):
+            value = entry.get(str_field)
+            if isinstance(value, str) and len(value) > 50:
+                raise ValueError(f'History[{idx}].{str_field} exceeds 50 chars')
         assessment = entry.get('assessment')
         if isinstance(assessment, dict):
             for key in ('altman_z_score', 'risk_score', 'z_score'):
