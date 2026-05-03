@@ -19,17 +19,19 @@ interface Period {
     implied_rating: string;
     strengths: string[];
     weaknesses: string[];
-    zscore_breakdown?: Array<{
-      label: string;
-      ratio: number | null;
-      weight: number;
-      contribution: number | null;
-    }>;
+    zscore_breakdown?: ZScoreDriver[];
   };
   ratios: Record<string, number | null>;
   raw_metrics: Record<string, number | null>;
   statements: Record<string, Record<string, number>>;
 }
+
+type ZScoreDriver = {
+  label: string;
+  ratio: number | null;
+  weight: number;
+  contribution: number | null;
+};
 
 interface AssessmentResponse {
   results?: Array<{
@@ -404,7 +406,7 @@ const translations = {
     zScoreNote: 'Market value can dominate; AAA is model output, not a formal credit opinion.',
     zScoreDrivers: 'Z-Score Drivers',
     driverDominant: 'dominant',
-    driverExpand: 'Expand',
+    driverExpand: 'Details',
     driverCollapse: 'Collapse',
     driverRatio: 'Ratio',
     driverWeight: 'Weight',
@@ -487,7 +489,7 @@ const translations = {
     zScoreNote: '市值项可能主导；AAA 只是模型输出，不是正式信用意见。',
     zScoreDrivers: 'Z 分数驱动项',
     driverDominant: '主导',
-    driverExpand: '展开',
+    driverExpand: '详细',
     driverCollapse: '收起',
     driverRatio: '比值',
     driverWeight: '权重',
@@ -570,7 +572,7 @@ const translations = {
     zScoreNote: '市值項可能主導；AAA 只是模型輸出，不是正式信用意見。',
     zScoreDrivers: 'Z 分數驅動項',
     driverDominant: '主導',
-    driverExpand: '展開',
+    driverExpand: '詳細',
     driverCollapse: '收起',
     driverRatio: '比值',
     driverWeight: '權重',
@@ -653,7 +655,7 @@ const translations = {
     zScoreNote: '時価総額項目が主導しやすく、AAA はモデル出力で正式な信用判断ではありません。',
     zScoreDrivers: 'Z スコアの要因',
     driverDominant: '主導',
-    driverExpand: '展開',
+    driverExpand: '詳細',
     driverCollapse: '折りたたむ',
     driverRatio: '比率',
     driverWeight: '重み',
@@ -744,6 +746,50 @@ const getStatementTabs = (t: ReturnType<typeof getT>) => [
   { key: 'cash', label: t('cashFlow') },
 ] as const;
 
+const formatDriverValue = (value: number | null, digits = 2): string => {
+  if (value === null || !Number.isFinite(value)) return '--';
+  return `${value > 0 ? '+' : ''}${value.toFixed(digits)}`;
+};
+
+const getDriverAnnotation = (lang: Language, driverLabel: string): string => {
+  const notes: Record<Language, Record<string, string>> = {
+    en: {
+      'MVE / TL': 'Market value versus liabilities. This term often dominates large-cap scores.',
+      'WC / TA': 'Working capital relative to assets. It reflects short-term liquidity cushion.',
+      'RE / TA': 'Retained earnings relative to assets. It reflects cumulative profitability and capital depth.',
+      'EBIT / TA': 'Operating profit relative to assets. It reflects asset-backed earning power.',
+      'Sales / TA': 'Sales relative to assets. It reflects operating scale and asset efficiency.',
+      default: 'Factor contribution within the Altman Z-Score model.',
+    },
+    'zh-CN': {
+      'MVE / TL': '股权市值相对总负债。对大市值公司，这一项往往会主导总分。',
+      'WC / TA': '营运资本相对总资产。反映短期流动性缓冲。',
+      'RE / TA': '留存收益相对总资产。反映历史盈利积累和资本厚度。',
+      'EBIT / TA': 'EBIT 相对总资产。反映资产带来的经营获利能力。',
+      'Sales / TA': '销售收入相对总资产。反映经营规模和资产效率。',
+      default: 'Altman Z-Score 模型中的一个分项贡献。',
+    },
+    'zh-TW': {
+      'MVE / TL': '股權市值相對總負債。對大市值公司，這一項往往會主導總分。',
+      'WC / TA': '營運資本相對總資產。反映短期流動性緩衝。',
+      'RE / TA': '保留盈餘相對總資產。反映歷史獲利累積和資本厚度。',
+      'EBIT / TA': 'EBIT 相對總資產。反映資產帶來的經營獲利能力。',
+      'Sales / TA': '銷售收入相對總資產。反映經營規模和資產效率。',
+      default: 'Altman Z-Score 模型中的一個分項貢獻。',
+    },
+    ja: {
+      'MVE / TL': '株式時価総額と総負債の比率。大型株ではこの項目がスコアを支配しやすくなります。',
+      'WC / TA': '運転資本と総資産の比率。短期的な流動性余力を示します。',
+      'RE / TA': '利益剰余金と総資産の比率。累積収益力と資本の厚みを示します。',
+      'EBIT / TA': 'EBIT と総資産の比率。資産に対する営業収益力を示します。',
+      'Sales / TA': '売上高と総資産の比率。事業規模と資産効率を示します。',
+      default: 'Altman Z-Score モデルの各要因の寄与です。',
+    },
+  };
+  const langNotes = notes[lang] ?? notes.en;
+  return langNotes[driverLabel] ?? langNotes.default;
+};
+
 type StatementTabKey = 'income' | 'balance' | 'cash';
 type AccountingStandard = 'usgaap' | 'ifrs' | 'cas';
 
@@ -760,6 +806,16 @@ type PdfExportTarget = {
   strengths: string[];
   watchItems: string[];
   sections: string[];
+};
+
+type ZScoreDriversDialogTarget = {
+  companyName: string;
+  ticker: string;
+  periodLabel: string;
+  riskScore: number | null;
+  overallRating: string;
+  impliedRating: string;
+  drivers: ZScoreDriver[];
 };
 
 const STATEMENT_TABS_ORDER: StatementTabKey[] = ['income', 'balance', 'cash'];
@@ -2885,6 +2941,157 @@ function StatementDialog({
   );
 }
 
+function ZScoreDriversDialog({
+  target,
+  onClose,
+  lang,
+}: {
+  target: ZScoreDriversDialogTarget | null;
+  onClose: () => void;
+  lang: Language;
+}) {
+  const t = getT(lang);
+
+  if (!target) return null;
+
+  const drivers = [...target.drivers]
+    .filter((driver) => driver.contribution !== null && Number.isFinite(driver.contribution))
+    .sort((a, b) => Math.abs(b.contribution!) - Math.abs(a.contribution!));
+  const topDriver = drivers[0] ?? null;
+  const zScoreValue = target.riskScore !== null ? target.riskScore.toFixed(2) : '--';
+  const impliedRating = translateRatingStatus(target.impliedRating || target.overallRating.replace(/\s*\(.*\)/, ''), lang);
+
+  const dialogText = {
+    zScore: lang === 'ja' ? 'Z スコア' : lang === 'zh-TW' ? 'Z 分數' : lang === 'zh-CN' ? 'Z 分数' : 'Z Score',
+    impliedRating: lang === 'ja' ? '推定格付け' : lang === 'zh-TW' ? '推定評級' : lang === 'zh-CN' ? '推定评级' : 'Implied Rating',
+    topDriver: lang === 'ja' ? '主要要因' : lang === 'zh-TW' ? '主要驅動項' : lang === 'zh-CN' ? '主要驱动项' : 'Top Driver',
+    driverCount: lang === 'ja' ? '要因数' : lang === 'zh-TW' ? '驅動項數' : lang === 'zh-CN' ? '驱动项数' : 'Drivers',
+    latestPeriod: lang === 'ja' ? '最新期' : lang === 'zh-TW' ? '最新期別' : lang === 'zh-CN' ? '最新期别' : 'Latest Period',
+    ticker: lang === 'ja' ? '銘柄' : lang === 'zh-TW' ? '代碼' : lang === 'zh-CN' ? '代码' : 'Ticker',
+  };
+
+  const summaryCards = [
+    { label: dialogText.zScore, value: zScoreValue, tone: 'primary' as const },
+    { label: dialogText.impliedRating, value: impliedRating, tone: 'primary-soft' as const },
+    {
+      label: dialogText.topDriver,
+      value: topDriver ? `${topDriver.label} ${formatDriverValue(topDriver.contribution)}` : '--',
+      tone: 'accent' as const,
+    },
+    { label: dialogText.driverCount, value: String(drivers.length), tone: 'muted' as const },
+  ] as const;
+
+  return (
+    <Dialog open={Boolean(target)} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <DialogContent className="w-[min(920px,94vw)] max-w-[min(920px,94vw)] max-h-[92vh] overflow-y-auto border border-border bg-card text-foreground shadow-2xl">
+        <DialogHeader className="space-y-3">
+          <DialogTitle className="flex flex-wrap items-center gap-3">
+            <span className="text-2xl font-semibold tracking-tight text-foreground">{target.companyName}</span>
+            <span className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-1.5">
+              <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-semibold">{dialogText.latestPeriod}</span>
+              <span className="text-sm font-semibold text-foreground">{target.periodLabel}</span>
+            </span>
+            <span className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-1.5">
+              <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-semibold">{dialogText.zScore}</span>
+              <span className="text-sm font-semibold text-foreground tabular-nums">{zScoreValue}</span>
+            </span>
+            <span className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-1.5">
+              <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-semibold">{dialogText.impliedRating}</span>
+              <span className="text-sm font-semibold text-foreground">{impliedRating}</span>
+            </span>
+            <span className="inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-1.5">
+              <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-semibold">{dialogText.ticker}</span>
+              <span className="text-sm font-semibold text-foreground tabular-nums">{target.ticker}</span>
+            </span>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {summaryCards.map((card) => (
+            <div
+              key={card.label}
+              className="rounded-lg border border-border bg-background/60 px-3 py-2.5"
+            >
+              <div className="text-[9px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">{card.label}</div>
+              <div className={`mt-1 text-base font-semibold text-foreground ${card.tone === 'primary' ? 'tabular-nums' : ''}`}>
+                {card.value}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-2 rounded-xl border border-border/80 overflow-hidden">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-x-3 gap-y-1 bg-muted/30 px-4 py-3 text-[11px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
+            <span>{t('zScoreDrivers')}</span>
+            <span className="col-span-2 justify-self-end text-right">
+              {t('driverRatio')} × {t('driverWeight')}
+            </span>
+            <span className="justify-self-end text-right">{t('driverContribution')}</span>
+          </div>
+          <div className="divide-y divide-border/70 bg-background/40">
+            {drivers.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-muted-foreground">
+                {lang === 'ja' ? '表示できる要因がありません。' : lang === 'zh-TW' ? '沒有可顯示的驅動項。' : lang === 'zh-CN' ? '没有可显示的驱动项。' : 'No drivers available.'}
+              </div>
+            ) : (
+              drivers.map((driver) => {
+                const isDominant = driver.label === 'MVE / TL';
+                return (
+                  <div key={driver.label} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-x-3 gap-y-1 px-4 py-3 text-sm leading-5">
+                    <Tooltip
+                      content={
+                        <div className="max-w-[18rem] space-y-1.5 text-xs leading-relaxed">
+                          <div className="font-semibold text-foreground">{driver.label}</div>
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                            <span>{t('driverRatio')}</span>
+                            <span className="text-right tabular-nums">{formatDriverValue(driver.ratio, 2)}</span>
+                            <span>{t('driverWeight')}</span>
+                            <span className="text-right tabular-nums">× {driver.weight.toFixed(1)}</span>
+                            <span>{t('driverContribution')}</span>
+                            <span className="text-right tabular-nums">{formatDriverValue(driver.contribution)}</span>
+                          </div>
+                          <div className="border-t border-border pt-1 text-muted-foreground">
+                            {getDriverAnnotation(lang, driver.label)}
+                          </div>
+                        </div>
+                      }
+                    >
+                      <span className={`group inline-flex cursor-help items-center gap-1 rounded px-1 py-0.5 font-semibold transition-colors hover:bg-emerald-500/10 hover:text-emerald-400 ${isDominant ? 'text-emerald-500' : 'text-foreground/80'}`}>
+                        <span>{driver.label}</span>
+                        <Info className={`h-3.5 w-3.5 flex-shrink-0 transition-colors ${isDominant ? 'text-emerald-500/90' : 'text-muted-foreground group-hover:text-foreground'}`} />
+                      </span>
+                    </Tooltip>
+                    <span className="tabular-nums text-right text-muted-foreground">{formatDriverValue(driver.ratio, 2)}</span>
+                    <span className="tabular-nums text-right text-muted-foreground">× {driver.weight.toFixed(1)}</span>
+                    <span className={`text-right font-semibold tabular-nums ${isDominant ? 'text-emerald-500' : 'text-foreground'}`}>
+                      {formatDriverValue(driver.contribution)}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border/70 bg-muted/20 px-4 py-3 text-sm leading-6 text-muted-foreground">
+          {t('zScoreNote')}
+        </div>
+
+        <DialogFooter className="m-0 flex-row gap-2 sm:justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            className="border-border bg-background/70 text-foreground hover:bg-muted/50 hover:text-foreground"
+          >
+            {t('close')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function App() {
   const [tickerInput, setTickerInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -2916,8 +3123,8 @@ export default function App() {
   const [pdfExportOpen, setPdfExportOpen] = useState(false)
   const [pdfExportTarget, setPdfExportTarget] = useState<PdfExportTarget | null>(null)
 
-  // Per-ticker expanded Z-Score drivers
-  const [expandedDrivers, setExpandedDrivers] = useState<Set<string>>(new Set())
+  // Per-ticker Z-Score drivers dialog
+  const [driversDialogTarget, setDriversDialogTarget] = useState<ZScoreDriversDialogTarget | null>(null)
 
   // Keep selected color theme and follow system light/dark mode.
   useEffect(() => {
@@ -3073,7 +3280,7 @@ export default function App() {
     setTickerInput('')
     setIsLoading(false)
     setData(null)
-    setExpandedDrivers(new Set())
+    setDriversDialogTarget(null)
     setFinderOpen(false)
     setFinderQuery('')
     setFinderLoading(false)
@@ -3093,6 +3300,7 @@ export default function App() {
     if (!normalizedInput) return
     setIsLoading(true)
     setData(null)
+    setDriversDialogTarget(null)
 
     const tickers = normalizedInput.split(',').map(t => t.trim()).filter(Boolean)
 
@@ -3500,50 +3708,11 @@ export default function App() {
               const significantDrivers = zScoreBreakdown
                 .filter((d) => d.contribution !== null && Number.isFinite(d.contribution))
                 .sort((a, b) => Math.abs(b.contribution!) - Math.abs(a.contribution!));
-              const isDriversExpanded = expandedDrivers.has(res.ticker);
               const zScoreValue = riskScore !== null ? riskScore.toFixed(2) : '--';
               const impliedRating = translateRatingStatus(latest.assessment.implied_rating || zZone.replace(/\s*\(.*\)/, ''), lang);
               const summaryDrivers = significantDrivers.slice(0, 3);
               const driverSummarySeparator = lang === 'en' ? '; ' : '；';
               const driverSummaryJoiner = lang === 'en' ? ', ' : lang === 'ja' ? '、' : '，';
-              const driverAnnotation = (driverLabel: string): string => {
-                const notes: Record<Language, Record<string, string>> = {
-                  en: {
-                    'MVE / TL': 'Market value versus liabilities. This term often dominates large-cap scores.',
-                    'WC / TA': 'Working capital relative to assets. It reflects short-term liquidity cushion.',
-                    'RE / TA': 'Retained earnings relative to assets. It reflects cumulative profitability and capital depth.',
-                    'EBIT / TA': 'Operating profit relative to assets. It reflects asset-backed earning power.',
-                    'Sales / TA': 'Sales relative to assets. It reflects operating scale and asset efficiency.',
-                    default: 'Factor contribution within the Altman Z-Score model.',
-                  },
-                  'zh-CN': {
-                    'MVE / TL': '股权市值相对总负债。对大市值公司，这一项往往会主导总分。',
-                    'WC / TA': '营运资本相对总资产。反映短期流动性缓冲。',
-                    'RE / TA': '留存收益相对总资产。反映历史盈利积累和资本厚度。',
-                    'EBIT / TA': 'EBIT 相对总资产。反映资产带来的经营获利能力。',
-                    'Sales / TA': '销售收入相对总资产。反映经营规模和资产效率。',
-                    default: 'Altman Z-Score 模型中的一个分项贡献。',
-                  },
-                  'zh-TW': {
-                    'MVE / TL': '股權市值相對總負債。對大市值公司，這一項往往會主導總分。',
-                    'WC / TA': '營運資本相對總資產。反映短期流動性緩衝。',
-                    'RE / TA': '保留盈餘相對總資產。反映歷史獲利累積和資本厚度。',
-                    'EBIT / TA': 'EBIT 相對總資產。反映資產帶來的經營獲利能力。',
-                    'Sales / TA': '銷售收入相對總資產。反映經營規模和資產效率。',
-                    default: 'Altman Z-Score 模型中的一個分項貢獻。',
-                  },
-                  ja: {
-                    'MVE / TL': '株式時価総額と総負債の比率。大型株ではこの項目がスコアを支配しやすくなります。',
-                    'WC / TA': '運転資本と総資産の比率。短期的な流動性余力を示します。',
-                    'RE / TA': '利益剰余金と総資産の比率。累積収益力と資本の厚みを示します。',
-                    'EBIT / TA': 'EBIT と総資産の比率。資産に対する営業収益力を示します。',
-                    'Sales / TA': '売上高と総資産の比率。事業規模と資産効率を示します。',
-                    default: 'Altman Z-Score モデルの各要因の寄与です。',
-                  },
-                };
-                const langNotes = notes[lang] ?? notes.en;
-                return langNotes[driverLabel] ?? langNotes.default;
-              };
               const driverTooltipContent = (driver: (typeof significantDrivers)[number]) => (
                 <div className="max-w-[18rem] space-y-1.5 text-xs leading-relaxed">
                   <div className="font-semibold text-foreground">{driver.label}</div>
@@ -3556,14 +3725,10 @@ export default function App() {
                     <span className="text-right tabular-nums">{formatDriverValue(driver.contribution)}</span>
                   </div>
                   <div className="border-t border-border pt-1 text-muted-foreground">
-                    {driverAnnotation(driver.label)}
+                    {getDriverAnnotation(lang, driver.label)}
                   </div>
                 </div>
               );
-              const formatDriverValue = (value: number | null, digits = 2): string => {
-                if (value === null || !Number.isFinite(value)) return '--';
-                return `${value > 0 ? '+' : ''}${value.toFixed(digits)}`;
-              };
               const localizedName = resolveCompanyName(res, lang);
               const uniqueNames = getCompanyNameOptions(res);
               const otherNames = uniqueNames.filter(n => n !== localizedName);
@@ -3659,18 +3824,21 @@ export default function App() {
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    setExpandedDrivers((prev) => {
-                                      const next = new Set(prev);
-                                      if (next.has(res.ticker)) next.delete(res.ticker);
-                                      else next.add(res.ticker);
-                                      return next;
+                                    setDriversDialogTarget({
+                                      companyName: localizedName,
+                                      ticker: res.ticker,
+                                      periodLabel: formatPeriodLabel(latest.fiscal_year),
+                                      riskScore,
+                                      overallRating: zZone,
+                                      impliedRating: latest.assessment.implied_rating || zZone.replace(/\s*\(.*\)/, ''),
+                                      drivers: significantDrivers,
                                     });
                                   }}
                                   className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-xs font-semibold text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-accent-foreground"
-                                  aria-expanded={isDriversExpanded}
-                                  aria-label={isDriversExpanded ? t('driverCollapse') : t('driverExpand')}
+                                  aria-haspopup="dialog"
+                                  aria-label={t('driverExpand')}
                                 >
-                                  {isDriversExpanded ? t('driverCollapse') : t('driverExpand')}
+                                  {t('driverExpand')}
                                 </button>
                               )}
                             </div>
@@ -3691,7 +3859,7 @@ export default function App() {
                                           </span>
                                         )}
                                         <Tooltip content={driverTooltipContent(driver)}>
-                                          <span className={`cursor-help rounded px-1 py-0.5 transition-colors hover:bg-emerald-500/10 hover:text-emerald-400 ${isPrimaryDriver ? 'font-extrabold' : 'font-semibold'} ${isPrimaryDriver || isDominant ? 'text-emerald-500' : 'text-emerald-400'}`}>
+                                          <span className={`group inline-flex cursor-help items-center gap-1 rounded px-1 py-0.5 transition-colors hover:bg-emerald-500/10 hover:text-emerald-400 ${isPrimaryDriver ? 'font-extrabold' : 'font-semibold'} ${isPrimaryDriver || isDominant ? 'text-emerald-500' : 'text-emerald-400'}`}>
                                             {isPrimaryDriver ? (
                                               <>
                                                 {driver.label} {t('driverDominant')} {formatDriverValue(driver.contribution)}
@@ -3701,6 +3869,7 @@ export default function App() {
                                                 {driver.label} {formatDriverValue(driver.contribution)}
                                               </>
                                             )}
+                                            <Info className={`h-3.5 w-3.5 flex-shrink-0 transition-colors ${isPrimaryDriver || isDominant ? 'text-emerald-500/90' : 'text-muted-foreground group-hover:text-foreground'}`} />
                                           </span>
                                         </Tooltip>
                                       </Fragment>
@@ -3709,37 +3878,6 @@ export default function App() {
                                 </>
                               )}
                             </div>
-
-                            {isDriversExpanded && (
-                              <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-30 rounded-xl border border-border/80 bg-background/95 px-4 py-4 shadow-2xl backdrop-blur">
-                                <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-x-3 gap-y-1 text-[11px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
-                                  <span>{t('zScoreDrivers')}</span>
-                                  <span className="col-span-2 justify-self-end text-right">
-                                    {t('driverRatio')} × {t('driverWeight')}
-                                  </span>
-                                  <span className="justify-self-end text-right">{t('driverContribution')}</span>
-                                </div>
-                                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-x-3 gap-y-1 text-xs leading-5">
-                                  {significantDrivers.map((driver) => {
-                                    const isDominant = driver.label === 'MVE / TL';
-                                    return (
-                                      <Fragment key={driver.label}>
-                                        <Tooltip content={driverTooltipContent(driver)}>
-                                          <span className={`cursor-help rounded px-1 py-0.5 font-semibold transition-colors hover:bg-emerald-500/10 hover:text-emerald-400 ${isDominant ? 'text-emerald-500' : 'text-foreground/80'}`}>
-                                            {driver.label}
-                                          </span>
-                                        </Tooltip>
-                                        <span className="tabular-nums text-right text-muted-foreground">{formatDriverValue(driver.ratio, 2)}</span>
-                                        <span className="tabular-nums text-right text-muted-foreground">× {driver.weight.toFixed(1)}</span>
-                                        <span className={`text-right font-semibold tabular-nums ${isDominant ? 'text-emerald-500' : 'text-foreground'}`}>
-                                          {formatDriverValue(driver.contribution)}
-                                        </span>
-                                      </Fragment>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
 
                             <div className="border-t border-border/70 pt-2 text-xs font-medium leading-5 text-muted-foreground">
                               {t('zScoreNote')}
@@ -3991,6 +4129,12 @@ export default function App() {
           onClose={closePdfExport}
           target={pdfExportTarget}
           currentLang={lang}
+        />
+
+        <ZScoreDriversDialog
+          target={driversDialogTarget}
+          onClose={() => setDriversDialogTarget(null)}
+          lang={lang}
         />
 
         {/* Financial Statement Dialog */}
