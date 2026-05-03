@@ -403,6 +403,12 @@ const translations = {
     impliedRating: 'Implied Rating',
     zScoreNote: 'Market value can dominate; AAA is model output, not a formal credit opinion.',
     zScoreDrivers: 'Z-Score Drivers',
+    driverDominant: 'dominant',
+    driverExpand: 'Expand',
+    driverCollapse: 'Collapse',
+    driverRatio: 'Ratio',
+    driverWeight: 'Weight',
+    driverContribution: 'Contribution',
     strengths: 'Strengths',
     watchItems: 'Watch Items',
     noStrengths: 'No major strengths detected.',
@@ -480,6 +486,12 @@ const translations = {
     impliedRating: '隐含评级',
     zScoreNote: '市值项可能主导；AAA 只是模型输出，不是正式信用意见。',
     zScoreDrivers: 'Z 分数驱动项',
+    driverDominant: '主导',
+    driverExpand: '展开',
+    driverCollapse: '收起',
+    driverRatio: '比值',
+    driverWeight: '权重',
+    driverContribution: '贡献',
     strengths: '优势',
     watchItems: '关注事项',
     noStrengths: '未发现主要优势。',
@@ -557,6 +569,12 @@ const translations = {
     impliedRating: '隱含評級',
     zScoreNote: '市值項可能主導；AAA 只是模型輸出，不是正式信用意見。',
     zScoreDrivers: 'Z 分數驅動項',
+    driverDominant: '主導',
+    driverExpand: '展開',
+    driverCollapse: '收起',
+    driverRatio: '比值',
+    driverWeight: '權重',
+    driverContribution: '貢獻',
     strengths: '強項',
     watchItems: '關注事項',
     noStrengths: '未發現主要優勢。',
@@ -634,6 +652,12 @@ const translations = {
     impliedRating: '予想格付け',
     zScoreNote: '時価総額項目が主導しやすく、AAA はモデル出力で正式な信用判断ではありません。',
     zScoreDrivers: 'Z スコアの要因',
+    driverDominant: '主導',
+    driverExpand: '展開',
+    driverCollapse: '折りたたむ',
+    driverRatio: '比率',
+    driverWeight: '重み',
+    driverContribution: '寄与',
     strengths: '強み',
     watchItems: '懸念事項',
     noStrengths: '主な強みは見つかりませんでした。',
@@ -3147,7 +3171,7 @@ export default function App() {
     <TooltipProvider>
       <div className="min-h-screen w-full max-w-[100vw] overflow-x-hidden text-foreground font-sans">
         <header className="dashboard-header">
-          <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between min-w-0 overflow-hidden gap-2">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between min-w-0 overflow-visible gap-2">
             <div className="flex items-center gap-2 font-semibold text-lg tracking-tight shrink-0">
               <button
                 type="button"
@@ -3158,7 +3182,7 @@ export default function App() {
                 RiskLens
               </button>
             </div>
-            <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:gap-2 overflow-hidden">
+            <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:gap-2 overflow-visible">
               <div className="flex bg-muted p-0.5 rounded-md border border-border hidden sm:flex">
                 <button
                   onClick={() => setNumFormat('compact')}
@@ -3473,6 +3497,69 @@ export default function App() {
               const isSafe = zZone.includes('(S)')
               const isGrey = zZone.includes('(G)')
               const zScoreBreakdown = Array.isArray(latest.assessment.zscore_breakdown) ? latest.assessment.zscore_breakdown : [];
+              const significantDrivers = zScoreBreakdown
+                .filter((d) => d.contribution !== null && Number.isFinite(d.contribution))
+                .sort((a, b) => Math.abs(b.contribution!) - Math.abs(a.contribution!));
+              const isDriversExpanded = expandedDrivers.has(res.ticker);
+              const zScoreValue = riskScore !== null ? riskScore.toFixed(2) : '--';
+              const impliedRating = translateRatingStatus(latest.assessment.implied_rating || zZone.replace(/\s*\(.*\)/, ''), lang);
+              const summaryDrivers = significantDrivers.slice(0, 3);
+              const driverSummarySeparator = lang === 'en' ? '; ' : '；';
+              const driverSummaryJoiner = lang === 'en' ? ', ' : lang === 'ja' ? '、' : '，';
+              const driverAnnotation = (driverLabel: string): string => {
+                const notes: Record<Language, Record<string, string>> = {
+                  en: {
+                    'MVE / TL': 'Market value versus liabilities. This term often dominates large-cap scores.',
+                    'WC / TA': 'Working capital relative to assets. It reflects short-term liquidity cushion.',
+                    'RE / TA': 'Retained earnings relative to assets. It reflects cumulative profitability and capital depth.',
+                    'EBIT / TA': 'Operating profit relative to assets. It reflects asset-backed earning power.',
+                    'Sales / TA': 'Sales relative to assets. It reflects operating scale and asset efficiency.',
+                    default: 'Factor contribution within the Altman Z-Score model.',
+                  },
+                  'zh-CN': {
+                    'MVE / TL': '股权市值相对总负债。对大市值公司，这一项往往会主导总分。',
+                    'WC / TA': '营运资本相对总资产。反映短期流动性缓冲。',
+                    'RE / TA': '留存收益相对总资产。反映历史盈利积累和资本厚度。',
+                    'EBIT / TA': 'EBIT 相对总资产。反映资产带来的经营获利能力。',
+                    'Sales / TA': '销售收入相对总资产。反映经营规模和资产效率。',
+                    default: 'Altman Z-Score 模型中的一个分项贡献。',
+                  },
+                  'zh-TW': {
+                    'MVE / TL': '股權市值相對總負債。對大市值公司，這一項往往會主導總分。',
+                    'WC / TA': '營運資本相對總資產。反映短期流動性緩衝。',
+                    'RE / TA': '保留盈餘相對總資產。反映歷史獲利累積和資本厚度。',
+                    'EBIT / TA': 'EBIT 相對總資產。反映資產帶來的經營獲利能力。',
+                    'Sales / TA': '銷售收入相對總資產。反映經營規模和資產效率。',
+                    default: 'Altman Z-Score 模型中的一個分項貢獻。',
+                  },
+                  ja: {
+                    'MVE / TL': '株式時価総額と総負債の比率。大型株ではこの項目がスコアを支配しやすくなります。',
+                    'WC / TA': '運転資本と総資産の比率。短期的な流動性余力を示します。',
+                    'RE / TA': '利益剰余金と総資産の比率。累積収益力と資本の厚みを示します。',
+                    'EBIT / TA': 'EBIT と総資産の比率。資産に対する営業収益力を示します。',
+                    'Sales / TA': '売上高と総資産の比率。事業規模と資産効率を示します。',
+                    default: 'Altman Z-Score モデルの各要因の寄与です。',
+                  },
+                };
+                const langNotes = notes[lang] ?? notes.en;
+                return langNotes[driverLabel] ?? langNotes.default;
+              };
+              const driverTooltipContent = (driver: (typeof significantDrivers)[number]) => (
+                <div className="max-w-[18rem] space-y-1.5 text-xs leading-relaxed">
+                  <div className="font-semibold text-foreground">{driver.label}</div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                    <span>{t('driverRatio')}</span>
+                    <span className="text-right tabular-nums">{formatDriverValue(driver.ratio, 2)}</span>
+                    <span>{t('driverWeight')}</span>
+                    <span className="text-right tabular-nums">× {driver.weight.toFixed(1)}</span>
+                    <span>{t('driverContribution')}</span>
+                    <span className="text-right tabular-nums">{formatDriverValue(driver.contribution)}</span>
+                  </div>
+                  <div className="border-t border-border pt-1 text-muted-foreground">
+                    {driverAnnotation(driver.label)}
+                  </div>
+                </div>
+              );
               const formatDriverValue = (value: number | null, digits = 2): string => {
                 if (value === null || !Number.isFinite(value)) return '--';
                 return `${value > 0 ? '+' : ''}${value.toFixed(digits)}`;
@@ -3483,81 +3570,92 @@ export default function App() {
               const hasMultipleNames = otherNames.length > 0;
 
               return (
-            <Card key={res.ticker} className="dashboard-panel max-w-full overflow-x-hidden animate-in fade-in duration-500">
-                  <CardHeader className="bg-card border-b py-3">
-                    <div className="grid min-w-0 max-w-full gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(340px,0.9fr)]">
-                      <div className="min-w-0 space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <CardTitle className="text-xl">{localizedName}</CardTitle>
-                            {hasMultipleNames && (
-                              <Tooltip content={
-                                <div className="text-xs">
-                                  <div className="text-muted-foreground mb-1">{t('otherNames')}</div>
-                                  {otherNames.map((name, idx) => (
-                                    <div key={idx} className="font-medium">{name}</div>
-                                  ))}
-                                </div>
-                              }>
-                                <div className="flex items-center justify-center cursor-help">
-                                  <Info className="w-4 h-4 text-muted-foreground hover:text-brand-500 transition-colors" />
-                                </div>
-                              </Tooltip>
-                            )}
+            <Card key={res.ticker} className="dashboard-panel max-w-full overflow-visible animate-in fade-in duration-500">
+                  <CardHeader className="p-0 overflow-visible">
+                    <div className="grid min-w-0 gap-6 border-b border-border bg-card px-6 py-5 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.35fr)]">
+                      <div className="flex min-w-0 items-center">
+                        <div className="flex w-full max-w-[26rem] flex-col gap-3">
+                          <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <h1 className="min-w-0 break-words text-2xl font-bold leading-tight tracking-tight text-foreground">
+                                {localizedName}
+                              </h1>
+                              {hasMultipleNames && (
+                                <Tooltip
+                                  content={
+                                    <div className="text-xs">
+                                      <div className="mb-1 text-muted-foreground">{t('otherNames')}</div>
+                                      {otherNames.map((name, idx) => (
+                                        <div key={idx} className="font-medium">{name}</div>
+                                      ))}
+                                    </div>
+                                  }
+                                >
+                                  <div className="flex cursor-help items-center justify-center">
+                                    <Info className="h-4 w-4 text-muted-foreground transition-colors hover:text-foreground" />
+                                  </div>
+                                </Tooltip>
+                              )}
+                            </div>
+                            <span className="inline-flex h-7 items-center rounded-lg bg-muted/30 px-2.5 text-sm font-bold leading-none text-muted-foreground">
+                              {res.ticker}
+                            </span>
                           </div>
-                          <span className="text-muted-foreground text-sm font-medium bg-muted/30 px-2 py-1 rounded">
-                            {res.ticker}
-                          </span>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-0.5 rounded-full border border-border bg-background/85 p-0.5 shadow-sm backdrop-blur-sm w-fit">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 rounded-full px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                            onClick={() => { openPdfExport(res); }}
-                            title={t('exportPdf')}
-                          >
-                            <FileText className="h-3 w-3" />
-                            {t('exportPdf')}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 rounded-full px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                            onClick={() => exportToExcel([res], t, lang)}
-                            title={t('exportExcel')}
-                          >
-                            <Download className="h-3 w-3" />
-                            {t('exportExcel')}
-                          </Button>
+
+                          <div className="inline-flex w-fit items-center rounded-full border border-border/80 bg-background/75 p-0.5 shadow-sm backdrop-blur-sm">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 rounded-full px-3.5 text-[13px] font-semibold gap-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                              onClick={() => { openPdfExport(res); }}
+                              title={t('exportPdf')}
+                            >
+                              <FileText className="h-4 w-4" />
+                              {t('exportPdf')}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 rounded-full px-3.5 text-[13px] font-semibold gap-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                              onClick={() => exportToExcel([res], t, lang)}
+                              title={t('exportExcel')}
+                            >
+                              <Download className="h-4 w-4" />
+                              {t('exportExcel')}
+                            </Button>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="w-full min-w-0">
-                        <div className="grid min-w-0 max-w-full gap-3 sm:grid-cols-2">
-                          <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-card/95 px-4 py-2.5 shadow-inner min-w-0 max-w-full">
-                            <div className="text-xs text-muted-foreground font-semibold tracking-wider uppercase">
+                      <div className="flex min-w-0 items-center">
+                        <div className="grid w-full min-w-0 gap-3 sm:grid-cols-2 sm:auto-rows-fr">
+                          <div className="flex min-h-[92px] flex-col items-center justify-center rounded-xl border border-border/80 bg-background/35 px-4 py-3 text-center shadow-sm">
+                            <div className="inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold uppercase tracking-[0.02em] text-muted-foreground whitespace-nowrap">
                               <MetricTooltip metricKey="zscore" label={t('zScore')} lang={lang} />
                             </div>
-                            <div className="flex items-baseline gap-2 mt-0.5">
-                              <span className="text-2xl font-bold">{riskScore !== null ? riskScore.toFixed(2) : '--'}</span>
-                              <span className={`text-sm font-bold ${isSafe ? 'text-emerald-500' : isGrey ? 'text-amber-500' : 'text-rose-500'}`}>
+                            <div className="mt-1.5 flex items-baseline justify-center gap-2">
+                              <span className="text-[31px] font-extrabold leading-none tracking-tight text-foreground">{zScoreValue}</span>
+                              <span className={`text-[16px] font-extrabold leading-none ${isSafe ? 'text-emerald-500' : isGrey ? 'text-amber-500' : 'text-rose-500'}`}>
                                 [{translateRatingStatus(zZone, lang)}]
                               </span>
                             </div>
                           </div>
-                          <div className="flex flex-col items-center justify-center rounded-lg border border-border bg-card/95 px-4 py-2.5 shadow-inner min-w-0 max-w-full">
-                            <div className="text-xs text-muted-foreground font-semibold tracking-wider uppercase">
+
+                          <div className="flex min-h-[92px] flex-col items-center justify-center rounded-xl border border-border/80 bg-background/35 px-4 py-3 text-center shadow-sm">
+                            <div className="inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold uppercase tracking-[0.02em] text-muted-foreground whitespace-nowrap">
                               <MetricTooltip metricKey="implied_rating" label={t('impliedRating')} lang={lang} />
                             </div>
-                            <span className="text-2xl font-bold mt-0.5">{translateRatingStatus(latest.assessment.implied_rating || zZone.replace(/\s*\(.*\)/, ''), lang)}</span>
+                            <div className="mt-1.5 text-[30px] font-extrabold leading-none tracking-[0.02em] text-foreground">
+                              {impliedRating}
+                            </div>
                           </div>
-                          <div className="sm:col-span-2 rounded-lg border border-border bg-card/95 px-4 py-2.5 min-w-0 max-w-full">
+
+                          <div className="relative sm:col-span-2 flex flex-col justify-start gap-2 rounded-xl border border-border/80 bg-background/35 px-4 py-3 shadow-sm overflow-visible">
                             <div className="flex items-center justify-between gap-3">
-                              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                              <div className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap text-[13px] font-semibold uppercase tracking-[0.02em] text-muted-foreground">
                                 <MetricTooltip metricKey="zscore" label={t('zScoreDrivers')} lang={lang} />
                               </div>
-                              {zScoreBreakdown.length > 1 && (
+                              {significantDrivers.length > 3 && (
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -3568,62 +3666,82 @@ export default function App() {
                                       return next;
                                     });
                                   }}
-                                  className="text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                                  className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-xs font-semibold text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-accent-foreground"
+                                  aria-expanded={isDriversExpanded}
+                                  aria-label={isDriversExpanded ? t('driverCollapse') : t('driverExpand')}
                                 >
-                                  {expandedDrivers.has(res.ticker)
-                                    ? 'Hide'
-                                    : `${zScoreBreakdown.length} factors`}
+                                  {isDriversExpanded ? t('driverCollapse') : t('driverExpand')}
                                 </button>
                               )}
                             </div>
-                            {(() => {
-                              const isExpanded = expandedDrivers.has(res.ticker);
-                              const significant = zScoreBreakdown
-                                .filter((d) => d.contribution !== null && Number.isFinite(d.contribution))
-                                .sort((a, b) => Math.abs(b.contribution!) - Math.abs(a.contribution!));
-                              const topN = 3;
-                              const hasMore = significant.length > topN;
-                              if (!isExpanded) {
-                                const visible = significant.slice(0, topN);
-                                if (visible.length === 0) {
-                                  return <div className="mt-1.5 text-xs text-muted-foreground/60">--</div>;
-                                }
-                                return (
-                                  <div className="mt-1.5 flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-xs">
-                                    {visible.map((driver, idx) => (
-                                      <span key={driver.label} className="inline-flex items-baseline gap-1">
-                                        <span className="font-semibold text-emerald-600">{driver.label}</span>
-                                        <span className="font-semibold tabular-nums text-emerald-500">{formatDriverValue(driver.contribution)}</span>
-                                        {idx < visible.length - 1 && <span className="text-muted-foreground/40 mx-0.5">·</span>}
-                                      </span>
-                                    ))}
-                                    {hasMore && (
-                                      <span className="text-muted-foreground/60">
-                                        +{significant.length - topN} more
-                                      </span>
-                                    )}
-                                  </div>
-                                );
-                              }
-                              return (
-                                <div className="mt-1.5 grid grid-cols-[1fr_auto_auto_auto] gap-x-3 gap-y-1 text-xs">
-                                  {significant.map((driver) => {
+
+                            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-sm font-semibold leading-5 text-emerald-500">
+                              {summaryDrivers.length === 0 ? (
+                                <span className="text-muted-foreground/60">--</span>
+                              ) : (
+                                <>
+                                  {summaryDrivers.map((driver, idx) => {
+                                    const isPrimaryDriver = idx === 0;
                                     const isDominant = driver.label === 'MVE / TL';
                                     return (
                                       <Fragment key={driver.label}>
-                                        <span className={`font-semibold ${isDominant ? 'text-emerald-600' : 'text-foreground/80'}`}>{driver.label}</span>
-                                        <span className="text-muted-foreground tabular-nums">{formatDriverValue(driver.ratio, 2)}</span>
-                                        <span className="text-muted-foreground tabular-nums">× {driver.weight.toFixed(1)}</span>
-                                        <span className={`font-semibold tabular-nums text-right ${isDominant ? 'text-emerald-500' : 'text-foreground'}`}>
+                                        {idx > 0 && (
+                                          <span className="text-muted-foreground/40">
+                                            {idx === 1 ? driverSummarySeparator : driverSummaryJoiner}
+                                          </span>
+                                        )}
+                                        <Tooltip content={driverTooltipContent(driver)}>
+                                          <span className={`cursor-help rounded px-1 py-0.5 transition-colors hover:bg-emerald-500/10 hover:text-emerald-400 ${isPrimaryDriver ? 'font-extrabold' : 'font-semibold'} ${isPrimaryDriver || isDominant ? 'text-emerald-500' : 'text-emerald-400'}`}>
+                                            {isPrimaryDriver ? (
+                                              <>
+                                                {driver.label} {t('driverDominant')} {formatDriverValue(driver.contribution)}
+                                              </>
+                                            ) : (
+                                              <>
+                                                {driver.label} {formatDriverValue(driver.contribution)}
+                                              </>
+                                            )}
+                                          </span>
+                                        </Tooltip>
+                                      </Fragment>
+                                    );
+                                  })}
+                                </>
+                              )}
+                            </div>
+
+                            {isDriversExpanded && (
+                              <div className="absolute left-0 right-0 top-[calc(100%+8px)] z-30 rounded-xl border border-border/80 bg-background/95 px-4 py-4 shadow-2xl backdrop-blur">
+                                <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-x-3 gap-y-1 text-[11px] font-bold uppercase tracking-[0.06em] text-muted-foreground">
+                                  <span>{t('zScoreDrivers')}</span>
+                                  <span className="col-span-2 justify-self-end text-right">
+                                    {t('driverRatio')} × {t('driverWeight')}
+                                  </span>
+                                  <span className="justify-self-end text-right">{t('driverContribution')}</span>
+                                </div>
+                                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-x-3 gap-y-1 text-xs leading-5">
+                                  {significantDrivers.map((driver) => {
+                                    const isDominant = driver.label === 'MVE / TL';
+                                    return (
+                                      <Fragment key={driver.label}>
+                                        <Tooltip content={driverTooltipContent(driver)}>
+                                          <span className={`cursor-help rounded px-1 py-0.5 font-semibold transition-colors hover:bg-emerald-500/10 hover:text-emerald-400 ${isDominant ? 'text-emerald-500' : 'text-foreground/80'}`}>
+                                            {driver.label}
+                                          </span>
+                                        </Tooltip>
+                                        <span className="tabular-nums text-right text-muted-foreground">{formatDriverValue(driver.ratio, 2)}</span>
+                                        <span className="tabular-nums text-right text-muted-foreground">× {driver.weight.toFixed(1)}</span>
+                                        <span className={`text-right font-semibold tabular-nums ${isDominant ? 'text-emerald-500' : 'text-foreground'}`}>
                                           {formatDriverValue(driver.contribution)}
                                         </span>
                                       </Fragment>
                                     );
                                   })}
                                 </div>
-                              );
-                            })()}
-                            <div className="mt-2 text-[10px] leading-snug text-muted-foreground/70 border-t border-border pt-1.5">
+                              </div>
+                            )}
+
+                            <div className="border-t border-border/70 pt-2 text-xs font-medium leading-5 text-muted-foreground">
                               {t('zScoreNote')}
                             </div>
                           </div>

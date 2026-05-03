@@ -85,6 +85,16 @@ def _run_with_cleared_proxy(fn):
             _restore_proxy_env(backup)
 
 
+def _run_with_proxy_lock(fn):
+    """Execute *fn* while holding the proxy lock, without clearing the environment.
+
+    This ensures mutual exclusion with any concurrent ``_run_with_cleared_proxy``
+    call so that no thread observes an inconsistent ``os.environ`` state.
+    """
+    with _PROXY_CLEAR_LOCK:
+        return fn()
+
+
 def run_yfinance_call(fn, *, clear_proxy: bool = True):
     """Execute a yfinance call under the proxy-safety lock.
 
@@ -100,23 +110,25 @@ def run_yfinance_call(fn, *, clear_proxy: bool = True):
     """
     mode = settings.yfinance_clear_proxy_mode
 
-    if mode == "never" or (mode == "retry_only" and clear_proxy):
-        pass  # handled below without default lock behaviour
-    else:
-        return _run_with_cleared_proxy(fn) if clear_proxy else fn()
+    if mode == "never":
+        return fn()
+
+    if mode == "always":
+        return _run_with_cleared_proxy(fn) if clear_proxy else _run_with_proxy_lock(fn)
 
     if clear_proxy:
         return _run_with_cleared_proxy(fn)
-    else:
-        return fn()
+    return _run_with_proxy_lock(fn)
 
 
 def run_yfinance_call_with_proxy_retry(fn):
-    """Execute *fn* without the proxy lock first; retry with lock on proxy error.
+    """Execute *fn* under the proxy lock; retry with cleared proxy on proxy error.
 
-    In 'retry_only' mode (the default), this avoids serialising all yfinance
-    calls behind _PROXY_CLEAR_LOCK.  The lock is only acquired when the first
-    attempt fails with an error that looks proxy- or TLS-related.
+    In 'retry_only' mode (the default), the first attempt holds
+    ``_PROXY_CLEAR_LOCK`` without clearing the environment so that no
+    concurrent thread sees an inconsistent ``os.environ`` during a
+    clear-proxy retry.  If the first attempt fails with a proxy-looking
+    error, the retry clears proxy vars inside the same lock.
     """
     mode = settings.yfinance_clear_proxy_mode
 
@@ -126,7 +138,7 @@ def run_yfinance_call_with_proxy_retry(fn):
         return fn()
 
     try:
-        return fn()
+        return _run_with_proxy_lock(fn)
     except Exception as exc:
         if _is_proxy_related_error(exc):
             logger.debug("Proxy-related error on first attempt, retrying with cleared proxy: %s", exc)
@@ -376,6 +388,34 @@ _NEGATIVE_CACHE_TTLS: dict[str, int] = {
     DataFetchErrorType.NETWORK_ERROR.value: 10,
 }
 
+
+def _coerce_error_type(value: Any) -> DataFetchErrorType:
+    """Convert a cached error_type value back to a DataFetchErrorType enum."""
+    if isinstance(value, DataFetchErrorType):
+        return value
+    if isinstance(value, str):
+        try:
+            return DataFetchErrorType(value)
+        except ValueError:
+            return DataFetchErrorType.UNKNOWN
+    return DataFetchErrorType.UNKNOWN
+
+
+def _cache_data_fetch_error(cache_key: str, exc: DataFetchError) -> None:
+    """Cache a DataFetchError in _error_cache with type-specific TTL."""
+    ttl = _NEGATIVE_CACHE_TTLS.get(exc.error_type.value, settings.negative_cache_ttl_seconds)
+    _error_cache.set(
+        cache_key,
+        {
+            "message": exc.message,
+            "error_type": exc.error_type.value,
+            "ticker": exc.ticker,
+            "details": exc.details,
+        },
+        ttl=ttl,
+    )
+
+
 # Optional AKShare integration (akshare_data.py is a legacy module)
 try:
     from src.akshare_data import get_financial_data as akshare_get_data
@@ -597,7 +637,8 @@ def _akshare_row_to_df(row: pd.Series, field_map: dict) -> pd.DataFrame:
                 continue
 
     # Compute derived fields
-    if 'short_term_debt' in records or 'long_term_debt' in records:
+    _debt_keys = ('short_term_debt', 'long_term_debt', 'current_portion_lt_debt', 'bonds_payable')
+    if any(k in records for k in _debt_keys):
         st = records.get('short_term_debt', 0)
         lt = records.get('long_term_debt', 0)
         cp = records.get('current_portion_lt_debt', 0)
@@ -833,8 +874,14 @@ def _fetch_a_share_akshare(ticker: str, *, include_profile: bool = True, include
         return _re.sub(r'\D', '', str(date_val))
 
     # Identify annual vs quarterly: annual = ends with 1231
-    annual_dates = [d for d in dates_inc if _date_digits(d).endswith('1231')]
-    quarterly_dates_raw = [d for d in dates_inc if not _date_digits(d).endswith('1231')]
+    annual_dates = sorted(
+        [d for d in dates_inc if _date_digits(d).endswith('1231')],
+        key=_date_digits, reverse=True,
+    )
+    quarterly_dates_raw = sorted(
+        [d for d in dates_inc if not _date_digits(d).endswith('1231')],
+        key=_date_digits, reverse=True,
+    )
 
     # Take latest 3 annual
     annual_dates = annual_dates[:3]
@@ -875,10 +922,11 @@ def _fetch_a_share_akshare(ticker: str, *, include_profile: bool = True, include
             seen_quarters.add(yq)
 
     def _find_row(df, date_val):
-        """Find the row matching a report date."""
-        if df is None or df.empty:
+        """Find the row matching a report date, normalising date formats."""
+        if df is None or df.empty or '报告日' not in df.columns:
             return None
-        matches = df[df['报告日'] == date_val]
+        target_digits = _date_digits(date_val)
+        matches = df[df['报告日'].map(_date_digits) == target_digits]
         return matches.iloc[0] if len(matches) > 0 else None
 
     history = []
@@ -1076,9 +1124,9 @@ class FinancialDataFetcher:
             logger.debug(f"Negative cache hit for {cache_key}: {cached_error}")
             raise DataFetchError(
                 cached_error.get("message", "Cached upstream failure"),
-                error_type=cached_error.get("error_type", DataFetchErrorType.UNKNOWN),
+                error_type=_coerce_error_type(cached_error.get("error_type")),
                 ticker=cached_error.get("ticker", ticker),
-                details=cached_error.get("details"),
+                details=cached_error.get("details") or {},
             )
 
         # Single-flight coalescing: only one upstream call per cache key.
@@ -1095,7 +1143,16 @@ class FinancialDataFetcher:
 
         if not is_leader:
             logger.debug(f"Waiting for in-flight fetch of {cache_key}")
-            in_flight_entry.event.wait()
+            completed = in_flight_entry.event.wait(
+                timeout=max(0.1, settings.single_flight_wait_timeout_seconds),
+            )
+            if not completed:
+                raise DataFetchError(
+                    "Timed out waiting for in-flight fetch",
+                    error_type=DataFetchErrorType.NETWORK_ERROR,
+                    ticker=ticker,
+                    details={"reason": "single_flight_timeout", "cache_key": cache_key},
+                )
             if in_flight_entry.result is not None:
                 return in_flight_entry.result
             if in_flight_entry.exception is not None:
@@ -1172,10 +1229,11 @@ class FinancialDataFetcher:
                     _inc = _stock.income_stmt
                     _bal = _stock.balance_sheet
                     _cf = _stock.cashflow
-                    if not _is_latest:
-                        _inc_q = _stock.quarterly_income_stmt
-                        _bal_q = _stock.quarterly_balance_sheet
-                        _cf_q = _stock.quarterly_cashflow
+                    # In latest mode we still need quarterly to compare
+                    # dates and pick the truly most recent period.
+                    _inc_q = _stock.quarterly_income_stmt
+                    _bal_q = _stock.quarterly_balance_sheet
+                    _cf_q = _stock.quarterly_cashflow
 
                 time.sleep(0.3)
                 run_yfinance_call_with_proxy_retry(_do_yfinance_calls)
@@ -1184,22 +1242,48 @@ class FinancialDataFetcher:
                 inc_q, bal_q, cf_q = _inc_q, _bal_q, _cf_q
 
                 if _is_latest:
-                    # Latest-only mode: single period from first annual column.
-                    year_label = "Latest"
-                    col_date_str = None
-                    for stmt in [inc, bal, cf]:
-                        if stmt is not None and not stmt.empty and len(stmt.columns) > 0:
-                            col_date_str = str(stmt.columns[0])[:10]
-                            if len(col_date_str) >= 10:
-                                year_label = f"FY{col_date_str[2:4]}"
-                            break
-                    history = [{
-                        'year_label': year_label,
-                        'is_quarterly': False,
-                        'income': _extract_single_column(inc, 0),
-                        'balance': _extract_single_column(bal, 0),
-                        'cash': _extract_single_column(cf, 0),
-                    }]
+                    # Latest-only mode: single most recent period.
+                    # Prefer the latest quarter over the latest annual when
+                    # the quarter date is newer, preserving "最新可用期" semantics.
+                    def _first_cell_date(*statements: pd.DataFrame | None) -> str | None:
+                        for s in statements:
+                            if s is not None and not s.empty and len(s.columns) > 0:
+                                d = str(s.columns[0])[:10]
+                                if len(d) >= 10:
+                                    return d
+                        return None
+
+                    annual_date = _first_cell_date(inc, bal, cf)
+                    quarter_date = _first_cell_date(inc_q, bal_q, cf_q)
+
+                    use_quarter = False
+                    if quarter_date and annual_date:
+                        use_quarter = quarter_date > annual_date
+                    elif quarter_date and not annual_date:
+                        use_quarter = True
+
+                    if use_quarter:
+                        m = int(quarter_date[5:7])
+                        q = (m - 1) // 3 + 1
+                        year_label = f"Q{q} '{quarter_date[2:4]} (U)"
+                        history = [{
+                            'year_label': year_label,
+                            'is_quarterly': True,
+                            'income': _extract_single_column(inc_q, 0),
+                            'balance': _extract_single_column(bal_q, 0),
+                            'cash': _extract_single_column(cf_q, 0),
+                        }]
+                    else:
+                        year_label = "Latest"
+                        if annual_date:
+                            year_label = f"FY{annual_date[2:4]}"
+                        history = [{
+                            'year_label': year_label,
+                            'is_quarterly': False,
+                            'income': _extract_single_column(inc, 0),
+                            'balance': _extract_single_column(bal, 0),
+                            'cash': _extract_single_column(cf, 0),
+                        }]
                 else:
                     history = []
 
@@ -1332,14 +1416,7 @@ class FinancialDataFetcher:
 
                 return result
             except DataFetchError as exc:
-                # Cache failures with type-specific TTL
-                ttl = _NEGATIVE_CACHE_TTLS.get(exc.error_type.value, settings.negative_cache_ttl_seconds)
-                _error_cache.set(cache_key, {
-                    "message": exc.message,
-                    "error_type": exc.error_type.value,
-                    "ticker": exc.ticker,
-                    "details": exc.details,
-                }, ttl=ttl)
+                _cache_data_fetch_error(cache_key, exc)
                 with _in_flight_lock:
                     entry = _in_flight.get(cache_key)
                     if entry is not None:
@@ -1388,6 +1465,7 @@ class FinancialDataFetcher:
 
                 logger.error(f"yfinance error for {ticker}: {e}")
                 exc_to_raise = DataFetchError(message, error_type=error_type, ticker=ticker)
+                _cache_data_fetch_error(cache_key, exc_to_raise)
                 with _in_flight_lock:
                     entry = _in_flight.get(cache_key)
                     if entry is not None:
@@ -1412,6 +1490,7 @@ class FinancialDataFetcher:
 
     @staticmethod
     def clear_cache() -> None:
-        """Clear all cached data."""
+        """Clear all cached financial data and cached failures."""
         _data_cache.clear()
+        _error_cache.clear()
         logger.info("Data cache cleared")

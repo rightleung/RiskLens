@@ -1783,6 +1783,9 @@ def _build_statement_sections(history: list[dict[str, Any]]) -> list[dict[str, A
         ]
         if not summary_rows:
             summary_rows = detail_rows[:12]
+        max_detail_rows = max(1, settings.max_pdf_detail_rows)
+        if len(detail_rows) > max_detail_rows:
+            detail_rows = detail_rows[:max_detail_rows]
         if not quarter_entries and len(annual_entries) > 1:
             cq = annual_entries[0]['label']
             cmpq = annual_entries[1]['label']

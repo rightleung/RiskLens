@@ -19,6 +19,7 @@ import io
 import os
 import re
 import threading
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -190,6 +191,10 @@ class UpstreamCapacityError(Exception):
 # *request wait timeout*; the underlying blocking call may continue running.
 # The bounded executor + semaphore ensure that abandoned work does not
 # saturate the thread pool.
+#
+# Capacity is released via a done_callback on the executor future, so the
+# semaphore slot is only freed when the OS thread actually finishes — not
+# when the asyncio coroutine is cancelled by wait_for.
 _FETCH_EXECUTOR = ThreadPoolExecutor(
     max_workers=max(4, settings.upstream_max_workers),
     thread_name_prefix="risklens-io-",
@@ -207,67 +212,87 @@ _SEARCH_CAPACITY = threading.BoundedSemaphore(
 )
 
 
-def _run_in_fetch_executor(func, *args):
-    """Submit *func* to the bounded fetch executor, or raise UpstreamCapacityError.
+def _submit_with_capacity(executor, capacity, busy_message, func, *args):
+    """Submit *func* to *executor* with bounded *capacity*, or raise UpstreamCapacityError.
 
-    Acquires the capacity semaphore non-blocking; if the pool is full the
-    caller must catch UpstreamCapacityError and return a 503 response.
-    The semaphore is released in a finally block so that even timed-out or
-    errored work eventually frees a slot.
+    The semaphore is released via a ``done_callback`` on the *underlying*
+    ``concurrent.futures.Future`` (not the asyncio wrapper), ensuring
+    capacity is only reclaimed when the worker thread actually finishes.
+    Cancelling the asyncio awaitable (e.g. via ``asyncio.wait_for``
+    timeout) does not fire the callback — only thread completion does.
     """
-    if not _FETCH_CAPACITY.acquire(blocking=False):
-        raise UpstreamCapacityError("Upstream fetch capacity exhausted")
+    if not capacity.acquire(blocking=False):
+        raise UpstreamCapacityError(busy_message)
     import asyncio as _asyncio
+
+    # Submit directly to the executor to get a concurrent.futures.Future.
+    # loop.run_in_executor would wrap it in an asyncio.Future whose
+    # done_callbacks fire on cancellation, releasing capacity too early.
+    try:
+        cf = executor.submit(func, *args)
+    except Exception:
+        capacity.release()
+        raise
+
+    _released = False
+    _release_lock = threading.Lock()
+
+    def _release_once(_fut):
+        nonlocal _released
+        with _release_lock:
+            if not _released:
+                _released = True
+                capacity.release()
+
+    cf.add_done_callback(_release_once)
+
     loop = _asyncio.get_running_loop()
-    fut = loop.run_in_executor(_FETCH_EXECUTOR, func, *args)
+    return _asyncio.wrap_future(cf, loop=loop)
 
-    async def _release_after(f):
-        try:
-            return await f
-        finally:
-            _FETCH_CAPACITY.release()
 
-    return _release_after(fut)
+def _run_in_fetch_executor(func, *args):
+    """Submit *func* to the bounded fetch executor, or raise UpstreamCapacityError."""
+    return _submit_with_capacity(
+        _FETCH_EXECUTOR, _FETCH_CAPACITY,
+        "Upstream fetch capacity exhausted", func, *args,
+    )
 
 
 def _run_in_pdf_executor(func, *args):
     """Submit *func* to the bounded PDF executor, or raise UpstreamCapacityError."""
-    if not _PDF_CAPACITY.acquire(blocking=False):
-        raise UpstreamCapacityError("PDF export capacity exhausted")
-    import asyncio as _asyncio
-    loop = _asyncio.get_running_loop()
-    fut = loop.run_in_executor(_PDF_EXECUTOR, func, *args)
-
-    async def _release_after(f):
-        try:
-            return await f
-        finally:
-            _PDF_CAPACITY.release()
-
-    return _release_after(fut)
+    return _submit_with_capacity(
+        _PDF_EXECUTOR, _PDF_CAPACITY,
+        "PDF export capacity exhausted", func, *args,
+    )
 
 
 def _run_in_search_executor(func, *args):
-    """Submit *func* to the bounded search capacity, returning [] on exhaustion.
-
-    Shares the fetch thread pool but uses a separate capacity semaphore so
-    that search traffic cannot starve main assessment fetches.
-    """
+    """Submit *func* to the bounded search capacity, returning [] on exhaustion."""
     if not _SEARCH_CAPACITY.acquire(blocking=False):
         async def _empty():
             return []
         return _empty()
     import asyncio as _asyncio
+    try:
+        cf = _FETCH_EXECUTOR.submit(func, *args)
+    except Exception:
+        _SEARCH_CAPACITY.release()
+        raise
+
+    _released = False
+    _release_lock = threading.Lock()
+
+    def _release_once(_fut):
+        nonlocal _released
+        with _release_lock:
+            if not _released:
+                _released = True
+                _SEARCH_CAPACITY.release()
+
+    cf.add_done_callback(_release_once)
+
     loop = _asyncio.get_running_loop()
-    fut = loop.run_in_executor(_FETCH_EXECUTOR, func, *args)
-
-    async def _release_after(f):
-        try:
-            return await f
-        finally:
-            _SEARCH_CAPACITY.release()
-
-    return _release_after(fut)
+    return _asyncio.wrap_future(cf, loop=loop)
 
 
 fetcher = FinancialDataFetcher()
@@ -974,11 +999,20 @@ async def export_full_pdf(request: PdfExportRequest | dict[str, Any]):
     ticker = str(report.get("ticker") or "RiskLens").upper()
 
     try:
-        pdf_bytes = await _run_in_pdf_executor(generate_full_pdf, report, lang, theme)
+        pdf_bytes = await asyncio.wait_for(
+            _run_in_pdf_executor(generate_full_pdf, report, lang, theme),
+            timeout=max(1.0, settings.pdf_export_timeout_seconds),
+        )
     except UpstreamCapacityError:
         raise HTTPException(
             status_code=503,
             detail={"error": "Service busy — please retry", "error_type": "upstream_busy", "ticker": ticker},
+        )
+    except TimeoutError:
+        logger.warning("PDF export timed out for %s after %.0fs", ticker, settings.pdf_export_timeout_seconds)
+        raise HTTPException(
+            status_code=504,
+            detail={"error": "PDF export timed out", "error_type": "timeout", "ticker": ticker},
         )
     except ValueError as exc:
         logger.warning("PDF export validation failed for %s: %s", ticker, exc)

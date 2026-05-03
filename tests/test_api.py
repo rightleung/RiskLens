@@ -6,6 +6,7 @@ Tests for FastAPI endpoints using TestClient.
 
 import hashlib
 import asyncio
+import threading
 import pytest
 from fastapi.testclient import TestClient
 import sys
@@ -130,15 +131,22 @@ class TestAssessEndpoint:
         assert data.get("error_type") == "all_tickers_failed"
 
     def test_assess_timeout_returns_504(self, client, monkeypatch):
+        # Fake wait_for raises TimeoutError without awaiting the inner awaitable.
         async def _fake_wait_for(fut, timeout):
-            if hasattr(fut, 'close'):
-                fut.close()
-            elif hasattr(fut, 'cancel'):
-                fut.cancel()
             raise asyncio.TimeoutError()
+
+        # Prevent _run_in_fetch_executor from submitting real work to the shared
+        # production executor.  Return a completed concurrent future so the fake
+        # wait_for never sees a coroutine (avoids RuntimeWarning).
+        import concurrent.futures
+        def _noop_executor(*_args, **_kwargs):
+            cf: concurrent.futures.Future = concurrent.futures.Future()
+            cf.set_result(None)
+            return asyncio.wrap_future(cf)
 
         monkeypatch.setattr(api, "_search_tickers", lambda *_args, **_kwargs: [])
         monkeypatch.setattr(asyncio, "wait_for", _fake_wait_for)
+        monkeypatch.setattr(api, "_run_in_fetch_executor", _noop_executor)
 
         response = client.post("/api/v1/assess", json={
             "tickers": ["AAPL"], "fiscal_year": 2024, "data_source": "yfinance",
@@ -198,13 +206,16 @@ class TestAssessEndpoint:
         monkeypatch.setattr(api, "_search_tickers", lambda *_args, **_kwargs: [])
 
         async def _fake_wait_for(fut, timeout):
-            if hasattr(fut, 'close'):
-                fut.close()
-            elif hasattr(fut, 'cancel'):
-                fut.cancel()
             raise asyncio.TimeoutError()
 
+        import concurrent.futures
+        def _noop_executor(*_args, **_kwargs):
+            cf: concurrent.futures.Future = concurrent.futures.Future()
+            cf.set_result(None)
+            return asyncio.wrap_future(cf)
+
         monkeypatch.setattr(asyncio, "wait_for", _fake_wait_for)
+        monkeypatch.setattr(api, "_run_in_fetch_executor", _noop_executor)
 
         response = client.post("/api/v1/assess", json={
             "tickers": ["A", "B"], "fiscal_year": 2024, "data_source": "yfinance",
@@ -325,13 +336,17 @@ class TestSymbolSearch:
 
     def test_symbol_search_timeout_returns_504(self, client, monkeypatch):
         async def _fake_wait_for(fut, timeout):
-            if hasattr(fut, 'close'):
-                fut.close()
-            elif hasattr(fut, 'cancel'):
-                fut.cancel()
             raise asyncio.TimeoutError()
+
+        import concurrent.futures
+        def _noop_executor(*_args, **_kwargs):
+            cf: concurrent.futures.Future = concurrent.futures.Future()
+            cf.set_result([])
+            return asyncio.wrap_future(cf)
+
         monkeypatch.setattr(asyncio, "wait_for", _fake_wait_for)
-        monkeypatch.setenv("SYMBOL_SEARCH_TIMEOUT_SECONDS", "0.05")
+        monkeypatch.setattr(api, "_run_in_fetch_executor", _noop_executor)
+
         response = client.get("/api/v1/symbols/search", params={"q": "nio", "limit": 20})
         assert response.status_code == 504
         assert response.json()["error_type"] == "timeout"
@@ -412,12 +427,16 @@ class TestCovenantEndpoint:
 
     def test_covenant_timeout_returns_504(self, client, monkeypatch):
         async def _fake_wait_for(fut, timeout):
-            if hasattr(fut, 'close'):
-                fut.close()
-            elif hasattr(fut, 'cancel'):
-                fut.cancel()
             raise asyncio.TimeoutError()
+
+        import concurrent.futures
+        def _noop_executor(*_args, **_kwargs):
+            cf: concurrent.futures.Future = concurrent.futures.Future()
+            cf.set_result(None)
+            return asyncio.wrap_future(cf)
+
         monkeypatch.setattr(asyncio, "wait_for", _fake_wait_for)
+        monkeypatch.setattr(api, "_run_in_fetch_executor", _noop_executor)
 
         response = client.post("/api/v1/covenants/check", json={
             "ticker": "AAPL", "fiscal_year": 2024, "data_source": "yfinance",
@@ -816,3 +835,358 @@ class TestLocalizedNameCache:
         assert small_cache.get("TICKER3") is not None
         assert small_cache.get("TICKER4") is not None
         assert small_cache.stats()["size"] == 3
+
+
+# ── Suggestions downgrade tests ─────────────────────────────────────────────
+
+class TestSuggestionsDowngrade:
+    def test_assess_failure_does_not_fetch_suggestions_by_default(self, client, monkeypatch):
+        """Default failure must not call _search_tickers."""
+        called = {"search": 0}
+
+        def _raise_invalid(*_args, **_kwargs):
+            raise DataFetchError("Bad ticker", error_type=DataFetchErrorType.INVALID_TICKER, ticker="BAD")
+
+        def _tracking_search(*_args, **_kwargs):
+            called["search"] += 1
+            return []
+
+        monkeypatch.setattr(api, "_analyze_single_ticker", _raise_invalid)
+        monkeypatch.setattr(api, "_search_tickers", _tracking_search)
+
+        response = client.post("/api/v1/assess", json={
+            "tickers": ["BAD"],
+            "fiscal_year": 2024,
+            "data_source": "yfinance",
+        })
+
+        assert response.status_code == 404
+        assert called["search"] == 0, (
+            f"Default failure must not trigger _search_tickers, got {called['search']}"
+        )
+
+    def test_assess_failure_fetches_suggestions_when_explicitly_enabled(self, client, monkeypatch):
+        """include_suggestions=True must trigger _search_tickers on invalid ticker."""
+        called = {"search": 0}
+
+        def _raise_invalid(*_args, **_kwargs):
+            raise DataFetchError("Bad ticker", error_type=DataFetchErrorType.INVALID_TICKER, ticker="BAD")
+
+        def _tracking_search(*_args, **_kwargs):
+            called["search"] += 1
+            return []
+
+        monkeypatch.setattr(api, "_analyze_single_ticker", _raise_invalid)
+        monkeypatch.setattr(api, "_search_tickers", _tracking_search)
+
+        response = client.post("/api/v1/assess", json={
+            "tickers": ["BAD"],
+            "fiscal_year": 2024,
+            "data_source": "yfinance",
+            "include_suggestions": True,
+        })
+
+        assert response.status_code == 404
+        assert called["search"] == 1, (
+            f"include_suggestions=True must trigger _search_tickers, got {called['search']}"
+        )
+
+    def test_assess_timeout_does_not_fetch_suggestions_even_when_enabled(self, client, monkeypatch):
+        """timeout errors never trigger suggestions, even when include_suggestions=True."""
+        called = {"search": 0}
+
+        async def _raise_timeout(*_args, **_kwargs):
+            raise asyncio.TimeoutError()
+
+        def _tracking_search(*_args, **_kwargs):
+            called["search"] += 1
+            return []
+
+        monkeypatch.setattr(api, "_run_in_fetch_executor", _raise_timeout)
+        monkeypatch.setattr(api, "_search_tickers", _tracking_search)
+
+        response = client.post("/api/v1/assess", json={
+            "tickers": ["SLOW"],
+            "fiscal_year": 2024,
+            "data_source": "yfinance",
+            "include_suggestions": True,
+        })
+
+        # timeout returns 504 for all_tickers_failed
+        assert response.status_code in (404, 504)
+        assert called["search"] == 0, (
+            f"timeout must not trigger _search_tickers, got {called['search']}"
+        )
+
+
+# ── PDF executor isolation test ──────────────────────────────────────────────
+
+class TestPdfExecutorIsolation:
+    def test_pdf_export_uses_pdf_executor_not_fetch_executor(self, client, monkeypatch):
+        """PDF route must go through _run_in_pdf_executor, not _run_in_fetch_executor."""
+        called = {"pdf": 0, "fetch": 0}
+
+        async def _fake_pdf_executor(func, *args):
+            called["pdf"] += 1
+            return b"%PDF-1.4\n%%EOF"
+
+        async def _fake_fetch_executor(*_args, **_kwargs):
+            called["fetch"] += 1
+            raise AssertionError("PDF route must not use fetch executor")
+
+        monkeypatch.setattr(api, "_run_in_pdf_executor", _fake_pdf_executor)
+        monkeypatch.setattr(api, "_run_in_fetch_executor", _fake_fetch_executor)
+
+        response = client.post("/api/v1/reports/pdf", json={
+            "report": {
+                "ticker": "TEST",
+                "company_name": "Test",
+                "history": [{
+                    "fiscal_year": "FY24",
+                    "is_quarterly": False,
+                    "assessment": {"risk_score": 1.0, "overall_rating": "Safe (S)", "implied_rating": "A"},
+                    "ratios": {},
+                    "raw_metrics": {},
+                    "statements": {},
+                }],
+            },
+            "lang": "en",
+        })
+
+        assert response.status_code == 200
+        assert called["pdf"] == 1
+        assert called["fetch"] == 0
+
+
+# ── P0: Executor capacity not released until worker done ────────────────────
+
+class TestExecutorCapacityAfterTimeout:
+    def test_capacity_not_released_until_worker_done_after_timeout(self):
+        """Capacity stays consumed after asyncio.wait_for timeout until the worker finishes."""
+        import asyncio
+        import time as _time
+        import concurrent.futures
+
+        cap = threading.BoundedSemaphore(1)
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        worker_started = threading.Event()
+        worker_done = threading.Event()
+
+        def _slow_worker():
+            worker_started.set()
+            _time.sleep(0.3)
+            worker_done.set()
+            return "done"
+
+        async def _run():
+            try:
+                await asyncio.wait_for(
+                    api._submit_with_capacity(ex, cap, "busy", _slow_worker),
+                    timeout=0.01,
+                )
+            except asyncio.TimeoutError:
+                pass
+
+        asyncio.run(_run())
+
+        # After timeout: worker still running, capacity must NOT be restored.
+        assert worker_started.is_set(), "worker must have started before timeout"
+        assert cap._value == 0, (
+            f"Capacity must NOT be restored while worker still runs, got {cap._value}"
+        )
+
+        # Wait for worker to actually finish, then capacity must be restored.
+        worker_done.wait(timeout=5)
+        _time.sleep(0.05)
+        assert cap._value == 1, (
+            f"Capacity must be restored after worker completes, got {cap._value}"
+        )
+        ex.shutdown(wait=True)
+
+    def test_pdf_style_capacity_not_released_until_worker_done(self):
+        """Same behaviour proven with the shared helper (covers PDF-like usage)."""
+        import asyncio
+        import time as _time
+        import concurrent.futures
+
+        cap = threading.BoundedSemaphore(1)
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        worker_started = threading.Event()
+        worker_done = threading.Event()
+
+        def _slow_worker():
+            worker_started.set()
+            _time.sleep(0.3)
+            worker_done.set()
+            return b"%PDF-done"
+
+        async def _run():
+            try:
+                await asyncio.wait_for(
+                    api._submit_with_capacity(ex, cap, "pdf busy", _slow_worker),
+                    timeout=0.01,
+                )
+            except asyncio.TimeoutError:
+                pass
+
+        asyncio.run(_run())
+
+        assert worker_started.is_set()
+        assert cap._value == 0, (
+            f"Capacity must NOT be restored while worker still runs, got {cap._value}"
+        )
+
+        worker_done.wait(timeout=5)
+        _time.sleep(0.05)
+        assert cap._value == 1, (
+            f"Capacity must be restored after worker completes, got {cap._value}"
+        )
+        ex.shutdown(wait=True)
+
+    def test_submit_with_capacity_raises_when_exhausted(self):
+        """_submit_with_capacity raises UpstreamCapacityError when semaphore is full."""
+        import concurrent.futures
+        cap = threading.BoundedSemaphore(0)
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        import asyncio
+
+        async def _run():
+            return await api._submit_with_capacity(
+                ex, cap, "test busy", lambda: "ok",
+            )
+
+        with pytest.raises(api.UpstreamCapacityError, match="test busy"):
+            asyncio.run(_run())
+        ex.shutdown(wait=False)
+
+
+# ── P1: PDF export timeout ──────────────────────────────────────────────────
+
+class TestPdfExportTimeout:
+    def test_pdf_export_timeout_returns_504(self, client, monkeypatch):
+        """PDF export must return 504 when asyncio.wait_for times out."""
+        _original_wait_for = asyncio.wait_for
+
+        async def _fake_wait_for(aw, *, timeout):
+            if timeout == max(1.0, api.settings.pdf_export_timeout_seconds):
+                raise asyncio.TimeoutError()
+            return await _original_wait_for(aw, timeout=timeout)
+
+        monkeypatch.setattr(asyncio, "wait_for", _fake_wait_for)
+
+        # Use a callable that returns an awaitable future (not a coroutine)
+        # to avoid "coroutine was never awaited" warnings.
+        import concurrent.futures
+
+        def _ok_executor(*_args, **_kwargs):
+            f: concurrent.futures.Future = concurrent.futures.Future()
+            f.set_result(b"%PDF-ok")
+            return asyncio.wrap_future(f)
+
+        monkeypatch.setattr(api, "_run_in_pdf_executor", _ok_executor)
+
+        response = client.post("/api/v1/reports/pdf", json={
+            "report": {
+                "ticker": "TEST",
+                "company_name": "Test",
+                "history": [{
+                    "fiscal_year": "FY24",
+                    "is_quarterly": False,
+                    "assessment": {"risk_score": 1.0, "overall_rating": "Safe (S)", "implied_rating": "A"},
+                    "ratios": {}, "raw_metrics": {}, "statements": {},
+                }],
+            },
+            "lang": "en",
+        })
+
+        assert response.status_code == 504
+        detail = response.json()
+        assert detail["error_type"] == "timeout"
+        assert detail["details"]["ticker"] == "TEST"
+
+    def test_pdf_capacity_exhausted_still_returns_503(self, client, monkeypatch):
+        """When PDF capacity is exhausted, 503 is returned before waiting for timeout."""
+        monkeypatch.setattr(api.settings, "pdf_export_timeout_seconds", 30.0)
+
+        async def _busy_executor(*_args, **_kwargs):
+            raise api.UpstreamCapacityError("PDF export capacity exhausted")
+
+        monkeypatch.setattr(api, "_run_in_pdf_executor", _busy_executor)
+
+        response = client.post("/api/v1/reports/pdf", json={
+            "report": {
+                "ticker": "TEST",
+                "company_name": "Test",
+                "history": [{
+                    "fiscal_year": "FY24",
+                    "is_quarterly": False,
+                    "assessment": {"risk_score": 1.0, "overall_rating": "Safe (S)", "implied_rating": "A"},
+                    "ratios": {}, "raw_metrics": {}, "statements": {},
+                }],
+            },
+            "lang": "en",
+        })
+
+        assert response.status_code == 503
+        assert response.json()["error_type"] == "upstream_busy"
+
+    def test_pdf_export_normal_path_still_works(self, client, monkeypatch):
+        """Normal PDF export returns 200 with correct headers when no timeout."""
+        monkeypatch.setattr(api.settings, "pdf_export_timeout_seconds", 30.0)
+
+        async def _ok_executor(*_args, **_kwargs):
+            return b"%PDF-1.4\n%%EOF"
+
+        monkeypatch.setattr(api, "_run_in_pdf_executor", _ok_executor)
+
+        response = client.post("/api/v1/reports/pdf", json={
+            "report": {
+                "ticker": "TEST",
+                "company_name": "Test",
+                "history": [{
+                    "fiscal_year": "FY24",
+                    "is_quarterly": False,
+                    "assessment": {"risk_score": 1.0, "overall_rating": "Safe (S)", "implied_rating": "A"},
+                    "ratios": {}, "raw_metrics": {}, "statements": {},
+                }],
+            },
+            "lang": "en",
+        })
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/pdf"
+        assert "X-PDF-SHA256" in response.headers
+        assert "X-PDF-Bytes" in response.headers
+
+
+# ── P6: Config field validation ──────────────────────────────────────────────
+
+class TestConfigValidation:
+    def test_default_settings_load_without_error(self):
+        """Default settings must load successfully."""
+        from config import Settings
+        s = Settings()
+        assert s.assess_max_concurrency == 8
+        assert s.upstream_max_workers == 12
+        assert s.pdf_export_timeout_seconds == 20.0
+
+    def test_zero_workers_rejected(self):
+        """Zero workers are rejected at the settings layer."""
+        from pydantic import ValidationError
+        from config import Settings
+        with pytest.raises(ValidationError):
+            Settings(upstream_max_workers=0)
+
+    def test_negative_timeout_rejected(self):
+        """Negative timeout values are rejected at the settings layer."""
+        from pydantic import ValidationError
+        from config import Settings
+        with pytest.raises(ValidationError):
+            Settings(assess_ticker_timeout_seconds=-1)
+
+    def test_zero_cache_maxsize_rejected(self):
+        """Zero cache maxsize is rejected at the settings layer."""
+        from pydantic import ValidationError
+        from config import Settings
+        with pytest.raises(ValidationError):
+            Settings(data_cache_maxsize=0)

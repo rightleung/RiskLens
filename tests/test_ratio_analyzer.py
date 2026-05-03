@@ -429,3 +429,79 @@ class TestExport:
 
         result = analyzer.export_ratios(analysis, format="csv")
         assert result.endswith(".csv")
+
+
+# ── P5: total_debt derivation from components ────────────────────────────────
+
+class TestDeriveTotalDebt:
+    def test_explicit_total_debt_preferred(self):
+        """Explicit total_debt takes priority over components."""
+        analyzer = RatioAnalyzer("/tmp")
+        bs_map = {
+            "total_debt": 500,
+            "short_term_debt": 200,
+            "long_term_debt": 300,
+        }
+        assert analyzer._derive_total_debt_from_map(bs_map) == 500
+
+    def test_derived_from_short_and_long_debt(self):
+        """When total_debt is missing, short+long components are summed."""
+        analyzer = RatioAnalyzer("/tmp")
+        bs_map = {
+            "short_term_debt": 200,
+            "long_term_debt": 300,
+        }
+        assert analyzer._derive_total_debt_from_map(bs_map) == 500
+
+    def test_derived_from_current_portion_and_bonds_only(self):
+        """When only current_portion_lt_debt and bonds_payable exist."""
+        analyzer = RatioAnalyzer("/tmp")
+        bs_map = {
+            "current_portion_lt_debt": 80,
+            "bonds_payable": 120,
+        }
+        assert analyzer._derive_total_debt_from_map(bs_map) == 200
+
+    def test_returns_none_when_no_debt_keys(self):
+        """Returns None when no debt-related keys exist."""
+        analyzer = RatioAnalyzer("/tmp")
+        bs_map = {"total_assets": 1000, "total_equity": 500}
+        assert analyzer._derive_total_debt_from_map(bs_map) is None
+
+    def test_leverage_ratios_use_derived_debt(self):
+        """debt_to_assets and debt_to_ebitda use derived debt when explicit missing."""
+        analyzer = RatioAnalyzer("/tmp")
+        bs = _df({
+            "short_term_debt": 200,
+            "long_term_debt": 300,
+            "total_assets": 2000,
+            "total_equity": 1000,
+        })
+        is_data = _df({
+            "revenue": 5000,
+            "operating_income": 500,
+            "interest_expense": 30,
+            "net_income": 350,
+            "depreciation": 50,
+        })
+        ratios = analyzer.calculate_leverage_ratios(bs, is_data)
+        # debt = 200+300 = 500
+        assert ratios["debt_to_assets"] == pytest.approx(0.25)  # 500/2000
+        assert ratios["debt_to_equity"] == pytest.approx(0.50)  # 500/1000
+
+    def test_cash_flow_ratios_use_derived_debt(self):
+        """fcf_to_debt uses derived debt when explicit missing."""
+        analyzer = RatioAnalyzer("/tmp")
+        bs = _df({
+            "short_term_debt": 150,
+            "long_term_debt": 150,
+            "total_assets": 1500,
+            "total_equity": 1000,
+        })
+        cf = _df({
+            "operating_cf": 400,
+            "free_cf": 300,
+        })
+        ratios = analyzer.calculate_cash_flow_ratios(cf, bs)
+        # debt = 150+150 = 300, fcf_to_debt = 300/300 = 1.0
+        assert ratios["fcf_to_debt"] == pytest.approx(1.0)

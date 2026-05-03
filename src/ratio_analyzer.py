@@ -729,7 +729,28 @@ class RatioAnalyzer:
                 denominator=denominator,
                 reason=str(e)
             ) from e
-    
+
+    @staticmethod
+    def _derive_total_debt_from_map(bs_map: dict[str, float]) -> float | None:
+        """Return total debt, deriving from components when explicit value is missing.
+
+        Prefers the explicit ``total_debt`` key.  When absent, sums any available
+        components: ``short_term_debt``, ``long_term_debt``,
+        ``current_portion_lt_debt``, ``bonds_payable``.
+        Returns ``None`` only when none of these keys are present.
+        """
+        explicit = bs_map.get("total_debt")
+        if explicit is not None:
+            return explicit
+        components = (
+            bs_map.get("short_term_debt"),
+            bs_map.get("long_term_debt"),
+            bs_map.get("current_portion_lt_debt"),
+            bs_map.get("bonds_payable"),
+        )
+        present = [v for v in components if v is not None]
+        return sum(present) if present else None
+
     def _get_value(self, df: pd.DataFrame | dict[str, float], key: str) -> float | None:
         """Extract a single value from standardized financial data.
 
@@ -795,9 +816,9 @@ class RatioAnalyzer:
         is_map = dataframe_to_value_map(is_data) if is_data is not None else {}
 
         ratios: dict[str, float | None] = {}
-        
+
         # Debt to Equity = Total Debt / Total Equity
-        debt = bs_map.get('total_debt')
+        debt = self._derive_total_debt_from_map(bs_map)
         equity = bs_map.get('total_equity')
 
         # OR-001: Negative equity makes D/E misleading (shows falsely low leverage).
@@ -978,7 +999,7 @@ class RatioAnalyzer:
 
         ocf = cf_map.get('operating_cf')
         fcf = cf_map.get('free_cf')
-        debt = bs_map.get('total_debt') if bs_data is not None else None
+        debt = self._derive_total_debt_from_map(bs_map) if bs_data is not None else None
         # Revenue: prefer income statement; fallback to cash-flow statement (some providers include it there)
         revenue = is_map.get('revenue') if is_data is not None else None
         if revenue is None:

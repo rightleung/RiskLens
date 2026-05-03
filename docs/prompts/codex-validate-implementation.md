@@ -27,6 +27,25 @@ Check:
 7. Whether any implementation detail contradicts the original assumptions.
 8. Whether the handoff provides enough evidence.
 
+## Fix Instruction Requirements
+
+If fixes are required, produce a complete code-level fix plan that Claude Code can execute in one pass.
+
+Hard requirements:
+
+1. Be specific enough for Claude Code to execute directly.
+2. Identify exact files, functions, classes, models, routes, tests, or config entries to modify.
+3. Explain what is missing, what should change, and why.
+4. Clearly state what Claude Code did not implement, only partially implemented, or implemented incorrectly.
+5. Do not give vague advice.
+6. Do not merely say "improve tests", "fix validation", or "handle edge cases"; specify the exact expected behavior and test cases.
+7. The fix plan must be complete enough to resolve the issue in one follow-up implementation pass.
+8. The fix plan must include verification commands and acceptance conditions.
+9. Save the required-fix plan as a Markdown file under docs/reviews/.
+10. Use this filename pattern:
+    - docs/reviews/<topic>_required_fixes.md
+11. Treat the required-fix Markdown file as the source of truth for Claude Code's follow-up fix session.
+
 ## Verdict
 
 Return exactly one:
@@ -57,11 +76,42 @@ Only include required fixes. Group by severity.
 ### Low
 - none, or list
 
+## Code-Level Fix Plan
+
+If the verdict is Needs fixes or Blocked, write a complete code-level fix plan.
+
+For each required fix, include:
+
+### Fix <N>: <short title>
+
+- Severity:
+- Related original plan item:
+- Problem:
+- Missing, partial, or incorrect implementation:
+- Files to modify:
+- Symbols to modify:
+- Required behavior:
+- Tests to add or update:
+- Verification command:
+- Acceptance condition:
+
+## What Claude Code Did Not Finish
+
+List exact missing, partial, incorrect, or unverifiable items.
+
 ## Scope / Deviation Review
 - ...
 
 ## Test Coverage Review
 - ...
+
+## Required Fix Plan File
+
+If fixes are required, create or instruct creation of:
+
+docs/reviews/<topic>_required_fixes.md
+
+The file must contain the full Code-Level Fix Plan above.
 
 ## Claude Code Fix Prompt
 
@@ -72,3 +122,6 @@ Original plan: docs/plans/<topic>.md
 
 External review:
 <required fixes here>
+
+Required fix plan file:
+docs/reviews/<topic>_required_fixes.md
