@@ -1,5 +1,14 @@
 import { defineConfig } from 'playwright/test';
 
+// Keep Playwright's local web-server probe off corporate HTTP proxies. This
+// prevents a proxy-generated 400 response from being mistaken for an existing
+// Vite server on port 4173.
+const localNoProxy = ['127.0.0.1', 'localhost', '::1'];
+for (const key of ['NO_PROXY', 'no_proxy']) {
+  const current = (process.env[key] || '').split(',').map((item) => item.trim()).filter(Boolean);
+  process.env[key] = [...new Set([...current, ...localNoProxy])].join(',');
+}
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 30000,
@@ -12,7 +21,7 @@ export default defineConfig({
   webServer: {
     command: 'npm run dev -- --host 127.0.0.1 --port 4173',
     url: 'http://127.0.0.1:4173',
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
     timeout: 120000,
   },
 });
