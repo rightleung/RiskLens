@@ -12,6 +12,7 @@ from src.html_pdf_exporter import (
     _format_period_label as _html_format_period_label,
     _is_negative_display_value as _html_is_negative_display_value,
     _paginate_table_rows as _html_paginate_table_rows,
+    _select_pdf_history as _html_select_pdf_history,
     _t as _html_t,
     _wrap_cell_lines as _html_wrap_cell_lines,
     build_pdf_context as _html_build_pdf_context,
@@ -113,6 +114,10 @@ def _paginate_table_rows(
         min_row_height=min_row_height,
         height_scale=height_scale,
     )
+
+
+def _select_pdf_history(history: list[dict[str, Any]], max_periods: int) -> list[dict[str, Any]]:
+    return _html_select_pdf_history(history, max_periods)
 
 
 def _wrap_cell_lines(value: Any, width_fraction: float, chars_per_full_width: int, max_lines: int = 4) -> list[str]:
@@ -302,13 +307,19 @@ def _sanitize_pdf_document_model(model: dict[str, Any]) -> dict[str, Any]:
         cover['company_name_localized'] = ''
     cover['ticker'] = _clean_display_text(cover.get('ticker'))
     cover['currency'] = _clean_display_text(cover.get('currency'))
+    cover['data_source'] = _clean_display_text(cover.get('data_source'))
+    cover['disclaimer'] = _clean_display_text(cover.get('disclaimer'))
     cover['latest_period'] = _clean_display_text(cover.get('latest_period'))
     cover['generated_at'] = _clean_display_text(cover.get('generated_at'))
     cover['report_title'] = _clean_display_text(cover.get('report_title'))
 
     summary['company_profile_rows'] = [_sanitize_text_row(row) for row in summary.get('company_profile_rows', []) if isinstance(row, dict)]
     for idx, row in enumerate(summary['company_profile_rows']):
-        if row.get('label') != 'Description':
+        # Localized exports may deliberately fall back to an English company
+        # description and label it ``Description (English)``.  Descriptions
+        # are narrative text, so years such as "1999 and ..." must not be
+        # mistaken for two metrics that were accidentally merged together.
+        if not str(row.get('label') or '').startswith('Description'):
             _scan_for_merged_metric_text(row.get('label'), f'summary.company_profile_rows[{idx}].label')
             _scan_for_merged_metric_text(row.get('value'), f'summary.company_profile_rows[{idx}].value')
     summary['data_quality_rows'] = [
@@ -333,7 +344,10 @@ def _sanitize_pdf_document_model(model: dict[str, Any]) -> dict[str, Any]:
             **_sanitize_text_row(row, 'metric'),
             'actual': _clean_display_text(row.get('actual')),
             'threshold': _clean_display_text(row.get('threshold')),
+            'status': _clean_display_text(row.get('status') or row.get('status_signal')),
+            'signal': _clean_display_text(row.get('signal') or '--'),
             'status_signal': _clean_display_text(row.get('status_signal')),
+            'status_signal_tone': _clean_display_text(row.get('status_signal_tone') or 'neutral'),
             'notes': _clean_display_text(row.get('notes')),
         }
         for row in covenant.get('rows', [])
@@ -343,6 +357,8 @@ def _sanitize_pdf_document_model(model: dict[str, Any]) -> dict[str, Any]:
         _scan_for_merged_metric_text(row.get('metric'), f'covenant.rows[{idx}].metric')
         _scan_for_merged_metric_text(row.get('actual'), f'covenant.rows[{idx}].actual')
         _scan_for_merged_metric_text(row.get('threshold'), f'covenant.rows[{idx}].threshold')
+        _scan_for_merged_metric_text(row.get('status'), f'covenant.rows[{idx}].status')
+        _scan_for_merged_metric_text(row.get('signal'), f'covenant.rows[{idx}].signal')
         _scan_for_merged_metric_text(row.get('status_signal'), f'covenant.rows[{idx}].status_signal')
         _scan_for_merged_metric_text(row.get('notes'), f'covenant.rows[{idx}].notes')
     covenant['notes'] = [
@@ -447,6 +463,8 @@ def _sanitize_pdf_document_model(model: dict[str, Any]) -> dict[str, Any]:
     appendix['benchmark_note'] = _clean_display_text(appendix.get('benchmark_note'))
     appendix['notes'] = [_clean_display_text(note) for note in appendix.get('notes', []) if _clean_display_text(note)]
     appendix['covenant_note_title'] = _clean_display_text(appendix.get('covenant_note_title'))
+    appendix['data_source'] = _clean_display_text(appendix.get('data_source'))
+    appendix['disclaimer'] = _clean_display_text(appendix.get('disclaimer'))
     sanitized['appendix'] = appendix
 
     return sanitized

@@ -30,7 +30,7 @@ echo "[Rebuild] Installing Python dependencies ($EXTRA_SPEC)"
 echo "[Rebuild] Installing frontend dependencies"
 (
   cd "$WEB_DIR"
-  npm ci
+  npm ci --registry=https://registry.npmjs.org
   npm run build
 )
 

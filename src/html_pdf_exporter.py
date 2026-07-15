@@ -66,6 +66,18 @@ LANG = {
         'methodology_rating_note': 'Rating: implied rating mapped from Z-Score and historical default rates.',
         'methodology_reference_note': 'Methodology definitions are provided in the appendix.',
         'insufficient_data': 'Insufficient Data',
+        'breach': 'Breach',
+        'pass': 'Pass',
+        'not_evaluated': 'Not Evaluated',
+        'missing_data_breach_note': 'Data unavailable; defaulting to breach pending manual verification.',
+        'data_source': 'Data Source',
+        'disclaimer': 'Disclaimer',
+        'disclaimer_text': 'This report is generated from available public data and is for due-diligence support only. It is not investment, legal, tax, or accounting advice.',
+        'failed_periods': 'Failed Periods',
+        'latest_period_valid': 'Latest Period Valid',
+        'quality_status': 'Quality Status',
+        'yes': 'Yes',
+        'no': 'No',
         'statement_summary_note': 'Summary view. Detailed line items are moved to the appendix.',
         'statement_appendix_title': 'Statement Detail Appendix',
         'values_in_currency_millions': 'Values in {currency} millions',
@@ -128,6 +140,18 @@ LANG = {
         'methodology_rating_note': 'Rating：基于 Z 分数与历史违约率映射的隐含评级。',
         'methodology_reference_note': '指标定义见附录。',
         'insufficient_data': '数据不足',
+        'breach': '违约',
+        'pass': '通过',
+        'not_evaluated': '未评估',
+        'missing_data_breach_note': '数据不可用；在人工核实前按违约处理。',
+        'data_source': '数据来源',
+        'disclaimer': '免责声明',
+        'disclaimer_text': '本报告基于可获得的公开数据生成，仅用于尽职调查辅助，不构成投资、法律、税务或会计建议。',
+        'failed_periods': '失败期间',
+        'latest_period_valid': '最新期间有效',
+        'quality_status': '质量状态',
+        'yes': '是',
+        'no': '否',
         'statement_summary_note': '正文仅展示摘要，完整明细已移至附录。',
         'statement_appendix_title': '报表明细附录',
         'values_in_currency_millions': '单位：{currency} 百万',
@@ -190,6 +214,18 @@ LANG = {
         'methodology_rating_note': 'Rating：基於 Z 分數與歷史違約率映射的隱含評等。',
         'methodology_reference_note': '指標定義見附錄。',
         'insufficient_data': '資料不足',
+        'breach': '違約',
+        'pass': '通過',
+        'not_evaluated': '未評估',
+        'missing_data_breach_note': '資料不可用；人工核實前按違約處理。',
+        'data_source': '資料來源',
+        'disclaimer': '免責聲明',
+        'disclaimer_text': '本報告依據可取得的公開資料產生，僅供盡職調查參考，不構成投資、法律、稅務或會計建議。',
+        'failed_periods': '失敗期間',
+        'latest_period_valid': '最新期間有效',
+        'quality_status': '品質狀態',
+        'yes': '是',
+        'no': '否',
         'statement_summary_note': '正文僅展示摘要，完整明細已移至附錄。',
         'statement_appendix_title': '報表明細附錄',
         'values_in_currency_millions': '單位：{currency} 百萬',
@@ -252,6 +288,18 @@ LANG = {
         'methodology_rating_note': 'Rating: Zスコアと歴史的デフォルト率を対応付けた推定格付け。',
         'methodology_reference_note': '指標定義は付録に記載しています。',
         'insufficient_data': 'データ不足',
+        'breach': '違反',
+        'pass': '合格',
+        'not_evaluated': '未評価',
+        'missing_data_breach_note': 'データが利用できないため、手動確認まで違反として扱います。',
+        'data_source': 'データソース',
+        'disclaimer': '免責事項',
+        'disclaimer_text': '本レポートは利用可能な公開データに基づくデューデリジェンス支援資料であり、投資・法務・税務・会計上の助言ではありません。',
+        'failed_periods': '失敗期間',
+        'latest_period_valid': '最新期間の有効性',
+        'quality_status': '品質ステータス',
+        'yes': 'はい',
+        'no': 'いいえ',
         'statement_summary_note': '本文は要約表示です。詳細項目は付録に移動しています。',
         'statement_appendix_title': '財務諸表詳細付録',
         'values_in_currency_millions': '単位: {currency} 百万',
@@ -487,20 +535,21 @@ def _t(lang: str, key: str) -> str:
 def _resolve_localized_name(raw: Any, lang: str, fallback: str = '') -> str:
     """Extract a localized company name from a dict like {'en': 'Apple', 'zh-CN': '苹果'}.
 
-    If *raw* is a dict, pick by *lang* key then try zh-CN, zh-TW, ja, en.
-    If *raw* is a string (or anything else), return it as-is.
+    Non-English exports intentionally require an exact language entry.  Using
+    the English name as a second "localized" line makes the cover look broken
+    and hides missing translation data.
     """
     if isinstance(raw, dict) and raw:
-        for key in (lang, 'zh-CN', 'zh-TW', 'ja', 'en'):
-            val = raw.get(key)
-            if val and str(val).strip():
-                return str(val)
-        # dict is non-empty but all values are empty/whitespace
-        first = next(iter(raw.values()), '')
-        return str(first) if first else fallback
+        val = raw.get(lang)
+        if val and str(val).strip():
+            return str(val).strip()
+        if lang == 'en':
+            english = raw.get('en')
+            return str(english).strip() if english and str(english).strip() else fallback
+        return ''
     if isinstance(raw, str) and raw.strip():
         return raw
-    return fallback
+    return fallback if lang == 'en' else ''
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -811,16 +860,21 @@ def _covenant_description(lang: str, metric: str) -> str:
 
 
 def _period_key(label: str | None) -> tuple[int, int, int]:
+    """Return a sortable ``(year, quarter, kind)`` key for report periods."""
     if not label:
         return (0, 0, 0)
-    text = str(label).upper()
-    quarter = re.match(r'^(?:FY)?(?P<year>\d{2,4})Q(?P<quarter>[1-4])$', text)
+    text = str(label).strip().upper().replace("’", "'")
+    # Upstream payloads use both ``25Q3`` and presentation-friendly forms such
+    # as ``Q3 FY25``/``Q3 '25``.  Normalize all of them before sorting.
+    quarter = re.match(r'^(?:FY)?(?P<year>\d{2,4})\s*Q(?P<quarter>[1-4])$', text)
+    if not quarter:
+        quarter = re.match(r'^Q(?P<quarter>[1-4])\s*(?:FY\s*)?[\']?(?P<year>\d{2,4})$', text)
     if quarter:
         year = int(quarter.group('year'))
         if year < 100:
             year += 2000
         return (year, int(quarter.group('quarter')), 1)
-    annual = re.match(r'^FY(?P<year>\d{2,4})$', text)
+    annual = re.match(r'^(?:FY\s*)?(?P<year>\d{2,4})$', text)
     if annual:
         year = int(annual.group('year'))
         if year < 100:
@@ -830,12 +884,12 @@ def _period_key(label: str | None) -> tuple[int, int, int]:
 
 
 def _period_kind(label: str | None) -> str:
-    if not label:
+    year, quarter, kind = _period_key(label)
+    if not year:
         return 'unknown'
-    text = str(label).upper()
-    if re.match(r'^(?:FY)?(?P<year>\d{2,4})Q(?P<quarter>[1-4])$', text):
+    if kind == 1 and quarter:
         return 'quarter'
-    if re.match(r'^FY(?P<year>\d{2,4})$', text):
+    if kind == 0:
         return 'annual'
     return 'unknown'
 
@@ -1069,6 +1123,61 @@ def _extract_history(report: dict[str, Any]) -> list[dict[str, Any]]:
     return entries
 
 
+def _select_pdf_history(history: list[dict[str, Any]], max_periods: int) -> list[dict[str, Any]]:
+    """Select one consistent, bounded set of periods for the complete PDF.
+
+    Quarterly reports keep the latest quarter, the prior-year matching quarter
+    when available, and the latest annual periods.  Other quarters are ignored
+    so the report never presents an orphaned sequential-quarter comparison.
+    Annual-only reports retain the latest four annual periods.  The caller's
+    limit is applied after these semantic choices and never changes the
+    quarter/annual filtering rules.
+    """
+    entries = [item for item in history if isinstance(item, dict)]
+    entries.sort(
+        key=lambda item: _period_key(str(item.get('fiscal_year') or item.get('period') or item.get('label') or '')),
+        reverse=True,
+    )
+    limit = max(1, int(max_periods or 1))
+    if not entries:
+        return []
+
+    def period_value(item: dict[str, Any]) -> str:
+        return str(item.get('fiscal_year') or item.get('period') or item.get('label') or '')
+    latest_kind = _period_kind(period_value(entries[0]))
+    annuals = [item for item in entries if _period_kind(period_value(item)) == 'annual']
+    if latest_kind == 'annual':
+        return annuals[: min(4, limit)]
+    if latest_kind != 'quarter':
+        return entries[:limit]
+
+    selected: list[dict[str, Any]] = [entries[0]]
+    latest_year, latest_quarter, _ = _period_key(period_value(entries[0]))
+    matching_prior = next(
+        (
+            item for item in entries[1:]
+            if _period_kind(period_value(item)) == 'quarter'
+            and _period_key(period_value(item))[0] == latest_year - 1
+            and _period_key(period_value(item))[1] == latest_quarter
+        ),
+        None,
+    )
+    if matching_prior is not None:
+        selected.append(matching_prior)
+    selected.extend(annuals[:3])
+
+    # De-duplicate periods defensively, then apply the configured bound.
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in selected:
+        key = period_value(item).strip().upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped[:limit]
+
+
 def _extract_texts(value: Any) -> list[str]:
     items: list[str] = []
     for item in _sequence(value):
@@ -1089,7 +1198,121 @@ def _extract_texts(value: Any) -> list[str]:
     return items
 
 
-def _extract_summary(entry: dict[str, Any], lang: str = 'en') -> dict[str, Any]:
+def _normalize_covenant_state(
+    status: Any,
+    signal: Any,
+    actual_missing: bool,
+    lang: str,
+) -> tuple[str, str, str]:
+    """Normalize covenant state without weakening conservative missing-data semantics."""
+    status_text = _clean_display_text(status)
+    signal_text = _clean_display_text(signal)
+    status_lower = status_text.lower()
+    signal_lower = signal_text.lower()
+    unknown_status = {
+        '', '--', 'n/a', 'na', 'insufficient data',
+        _t(lang, 'insufficient_data').lower(),
+    }
+    unknown_signal = {'', '--', 'n/a', 'na', 'neutral'}
+
+    if actual_missing:
+        if status_lower in unknown_status:
+            status_text = _t(lang, 'breach')
+        if signal_lower in unknown_signal:
+            signal_text = 'Red'
+    else:
+        if status_lower in unknown_status:
+            if signal_lower in {'green', 'pass', 'safe', 'ok'}:
+                status_text = _t(lang, 'pass')
+            elif signal_lower in {'red', 'fail', 'breach', 'risk'}:
+                status_text = _t(lang, 'breach')
+            else:
+                status_text = _t(lang, 'not_evaluated')
+        if signal_lower in unknown_signal:
+            normalized_status = status_text.lower()
+            if normalized_status in {'pass', 'safe', 'ok', _t(lang, 'pass').lower()}:
+                signal_text = 'Green'
+            elif normalized_status in {'fail', 'breach', 'risk', _t(lang, 'breach').lower()}:
+                signal_text = 'Red'
+            else:
+                signal_text = 'Neutral'
+
+    return status_text or _t(lang, 'not_evaluated'), signal_text or 'Neutral', _signal_tone(signal_text, status_text)
+
+
+def _normalize_data_quality_rows(raw_quality: Any, lang: str) -> list[dict[str, str]]:
+    """Normalize both current report-level and legacy entry-level quality payloads."""
+    if not raw_quality:
+        return []
+
+    if isinstance(raw_quality, dict) and any(
+        key in raw_quality for key in ('status', 'failed_periods', 'latest_period_valid')
+    ):
+        rows: list[dict[str, str]] = []
+        if raw_quality.get('status') not in (None, ''):
+            rows.append({
+                'label': _t(lang, 'quality_status'),
+                'value': _clean_display_text(raw_quality.get('status')),
+                'notes': '--',
+            })
+        failed_periods = raw_quality.get('failed_periods')
+        if isinstance(failed_periods, (list, tuple, set)):
+            failed_value = ', '.join(
+                _clean_display_text(item) for item in failed_periods if _clean_display_text(item)
+            ) or '--'
+        else:
+            failed_value = _clean_display_text(failed_periods) or '--'
+        rows.append({
+            'label': _t(lang, 'failed_periods'),
+            'value': failed_value,
+            'notes': '--',
+        })
+        latest_valid = raw_quality.get('latest_period_valid')
+        if isinstance(latest_valid, bool):
+            valid_value = _t(lang, 'yes') if latest_valid else _t(lang, 'no')
+        else:
+            valid_value = _clean_display_text(latest_valid) or '--'
+        rows.append({
+            'label': _t(lang, 'latest_period_valid'),
+            'value': valid_value,
+            'notes': '--',
+        })
+        return rows
+
+    rows = []
+    if isinstance(raw_quality, dict):
+        for key, value in raw_quality.items():
+            if isinstance(value, dict):
+                label = _normalize_label_text(value.get('label') or key)
+                rows.append({
+                    'label': label,
+                    'value': _format_data_quality_value(label, value.get('value') or value.get('score') or value.get('status')),
+                    'notes': str(value.get('notes') or value.get('note') or '--'),
+                })
+            else:
+                label = _normalize_label_text(key)
+                rows.append({
+                    'label': label,
+                    'value': _format_data_quality_value(label, value),
+                    'notes': '--',
+                })
+    elif isinstance(raw_quality, list):
+        for item in raw_quality:
+            if isinstance(item, dict):
+                label = _normalize_label_text(item.get('label') or item.get('name') or '--')
+                rows.append({
+                    'label': label,
+                    'value': _format_data_quality_value(label, item.get('value') or item.get('score') or item.get('status')),
+                    'notes': str(item.get('notes') or item.get('note') or '--'),
+                })
+    return rows
+
+
+def _extract_summary(
+    entry: dict[str, Any],
+    lang: str = 'en',
+    report_quality: Any = None,
+) -> dict[str, Any]:
     assessment = _mapping(entry.get('assessment'))
     strengths = [
         _translate_assessment_text(s, lang)
@@ -1113,44 +1336,33 @@ def _extract_summary(entry: dict[str, Any], lang: str = 'en') -> dict[str, Any]:
             actual_value = item.get('actual') if 'actual' in item else item.get('value')
             threshold_value = item.get('threshold') if 'threshold' in item else item.get('limit') if 'limit' in item else item.get('target')
             actual_missing = _safe_number(actual_value) is None
-            status = str(item.get('status') or item.get('result') or '').strip()
-            signal = str(item.get('signal') or item.get('direction') or '--')
-            if actual_missing:
-                status = _t(lang, 'insufficient_data')
-                signal = 'Neutral'
-                status_signal = status
-            else:
-                status_signal = status if status and status != '--' else _normalize_signal_text(signal, status)
+            status, signal, status_tone = _normalize_covenant_state(
+                item.get('status') or item.get('result'),
+                item.get('signal') or item.get('direction'),
+                actual_missing,
+                lang,
+            )
+            status_signal = status
             metric_name = _normalize_label_text(item.get('metric') or item.get('label') or item.get('name') or '--')
             description = _covenant_description(lang, metric_name)
             covenant_rows.append({
                 'metric': metric_name,
                 'actual': 'N/A' if actual_missing else _format_value(actual_value),
                 'threshold': _format_value(threshold_value),
+                'status': status,
+                'signal': signal,
                 'status_signal': status_signal,
-                'status_signal_tone': _signal_tone(signal, status),
-                'notes': _t(lang, 'insufficient_data') if actual_missing else _clean_display_text(item.get('notes') or item.get('note') or '--'),
+                'status_signal_tone': status_tone,
+                'notes': (
+                    _clean_display_text(item.get('notes') or item.get('note'))
+                    or _t(lang, 'missing_data_breach_note')
+                ) if actual_missing else _clean_display_text(item.get('notes') or item.get('note') or '--'),
                 'description': description,
             })
     if not covenant_rows:
         covenant_rows = _build_covenant_fallback_rows(entry, lang)
-    data_quality: list[dict[str, str]] = []
-    raw_quality = assessment.get('data_quality') or entry.get('data_quality') or entry.get('quality') or {}
-    if isinstance(raw_quality, dict):
-        for key, value in raw_quality.items():
-            if isinstance(value, dict):
-                label = _normalize_label_text(value.get('label') or key)
-                data_quality.append({'label': label, 'value': _format_data_quality_value(label, value.get('value') or value.get('score') or value.get('status')), 'notes': str(value.get('notes') or value.get('note') or '--')})
-            else:
-                label = _normalize_label_text(key)
-                data_quality.append({'label': label, 'value': _format_data_quality_value(label, value), 'notes': '--'})
-    elif isinstance(raw_quality, list):
-        for item in raw_quality:
-            if isinstance(item, dict):
-                label = _normalize_label_text(item.get('label') or item.get('name') or '--')
-                data_quality.append({'label': label, 'value': _format_data_quality_value(label, item.get('value') or item.get('score') or item.get('status')), 'notes': str(item.get('notes') or item.get('note') or '--')})
-    if not data_quality:
-        data_quality = []
+    raw_quality = report_quality or assessment.get('data_quality') or entry.get('data_quality') or entry.get('quality') or {}
+    data_quality = _normalize_data_quality_rows(raw_quality, lang)
     covenant_notes = [
         {'metric': row['metric'], 'description': row['description']}
         for row in covenant_rows
@@ -1217,7 +1429,7 @@ def _build_covenant_fallback_rows(entry: dict[str, Any], lang: str) -> list[dict
         {
             'metric': 'Current Ratio',
             'candidates': ('current_ratio',),
-            'threshold': 1.5,
+            'threshold': 1.2,
             'passed_note': 'Healthy liquidity',
             'failed_note': 'Weak liquidity',
             'passes': lambda actual, threshold: actual is not None and actual >= threshold,
@@ -1235,9 +1447,11 @@ def _build_covenant_fallback_rows(entry: dict[str, Any], lang: str) -> list[dict
                 'metric': metric_name,
                 'actual': 'N/A',
                 'threshold': _format_value(threshold),
-                'status_signal': _t(lang, 'insufficient_data'),
-                'status_signal_tone': 'neutral',
-                'notes': _t(lang, 'insufficient_data'),
+                'status': _t(lang, 'breach'),
+                'signal': 'Red',
+                'status_signal': _t(lang, 'breach'),
+                'status_signal_tone': 'danger',
+                'notes': _t(lang, 'missing_data_breach_note'),
                 'description': _covenant_description(lang, metric_name),
             })
             continue
@@ -1248,6 +1462,8 @@ def _build_covenant_fallback_rows(entry: dict[str, Any], lang: str) -> list[dict
             'metric': metric_name,
             'actual': _format_value(actual),
             'threshold': _format_value(threshold),
+            'status': status,
+            'signal': signal,
             'status_signal': status,
             'status_signal_tone': _signal_tone(signal, status),
             'notes': spec['passed_note'] if is_pass else spec['failed_note'],
@@ -1464,7 +1680,32 @@ def _extract_profile(report: dict[str, Any], latest: dict[str, Any], lang: str =
     profile = report.get('company_profile') or latest.get('company_profile') or {}
     rows: list[dict[str, str]] = []
     if isinstance(profile, dict):
+        # Prefer an exact localized description when the upstream profile
+        # provides one; otherwise retain the English text with an explicit
+        # label so the reader knows it was not translated.
+        description_value = profile.get('description')
+        description_is_english = False
+        if isinstance(description_value, dict):
+            localized = description_value.get(lang)
+            if localized not in (None, ''):
+                description_value = localized
+            else:
+                description_value = description_value.get('en')
+                description_is_english = lang != 'en'
+        if lang != 'en':
+            for key in (f'description_{lang}', f'description-{lang}', f'description{lang}'):
+                if profile.get(key) not in (None, ''):
+                    description_value = profile[key]
+                    description_is_english = False
+                    break
+            else:
+                description_is_english = bool(description_value not in (None, ''))
         for key, value in profile.items():
+            if str(key).lower() != 'description':
+                if str(key).lower().startswith('description_') or str(key).lower().startswith('description-'):
+                    continue
+            if str(key).lower() == 'description':
+                value = description_value
             if value in (None, '', [], {}):
                 continue
             if isinstance(value, dict):
@@ -1473,7 +1714,11 @@ def _extract_profile(report: dict[str, Any], latest: dict[str, Any], lang: str =
                 value = ', '.join(_clean_display_text(item) for item in value if _clean_display_text(item))
             translated = _t(lang, key)
             label = translated if translated != key else _normalize_label_text(key)
+            if str(key).lower() == 'description' and description_is_english and lang != 'en':
+                label = f'{label} (English)'
             display_value = _format_value(value)
+            if str(key).lower() == 'description' and len(display_value) > 900:
+                display_value = display_value[:897].rstrip() + '...'
             if not label or display_value in {'', '--', 'N/A', 'n/a', '[]', '{}'}:
                 continue
             rows.append({'label': label, 'value': display_value})
@@ -1694,10 +1939,6 @@ def _dedupe_statement_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _build_statement_sections(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    max_periods = max(1, settings.max_pdf_periods)
-    if len(history) > max_periods:
-        history = history[:max_periods]
-
     periods = [str(entry.get('fiscal_year') or entry.get('period') or entry.get('label') or '--') for entry in history]
     period_entries: list[dict[str, Any]] = []
     prev_kind: str | None = None
@@ -1816,13 +2057,13 @@ def _build_statement_sections(history: list[dict[str, Any]]) -> list[dict[str, A
 def build_pdf_context(report: dict[str, object], lang: str = 'en', theme: str = 'dark') -> dict[str, object]:
     lang = _lang(lang)
     theme = 'light' if str(theme).lower() == 'light' else 'dark'
-    history = _extract_history(report)
+    history = _select_pdf_history(_extract_history(report), settings.max_pdf_periods)
     if not history:
         raise ValueError('No history available')
     latest = history[0]
     periods = [str(entry.get('fiscal_year') or entry.get('period') or entry.get('label') or '--') for entry in history]
     period_labels = [_format_period_label(p) for p in periods]
-    summary = _extract_summary(latest, lang)
+    summary = _extract_summary(latest, lang, report.get('data_quality'))
     quarter_periods = [label for raw, label in zip(periods, period_labels) if _period_kind(raw) == 'quarter']
     annual_periods = [label for raw, label in zip(periods, period_labels) if _period_kind(raw) == 'annual']
     if annual_periods:
@@ -1851,7 +2092,6 @@ def build_pdf_context(report: dict[str, object], lang: str = 'en', theme: str = 
         section['yoy_note'] = yoy_note
         section['unit_note'] = _t(lang, 'values_in_currency_billions').format(currency=currency)
         section['detail_unit_note'] = _t(lang, 'values_in_currency_millions').format(currency=currency)
-    benchmark_period = next((label for raw, label in zip(periods, period_labels) if _period_kind(raw) == 'annual'), None)
     benchmark_note = ''
     altman_z_score = summary.get('altman_z_score')
     zone = summary.get('zone')
@@ -1873,6 +2113,14 @@ def build_pdf_context(report: dict[str, object], lang: str = 'en', theme: str = 
         ],
         'breakdown': altman_breakdown,
     }
+    localized_name = '' if lang == 'en' else _resolve_localized_name(
+        report.get('company_name_localized') or latest.get('company_name_localized'),
+        lang,
+        fallback=str(report.get('company_name') or latest.get('company_name') or ''),
+    )
+    company_name = str(report.get('company_name') or latest.get('company_name') or latest.get('name') or 'Unknown Company')
+    if localized_name and re.sub(r'\s+', ' ', localized_name).strip().casefold() == re.sub(r'\s+', ' ', company_name).strip().casefold():
+        localized_name = ''
     return {
         'lang': lang,
         'theme': theme,
@@ -1890,14 +2138,12 @@ def build_pdf_context(report: dict[str, object], lang: str = 'en', theme: str = 
         'currency_title': _t(lang, 'currency'),
         'generated_at_title': _t(lang, 'generated_at'),
         'style': _style_tokens(),
-        'company_name': str(report.get('company_name') or latest.get('company_name') or latest.get('name') or 'Unknown Company'),
-        'company_name_localized': '' if lang == 'en' else _resolve_localized_name(
-            report.get('company_name_localized') or latest.get('company_name_localized'),
-            lang,
-            fallback=str(report.get('company_name') or latest.get('company_name') or ''),
-        ),
+        'company_name': company_name,
+        'company_name_localized': localized_name,
         'ticker': str(report.get('ticker') or latest.get('ticker') or '--'),
         'currency': currency,
+        'data_source': _clean_display_text(report.get('data_source') or report.get('source') or 'Unknown'),
+        'disclaimer': _t(lang, 'disclaimer_text'),
         'latest_period': period_labels[0],
         'generated_at': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'),
         'periods': [
@@ -1980,6 +2226,8 @@ def build_pdf_document_model(report: dict[str, object], lang: str = 'en', theme:
             'company_name_localized': ctx['company_name_localized'],
             'ticker': ctx['ticker'],
             'currency': ctx['currency'],
+            'data_source': ctx['data_source'],
+            'disclaimer': ctx['disclaimer'],
             'latest_period': ctx['latest_period'],
             'generated_at': ctx['generated_at'],
             'zone_text': ctx['zone_text'],
@@ -2016,6 +2264,8 @@ def build_pdf_document_model(report: dict[str, object], lang: str = 'en', theme:
             'benchmark_note': ctx['benchmark_note'],
             'notes': ctx['methodology_notes'],
             'covenant_note_title': ctx['covenant_note_title'],
+            'data_source': ctx['data_source'],
+            'disclaimer': ctx['disclaimer'],
         },
     }
 
@@ -2040,4 +2290,5 @@ __all__ = [
     '_build_yoy_map',
     '_format_period_label',
     '_is_negative_display_value',
+    '_select_pdf_history',
 ]

@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Any
 
-from src.pdf_report_core import _clean_display_text, _estimate_table_row_height, _is_negative_display_value, _paginate_table_rows, _t, _wrap_cell_lines
+from src.pdf_report_core import _clean_display_text, _is_negative_display_value, _t
 
 _INLINE_BREAK_RE = re.compile(r"<\s*br\s*/?\s*>", re.IGNORECASE)
 logger = logging.getLogger(__name__)
@@ -581,7 +581,7 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
                 return True
         return False
 
-    def report_table(headers: list[str], rows: list[list[Any]], widths: list[float], benchmark_cols: set[int] | None = None, group_break_cols: set[int] | None = None, alignments: list[str] | None = None, status_col_idx: int | None = None, delta_cols: set[int] | None = None, statement_mode: bool = False, row_meta: list[dict[str, Any]] | None = None) -> LongTable:
+    def report_table(headers: list[str], rows: list[list[Any]], widths: list[float], benchmark_cols: set[int] | None = None, group_break_cols: set[int] | None = None, alignments: list[str] | None = None, status_col_idx: int | None = None, delta_cols: set[int] | None = None, statement_mode: bool = False, row_meta: list[dict[str, Any]] | None = None, status_tones: list[str] | None = None) -> LongTable:
         _ensure_no_inline_breaks(headers, 'report_table.headers')
         _ensure_no_inline_breaks(rows, 'report_table.rows')
         if len(widths) != len(headers):
@@ -593,7 +593,6 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
                 )
         is_empty_state = not rows
         header_rule_width = 0.8 if not theme_is_light else 1.0
-        row_rule_width = 0.25
         alignments = alignments or ['left'] + ['right'] * (len(headers) - 1)
         total_pattern = re.compile(r'(?i).*(total|subtotal|category|gross profit|operating income|net income|ebitda?|free cash flow).*')
         # Header row: left-align the label column, right-align numeric/data columns to
@@ -615,7 +614,7 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
                 text = _clean_display_text(value)
                 color = delta_color(text) if delta_cols and idx in delta_cols else num_color(text) if align != 'left' else None
                 if status_col_idx is not None and idx == status_col_idx:
-                    tone = tone_from_text(text)
+                    tone = status_tones[row_idx] if status_tones and row_idx < len(status_tones) else tone_from_text(text)
                     row_cells.append(badge_text(text, tone))
                 else:
                     if statement_mode:
@@ -630,7 +629,7 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
                         row_cells.append(cell(text, style_name, align, color=color))
             table_data.append(row_cells)
         if is_empty_state:
-            empty_label = f"({ctx['labels']['no_data']})" if theme_is_light else '[No valid data provided for this period]'
+            empty_label = f"({ctx['labels']['no_data']})"
             table_data.append([cell(empty_label, 'body_center', 'center', statement_mode=statement_mode)] + [cell('', 'body_center', 'center', statement_mode=statement_mode) for _ in range(max(len(headers) - 1, 0))])
         table = LongTable(table_data, colWidths=widths, repeatRows=1, splitByRow=1, hAlign='LEFT')
         style_cmds: list[tuple[Any, ...]] = [
@@ -703,7 +702,7 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
         canvas.line(margin, margin - 2, page_width - margin, margin - 2)
         canvas.setFont(body_font, 8)
         canvas.setFillColor(palette['muted'])
-        canvas.drawRightString(page_width - margin, margin - 12, f"Page {canvas.getPageNumber() - 1}")
+        canvas.drawRightString(page_width - margin, margin - 12, f"Page {canvas.getPageNumber()}")
         canvas.restoreState()
 
     story: list[Any] = []
@@ -981,7 +980,7 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
         textColor=palette['ink'],
     )
 
-    dateline_text = f"{_t(lang, 'latest_period')}: {cover['latest_period']} | {_t(lang, 'currency')}: {cover['currency']} | {_t(lang, 'generated_at')}: {cover['generated_at']}"
+    dateline_text = f"{_t(lang, 'latest_period')}: {cover['latest_period']} | {_t(lang, 'currency')}: {cover['currency']} | {_t(lang, 'data_source')}: {cover.get('data_source') or '--'} | {_t(lang, 'generated_at')}: {cover['generated_at']}"
     title_rows = [[p(cover['company_name'], 'title')]]
     if cover.get('company_name_localized'):
         title_rows.append([Paragraph(esc(f"{cover['company_name_localized']} | {cover['ticker']}"), localized_style)])
@@ -1014,6 +1013,7 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
             subtle_section_block(_t(lang, 'watch_items'), summary['watch_items'], (body_width - 6 * mm) / 2, 'bullet'),
             body_width,
         ),
+        NextPageTemplate('content'),
         PageBreak(),
     ])
 
@@ -1053,7 +1053,6 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
         profile_panel,
         Spacer(1, 8 * mm),
     ])
-    story.append(NextPageTemplate('content'))
     story.append(PageBreak())
 
     # Covenant page
@@ -1065,13 +1064,15 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
                 _t(lang, 'metric'),
                 _t(lang, 'actual'),
                 _t(lang, 'threshold'),
-                _t(lang, 'status_signal'),
+                _t(lang, 'status'),
+                _t(lang, 'signal'),
                 _t(lang, 'notes'),
             ],
-            [[row.get('metric', '--'), row.get('actual', '--'), row.get('threshold', '--'), row.get('status_signal', '--'), row.get('notes', '--')] for row in covenant['rows']],
-            [body_width * 0.28, body_width * 0.16, body_width * 0.16, body_width * 0.16, body_width * 0.24],
-            alignments=['left', 'right', 'right', 'center', 'left'],
+            [[row.get('metric', '--'), row.get('actual', '--'), row.get('threshold', '--'), row.get('status', row.get('status_signal', '--')), row.get('signal', '--'), row.get('notes', '--')] for row in covenant['rows']],
+            [body_width * 0.23, body_width * 0.12, body_width * 0.12, body_width * 0.12, body_width * 0.10, body_width * 0.31],
+            alignments=['left', 'right', 'right', 'center', 'center', 'left'],
             status_col_idx=3,
+            status_tones=[str(row.get('status_signal_tone') or 'neutral') for row in covenant['rows']],
         ),
     ])
     story.append(PageBreak())
@@ -1164,28 +1165,43 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
             ])
 
     methodology_notes = appendix.get('notes', [])
-    if methodology_notes:
+    covenant_notes = covenant.get('notes', [])
+    data_source = _clean_display_text(appendix.get('data_source') or '--')
+    disclaimer = _clean_display_text(appendix.get('disclaimer') or '')
+    if methodology_notes or covenant_notes or data_source != '--' or disclaimer:
+        # Keep the small appendix blocks together.  Flowables may still split
+        # naturally if a long statement detail section leaves insufficient room.
         story.append(PageBreak())
         story.extend([
             p(appendix['title'], 'section'),
             section_rule(body_width),
             Spacer(1, 2 * mm),
         ])
-        for note in methodology_notes:
-            story.append(p(f'• {note}', 'bullet'))
-
-    covenant_notes = covenant.get('notes', [])
-    if covenant_notes:
-        story.append(PageBreak())
-        story.extend([
-            p(appendix['covenant_note_title'], 'section'),
-            section_rule(body_width),
-            Spacer(1, 2 * mm),
-        ])
-        for cn in covenant_notes:
-            metric = _clean_display_text(cn.get('metric', '--'))
-            desc = _clean_display_text(cn.get('description', '--'))
-            story.append(p(f'• {metric}: {desc}', 'bullet'))
+        if methodology_notes:
+            for note in methodology_notes:
+                story.append(p(f'• {note}', 'bullet'))
+        if covenant_notes:
+            if methodology_notes:
+                story.append(Spacer(1, 3 * mm))
+            story.extend([
+                p(appendix['covenant_note_title'], 'section'),
+                section_rule(body_width),
+                Spacer(1, 2 * mm),
+            ])
+            for cn in covenant_notes:
+                metric = _clean_display_text(cn.get('metric', '--'))
+                desc = _clean_display_text(cn.get('description', '--'))
+                story.append(p(f'• {metric}: {desc}', 'bullet'))
+        if data_source != '--' or disclaimer:
+            story.append(Spacer(1, 3 * mm))
+            story.extend([
+                p(_t(lang, 'data_source'), 'section'),
+                section_rule(body_width),
+                Spacer(1, 2 * mm),
+            ])
+            story.append(p(f'{_t(lang, "data_source")}: {data_source}', 'bullet'))
+            if disclaimer:
+                story.append(p(f'{_t(lang, "disclaimer")}: {disclaimer}', 'bullet'))
 
     buffer = io.BytesIO()
     doc = BaseDocTemplate(

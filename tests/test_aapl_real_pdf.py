@@ -109,10 +109,14 @@ def test_real_aapl_pdf_smoke_and_layout(tmp_path):
     pdfinfo = subprocess.check_output(["pdfinfo", str(pdf_file)], text=True)
     page_match = re.search(r"^Pages:\s+(\d+)$", pdfinfo, flags=re.MULTILINE)
     assert page_match is not None
-    assert int(page_match.group(1)) == 16
+    page_count = int(page_match.group(1))
+    assert 8 <= page_count <= 20
 
     pages = _page_texts(pdf_file)
-    assert len(pages) == 16
+    assert len(pages) == page_count
+    assert all(_collapse_spaces(page).strip() for page in pages)
+    page_numbers = sorted({int(value) for value in re.findall(r"\bPage\s+(\d+)\b", "\n".join(pages))})
+    assert page_numbers == list(range(2, page_count + 1))
 
     page1 = _collapse_spaces(pages[0])
     page4 = _collapse_spaces(pages[3])

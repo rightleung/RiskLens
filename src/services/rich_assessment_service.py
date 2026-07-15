@@ -190,6 +190,7 @@ class RichAssessmentService:
                 "company_name": company_name,
                 "company_name_localized": company_name_localized,
                 "currency": currency,
+                "data_source": source,
                 "company_profile": company_profile,
                 "history": historical_results,
                 "data_quality": data_quality,

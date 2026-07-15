@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     yfinance_clear_proxy_mode: str = "retry_only"
     pdf_export_timeout_seconds: float = Field(20.0, gt=0)
     single_flight_wait_timeout_seconds: float = Field(20.0, gt=0)
-    max_pdf_periods: int = Field(12, ge=1)
+    max_pdf_periods: int = Field(5, ge=1)
     max_pdf_detail_rows: int = Field(80, ge=1)
 
     assess_timeout_seconds: float = Field(25.0, gt=0)

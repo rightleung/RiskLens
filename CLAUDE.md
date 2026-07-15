@@ -124,7 +124,7 @@ User Input -> POST /api/v1/assess -> src/api.py -> RichAssessmentService
 - **Editable install**: The project uses `pip install -e .` with `setuptools`. Tests rely on `tests/conftest.py` to set up module aliases (e.g., `from services import RichAssessmentService`).
 - **`web/dist/` must exist before running the dashboard** — `run_app.sh` exits with an error if `web/dist/index.html` is missing. Build the frontend first.
 - **No Makefile**: All build/run/rebuild operations are shell scripts (`run_app.sh`, `run_cli.sh`, `scripts/rebuild_workspace.sh`, `smoke_test.sh`).
-- **Legacy code is isolated**: `src/legacy/` and `tests/legacy/` contain deprecated modules preserved for reference. Not imported by active code. Tests exclude `tests/legacy/`.
+- **Legacy compatibility is explicit**: the deprecated `src/legacy/` and `tests/legacy/` trees have been removed; the supported compatibility surface is the root `main.py` MVP and its smoke test.
 - **Monolithic components**: `web/src/App.tsx` (~3800 lines), `data_fetcher.py` (~1100 lines), `ratio_analyzer.py` (~1100 lines), `html_pdf_exporter.py` (~1600 lines), `reportlab_pdf_renderer.py` (~1100 lines). These are flagged for decomposition in `REFACTORING_TODO.md` Phase 8.
 - **Frontend translations**: `web/src/translations.ts` maps assessment terms to EN/zh-CN/zh-TW/ja. Backend detects CJK/Japanese text for localized company names.
 - **Environment variables**: Config is via `.env.example` — `APP_NAME`, `APP_PORT`, `SENTRY_DSN`, `ENVIRONMENT`, `DEBUG`, `CORS_ORIGINS`, concurrency/tuning vars.
