@@ -865,8 +865,6 @@ def _fetch_a_share_akshare(ticker: str, *, include_profile: bool = True, include
 
     # Build date index: each row in inc_df is a report period (sorted newest first)
     dates_inc = inc_df['报告日'].tolist()
-    dates_bal = bal_df['报告日'].tolist() if bal_df is not None and not bal_df.empty else []
-    dates_cf = cf_df['报告日'].tolist() if cf_df is not None and not cf_df.empty else []
 
     # Normalize date strings (handles "YYYY-12-31" and "YYYYMMDD")
     import re as _re
@@ -1237,7 +1235,7 @@ class FinancialDataFetcher:
 
                 time.sleep(0.3)
                 run_yfinance_call_with_proxy_retry(_do_yfinance_calls)
-                stock, info = _stock, _info
+                info = _info
                 inc, bal, cf = _inc, _bal, _cf
                 inc_q, bal_q, cf_q = _inc_q, _bal_q, _cf_q
 

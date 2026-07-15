@@ -54,3 +54,7 @@ web/revert_export.cjs
 web/revert_export.js
 web/test_color.xlsx
 web/test_color2.cjs
+claude.md
+agents.md
+.agent/
+output/

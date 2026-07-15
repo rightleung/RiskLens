@@ -75,13 +75,60 @@ test('export all is safe when every result has empty history', async ({ page }) 
   await page.locator('input').first().fill('NVDA,AMD');
   await page.getByRole('button', { name: synthesizeButton }).click();
 
-  const exportAll = page.getByRole('button', { name: /Export All/i });
+  const exportAll = page.getByRole('button', { name: /Export All to Excel/i });
   await expect(exportAll).toBeVisible();
   await exportAll.click();
 
   await page.waitForTimeout(500);
   expect(pageErrors, 'page should not throw runtime errors').toEqual([]);
   await expect(page.locator('body')).toBeVisible();
+});
+
+test('batch PDF export sends all results and verifies ZIP integrity', async ({ page }) => {
+  const zipBody = Buffer.from('risklens-test-zip', 'utf8');
+  const zipSha256 = createHash('sha256').update(zipBody).digest('hex');
+  let batchRequestBody = null;
+
+  await page.route('**/api/v1/assess', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        count: 2,
+        errors: null,
+        suggestions: null,
+        results: [
+          { ticker: 'NVDA', company_name: 'NVIDIA', history: [createPeriod('FY25')] },
+          { ticker: 'AMD', company_name: 'Advanced Micro Devices', history: [createPeriod('FY25')] },
+        ],
+      }),
+    });
+  });
+  await page.route('**/api/v1/reports/pdf/batch', async (route) => {
+    batchRequestBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/zip',
+      headers: {
+        'content-disposition': 'attachment; filename="RiskLens_PDF_Reports.zip"',
+        'x-zip-sha256': zipSha256,
+        'x-zip-bytes': String(zipBody.length),
+      },
+      body: zipBody,
+    });
+  });
+
+  await page.goto('/');
+  await page.locator('input').first().fill('NVDA,AMD');
+  await page.getByRole('button', { name: synthesizeButton }).click();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: /Export All to PDF/i }).click();
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toBe('RiskLens_PDF_Reports.zip');
+  expect(batchRequestBody?.theme).toBe('light');
+  expect(batchRequestBody?.reports).toHaveLength(2);
+  expect(batchRequestBody?.reports.map((report) => report.ticker)).toEqual(['NVDA', 'AMD']);
 });
 
 test('mobile table keeps horizontal overflow with many periods', async ({ page }) => {
@@ -159,7 +206,9 @@ test('pdf export verifies the downloaded blob against response headers', async (
     });
   });
 
+  let pdfRequestBody = null;
   await page.route('**/api/v1/reports/pdf', async (route) => {
+    pdfRequestBody = route.request().postDataJSON();
     await route.fulfill({
       status: 200,
       contentType: 'application/pdf',
@@ -180,12 +229,12 @@ test('pdf export verifies the downloaded blob against response headers', async (
   await page.getByRole('button', { name: /Export PDF/i }).first().click();
 
   const exportDialog = page.getByRole('dialog');
-  await expect(exportDialog.getByText(pdfSha256)).toBeVisible();
   const downloadPromise = page.waitForEvent('download');
   await exportDialog.getByRole('button', { name: /Export PDF/i }).click();
   const download = await downloadPromise;
 
   expect(download.suggestedFilename()).toBe('NVDA_Full_Report.pdf');
-  await expect(page.getByText(`SHA-256: ${pdfSha256}`)).toBeVisible();
-  await expect(page.getByText(`Bytes: ${pdfBody.length}`)).toBeVisible();
+  expect(pdfRequestBody?.theme).toBe('light');
+  await expect(exportDialog.getByText(`SHA-256: ${pdfSha256}`)).toBeVisible();
+  await expect(exportDialog.getByText(`Bytes: ${pdfBody.length}`)).toBeVisible();
 });

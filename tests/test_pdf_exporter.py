@@ -225,6 +225,24 @@ def test_build_pdf_document_model_cleans_profile_labels():
     assert model["kpi"]["headers"][2] == "Q3 FY24"
 
 
+def test_build_pdf_document_model_allows_english_description_fallback():
+    report = _build_report()
+    report["company_profile"]["description"] = (
+        "Example Holdings was incorporated in 1999 and expanded in 2024 "
+        "across consumer, payment, and technology services."
+    )
+
+    model = pdf_report_core.build_pdf_document_model(report, "zh-CN")
+
+    description = next(
+        row
+        for row in model["summary"]["company_profile_rows"]
+        if row["label"].startswith("Description")
+    )
+    assert description["label"] == "Description (English)"
+    assert "incorporated in 1999" in description["value"]
+
+
 def test_normalize_statement_rows_splits_merged_label_and_value_lines():
     rows = html_pdf_exporter._normalize_statement_rows([
         {

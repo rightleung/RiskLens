@@ -1,40 +1,191 @@
 # RiskLens
 
-Language: [English](../README.md) | [简体中文](./README_zh-CN.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md)
+Language: [English](../../README.md) | [简体中文](./README_zh-CN.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md)
 
-## 1. 実行パス
+RiskLens は、機関投資家・金融機関向けの信用リスク評価プラットフォームです。上場企業の財務データを取得し、40 以上の信用・事業比率を計算し、Altman Z-Score を S&P 風の信用格付けへマッピングし、融資後のコベナンツを確認し、Dashboard、JSON、Excel、PDF レポートを出力します。
 
-RiskLens は現在、用途の異なる 2 つのバックエンド実行パスを提供しています。
+## 機能範囲
 
-1. Dashboard パス（デフォルト）
-- 起動スクリプト：`./run_app.sh`
-- バックエンド入口：`src/api.py`（`uvicorn src.api:app`）
-- フロントエンド：`web/`（React + Vite のビルド成果物を FastAPI が静的配信）
-- 主な API：`/api/v1/assess`、`/api/v1/symbols/search`、`/api/v1/covenants/check`
+- FastAPI + React Dashboard による複数 ticker の信用評価。
+- `yfinance` による財務データ取得。中国市場データ向けに AKShare を任意で利用可能。
+- 流動性、ソルベンシー、収益性、効率性、キャッシュフロー比率を分析。
+- Altman Z-Score のゾーン判定と S&P 風格付けマッピング。
+- コベナンツ閾値チェック。閾値が設定されているのにデータが欠損している場合は、デューデリジェンス上の安全側として breach 扱い。
+- フロントエンド用語は英語、簡体字中国語、繁体字中国語、日本語に対応。
+- API JSON、フロントエンド workbook export、完全版 PDF export に対応。
 
-2. MVP 互換パス（維持）
-- バックエンド入口：`main.py`
-- API：`/api/assess`、`/api/v1/assess`
-- 主に後方互換と `smoke_test.sh`（現在は `/api/assess` を検証）向け
+## 実行パス
 
-## 2. 機能範囲（Dashboard パス）
+RiskLens には 2 つのバックエンドパスがあります。
 
-- `GET /`：Dashboard UI
-- `GET /health`：ヘルスチェック
-- `GET /docs`：OpenAPI ドキュメント
-- `POST /api/v1/assess`：単一/複数 ticker のリスク評価
-- `GET /api/v1/symbols/search`：企業名/ティッカー検索（株式銘柄中心）
-- `POST /api/v1/covenants/check`：コベナンツ事前チェック
-- フロントエンド企業検索：企業名検索、複数選択、ticker 入力欄への反映
+| パス | エントリーポイント | 用途 |
+|------|--------------------|------|
+| Dashboard | `./run_app.sh` -> `src/api.py` | 主要 FastAPI API と React SPA。`http://127.0.0.1:8000` で実行 |
+| MVP compatibility | `main.py` | 旧 `/api/assess` 互換と smoke checks |
 
-## 3. プロジェクト構成
+Dashboard パスは `web/dist/` から React ビルド成果物を配信します。`./run_app.sh` を実行する前にフロントエンドをビルドしてください。
+
+## 要件
+
+- Python 3.12+
+- フロントエンド用の Node.js と npm
+- ライブ `yfinance`/AKShare データ取得にはネットワークアクセスが必要
+
+## クイックスタート
+
+ローカル環境をクリーンに再構築します。
+
+```bash
+./scripts/rebuild_workspace.sh
+```
+
+このスクリプトは `.venv` を作り直し、Python dev 依存関係をインストールし、`npm ci` を実行し、`web/dist/` をビルドします。
+
+AKShare による中国市場データも使う場合：
+
+```bash
+RISKLENS_WITH_CN_DATA=1 ./scripts/rebuild_workspace.sh
+```
+
+Dashboard を起動します。
+
+```bash
+./run_app.sh
+```
+
+アクセス先：
+
+- `http://127.0.0.1:8000/`
+- `http://127.0.0.1:8000/health`
+- `http://127.0.0.1:8000/docs`
+
+## 手動セットアップ
+
+バックエンド：
+
+```bash
+python3 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip
+./.venv/bin/python -m pip install -e ".[dev]"
+```
+
+フロントエンド：
+
+```bash
+cd web
+npm ci
+npm run build
+```
+
+フロントエンド開発サーバー：
+
+```bash
+cd web
+npm run dev
+```
+
+## CLI
+
+リポジトリルートからランチャーを使います。
+
+```bash
+./run_cli.sh assess AAPL MSFT --data-source yfinance
+./run_cli.sh search apple --limit 10
+./run_cli.sh covenants AAPL --min-current-ratio 1.2 --max-debt-to-equity 2.0
+./run_cli.sh sources
+./run_cli.sh version
+```
+
+CLI は該当箇所で `auto`、`yfinance`、`akshare`、`demo` を data source としてサポートします。`--output path/to/file.json` で JSON をファイル出力し、`--compact` で compact JSON を出力できます。
+
+任意の shell ショートカット：
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf "$(pwd)/risklens" ~/.local/bin/risklens
+```
+
+その後：
+
+```bash
+risklens assess NVDA AMD --data-source yfinance
+```
+
+## API 例
+
+### 信用評価
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/assess \
+  -H "Content-Type: application/json" \
+  -d '{"tickers":["NVDA","0700.HK"],"data_source":"yfinance","include_suggestions":true}'
+```
+
+### 企業検索
+
+```bash
+curl "http://127.0.0.1:8000/api/v1/symbols/search?q=apple&limit=20"
+```
+
+### コベナンツチェック
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
+  -H "Content-Type: application/json" \
+  -d '{"ticker":"NVDA","data_source":"yfinance","covenants":{"min_current_ratio":1.2,"max_debt_to_equity":2.0}}'
+```
+
+### PDF Export
+
+`POST /api/v1/reports/pdf` は `/api/v1/assess` が返す単一企業の assessment payload を受け取ります。省略した構造：
+
+```json
+{
+  "report": { "ticker": "NVDA" },
+  "lang": "ja",
+  "theme": "dark"
+}
+```
+
+対応言語は `en`、`zh-CN`、`zh-TW`、`ja`。対応テーマは `dark` と `light` です。
+
+## テスト
+
+バックエンドテスト：
+
+```bash
+pytest
+```
+
+特定のテストファイル：
+
+```bash
+pytest tests/test_zscore.py
+```
+
+フロントエンドチェック：
+
+```bash
+cd web
+npm run lint
+npm run build
+npm run e2e:preflight
+```
+
+MVP compatibility app に対して legacy smoke checks を実行：
+
+```bash
+./.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 18000
+./smoke_test.sh http://127.0.0.1:18000
+```
+
+## プロジェクト構成
 
 ```text
 RiskLens/
 ├── run_app.sh
 ├── run_cli.sh
 ├── smoke_test.sh
-├── rollback.sh
 ├── scripts/
 │   ├── rebuild_workspace.sh
 │   └── venv_bootstrap.sh
@@ -45,7 +196,6 @@ RiskLens/
 │   ├── ratio_analyzer.py
 │   ├── zscore.py
 │   ├── covenant_monitor.py
-│   ├── akshare_data.py
 │   ├── reportlab_pdf_exporter.py
 │   ├── reportlab_pdf_renderer.py
 │   ├── html_pdf_exporter.py
@@ -53,7 +203,7 @@ RiskLens/
 │   ├── services/
 │   └── legacy/
 ├── web/
-│   ├── src/App.tsx
+│   ├── src/
 │   └── dist/
 ├── docs/
 │   ├── architecture/
@@ -61,113 +211,46 @@ RiskLens/
 │   ├── pdf-template/
 │   ├── readme/
 │   └── report-workbook/
-├── main.py           (MVP 互換)
-└── *.md
+└── main.py
 ```
 
-## 4. クイックスタート
+## 主要モジュール
 
-### 4.1 Dashboard パス（推奨）
+| モジュール | 責務 |
+|------------|------|
+| `src/api.py` | Dashboard FastAPI app、API routes、SPA static serving、concurrency limits |
+| `src/services/rich_assessment_service.py` | Dashboard の複数期間 assessment pipeline |
+| `src/services/assessment_service.py` | Legacy MVP/CLI の単一期間 assessment pipeline |
+| `src/data_fetcher.py` | 財務データ取得と caching |
+| `src/ratio_analyzer.py` | 40+ financial ratio calculations |
+| `src/zscore.py` | Altman Z-Score と rating mapping |
+| `src/covenant_monitor.py` | コベナンツ閾値チェック |
+| `src/reportlab_pdf_exporter.py` | 完全版 PDF report generation entrypoint |
+| `web/src/App.tsx` | React Dashboard の主要画面 |
 
-```bash
-./run_app.sh
-```
+## 設定
 
-アクセス先：
-- `http://127.0.0.1:8000/`
-- `http://127.0.0.1:8000/health`
-- `http://127.0.0.1:8000/docs`
+設定は環境変数と任意の `.env` から読み込まれます。ローカル設定を作る場合は `.env.example` から始めてください。
 
-### 4.2 ワークスペースの再構築
+よく使う設定：
 
-ローカルワークスペースを一から再構築する場合：
+| 変数 | デフォルト | 用途 |
+|------|------------|------|
+| `APP_PORT` | `8000` | ローカル Dashboard ポート |
+| `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | フロントエンド開発 origin |
+| `ASSESS_MAX_CONCURRENCY` | `8` | 並列 ticker assessment 数 |
+| `ASSESS_TICKER_TIMEOUT_SECONDS` | `20` | ticker ごとの assessment timeout |
+| `SYMBOL_SEARCH_TIMEOUT_SECONDS` | `8` | 企業検索 timeout |
+| `CACHE_TTL_SECONDS` | `600` | 財務データ cache TTL |
+| `SENTRY_DSN` | 空 | 設定時のみ Sentry を有効化 |
+| `API_REPORT_DIR` | `/tmp/credit_api_reports` | Dashboard ratio/report artifact directory |
 
-```bash
-./scripts/rebuild_workspace.sh
-```
+## ドキュメント
 
-`.venv` の再作成、`web/node_modules` の復元、`web/dist/` の再ビルドを行います。
+- [Architecture](../architecture/ARCHITECTURE.md)
+- [Methodology](../methodology/METHODOLOGY.md)
+- [Report workbook spec](../report-workbook/REPORT_WORKBOOK_SPEC.md)
+- [PDF template draft](../pdf-template/REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md)
+- README translations: [zh-CN](./README_zh-CN.md), [zh-TW](./README_zh-TW.md), [ja](./README_ja.md)
 
-AKShare 中国市場データも必要な場合：
-
-```bash
-RISKLENS_WITH_CN_DATA=1 ./scripts/rebuild_workspace.sh
-```
-
-### 4.3 MVP 互換パス（`/api/assess`）
-
-```bash
-./.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 18000
-./smoke_test.sh http://127.0.0.1:18000
-```
-
-### 4.4 CLI コマンド（`risklens`）の初回セットアップ
-
-プロジェクトルート（`RiskLens/`）で一度だけ実行:
-
-```bash
-mkdir -p ~/.local/bin
-ln -sf "$(pwd)/risklens" ~/.local/bin/risklens
-grep -q 'export PATH="$HOME/.local/bin:$PATH"' ~/.zshrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-```
-
-確認:
-
-```bash
-risklens version
-```
-
-基本コマンド:
-
-- `risklens assess NVDA AMD --data-source yfinance`
-- `risklens search apple --limit 10`
-- `risklens covenants NVDA --min-current-ratio 1.2 --max-debt-to-equity 2.0`
-- `risklens sources`
-- `risklens version`
-
-## 5. API 例（Dashboard パス）
-
-### 5.1 リスク評価
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/assess \
-  -H "Content-Type: application/json" \
-  -d '{"tickers":["NVDA","0700.HK"],"data_source":"yfinance"}'
-```
-
-### 5.2 企業検索
-
-```bash
-curl "http://127.0.0.1:8000/api/v1/symbols/search?q=apple&limit=20"
-```
-
-### 5.3 コベナンツチェック
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
-  -H "Content-Type: application/json" \
-  -d '{"ticker":"NVDA","data_source":"yfinance","covenants":{"min_current_ratio":1.2}}'
-```
-
-## 6. ドキュメント階層
-
-以下の文書は責務が異なるため、維持を推奨します。
-
-- [ARCHITECTURE.md](../architecture/ARCHITECTURE.md)：実行境界とコンポーネント責務（多言語：[簡中](../architecture/ARCHITECTURE_zh-CN.md)、[繁中](../architecture/ARCHITECTURE_zh-TW.md)、[日本語](../architecture/ARCHITECTURE_ja.md)）
-- [METHODOLOGY.md](../methodology/METHODOLOGY.md)：スコアリング手法とリスク区分（多言語：[簡中](../methodology/METHODOLOGY_zh-CN.md)、[繁中](../methodology/METHODOLOGY_zh-TW.md)、[日本語](../methodology/METHODOLOGY_ja.md)）
-- [REPORT_WORKBOOK_SPEC.md](../report-workbook/REPORT_WORKBOOK_SPEC.md)：Excel 出力契約と項目ルール（多言語：[簡中](../report-workbook/REPORT_WORKBOOK_SPEC_zh-CN.md)、[繁中](../report-workbook/REPORT_WORKBOOK_SPEC_zh-TW.md)、[日本語](../report-workbook/REPORT_WORKBOOK_SPEC_ja.md)）
-- [REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md](../pdf-template/REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md)：完全 PDF レポートテンプレートとワイヤーフレーム
-- 他言語版は対応するディレクトリ（例: `docs/readme/` と `docs/architecture/`）にまとめ、ルートをすっきり保っています。
-
-責務分担：
-- README：導入と実行手順
-- Architecture：システム設計とランタイム境界
-- Methodology：モデルとリスク方針
-- Workbook Spec：レポート出力契約
-- PDF Template：全レポートページ構造とエクスポートレイアウト基準
-
-## 7. 多言語ドキュメント運用方針
-
-- 4 言語すべてで完全版ドキュメントを提供します。
-- 記述に差異がある場合は英語版を優先します。
+翻訳内容が英語ドキュメントと矛盾する場合は、英語版を正とします。

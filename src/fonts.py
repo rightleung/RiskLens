@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import platform
+from pathlib import Path
+from threading import RLock
 from typing import Tuple
 
 from reportlab.pdfbase.pdfmetrics import registerFont
@@ -9,7 +11,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 
 
 def _exists(path: str) -> bool:
-    return os.path.isfile(path)
+    return os.path.isfile(path) and os.access(path, os.R_OK)
 
 
 def _search_font(candidates: list[Tuple[str, int]]) -> Tuple[str, int] | None:
@@ -56,6 +58,14 @@ def _font_candidates(lang: str) -> Tuple[list[Tuple[str, int]], list[Tuple[str, 
                 [(body_env, 0)] if body_env else [],
                 [(head_env, 0)] if head_env else [],
             )
+
+    bundled_dir = Path(__file__).resolve().parent / "assets" / "fonts"
+    bundled_regular = str(bundled_dir / "NotoSansCJK-Regular.ttc")
+    bundled_bold = str(bundled_dir / "NotoSansCJK-Bold.ttc")
+    if _exists(bundled_regular) or _exists(bundled_bold):
+        body = [(bundled_regular, 0)] if _exists(bundled_regular) else []
+        head = [(bundled_bold, 0), (bundled_regular, 0)] if _exists(bundled_bold) else body[:]
+        return (body, head)
 
     sysname = platform.system()
 
@@ -125,10 +135,18 @@ def _font_candidates(lang: str) -> Tuple[list[Tuple[str, int]], list[Tuple[str, 
     )
 
 
+_REGISTER_LOCK = RLock()
+_REGISTERED_FONT_KEYS: set[tuple[str, int, str]] = set()
+
+
 def _register_font(path: str, subfont: int, prefix: str) -> str:
     """Register a TTFont and return its ReportLab font name."""
     font_name = f"{prefix}_{subfont}"
-    registerFont(TTFont(font_name, path, subfontIndex=subfont))
+    key = (path, subfont, font_name)
+    with _REGISTER_LOCK:
+        if key not in _REGISTERED_FONT_KEYS:
+            registerFont(TTFont(font_name, path, subfontIndex=subfont))
+            _REGISTERED_FONT_KEYS.add(key)
     return font_name
 
 
@@ -167,5 +185,6 @@ def _raise_not_found(lang: str, role: str, candidates: list[Tuple[str, int]]) ->
         f"No TrueType CJK font found for lang='{lang}' ({role}).\n"
         f"Tried:\n{tried}\n\n"
         f"Set the {env_var} environment variable to the path of a "
-        f".ttf or .ttc font file that covers this language."
+        f".ttf or .ttc font file that covers this language, or install the "
+        "bundled NotoSansCJK assets from src/assets/fonts/."
     )

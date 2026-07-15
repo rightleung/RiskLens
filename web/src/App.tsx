@@ -1866,7 +1866,9 @@ export const exportToExcel = async (results: any[], t: ReturnType<typeof getT>, 
   saveAs(new Blob([buffer]), `RiskLens_MultiCompany_Comparison.xlsx`);
 };
 
-const exportSingleCompanyPdf = async (result: any, lang: Language, filenameOverride?: string): Promise<PdfDownloadTelemetry> => {
+type PdfTheme = 'dark' | 'light';
+
+const exportSingleCompanyPdf = async (result: any, lang: Language, theme: PdfTheme = 'light', filenameOverride?: string): Promise<PdfDownloadTelemetry> => {
   if (typeof window === 'undefined') {
     throw new Error('PDF export is only available in the browser.');
   }
@@ -1875,7 +1877,7 @@ const exportSingleCompanyPdf = async (result: any, lang: Language, filenameOverr
   const response = await fetch('/api/v1/reports/pdf', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ report: result, lang }),
+    body: JSON.stringify({ report: result, lang, theme }),
   });
 
   if (!response.ok) {
@@ -1928,6 +1930,36 @@ const exportSingleCompanyPdf = async (result: any, lang: Language, filenameOverr
   return telemetry;
 };
 
+const exportBatchPdf = async (results: any[], lang: Language, theme: PdfTheme = 'light'): Promise<void> => {
+  if (typeof window === 'undefined') {
+    throw new Error('PDF export is only available in the browser.');
+  }
+  const response = await fetch('/api/v1/reports/pdf/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reports: results, lang, theme }),
+  });
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    const message = typeof detail?.detail?.error === 'string'
+      ? detail.detail.error
+      : `PDF batch export failed (${response.status})`;
+    throw new Error(message);
+  }
+  const serverSha256 = response.headers.get('x-zip-sha256')?.trim() || '';
+  const serverBytes = response.headers.get('x-zip-bytes')?.trim() || '';
+  if (!serverSha256 || !serverBytes) {
+    throw new Error('PDF batch response is missing ZIP integrity headers.');
+  }
+  const blob = await response.blob();
+  const blobSha256 = await hashBlobSha256(blob);
+  const expectedBytes = Number(serverBytes);
+  if (!Number.isFinite(expectedBytes) || blob.size !== expectedBytes || blobSha256.toLowerCase() !== serverSha256.toLowerCase()) {
+    throw new Error('PDF batch download verification failed against server integrity headers.');
+  }
+  saveAs(blob, 'RiskLens_PDF_Reports.zip');
+};
+
 import { translateAssessmentText, prettifyKey, getTooltip, translateRatingStatus } from './translations';
 
 const PDF_EXPORT_LANG_OPTIONS: Array<{ code: Language; label: string; note: string }> = [
@@ -1962,6 +1994,9 @@ const PDF_EXPORT_TEXT: Record<Language, {
   optionTitle: string;
   optionHint: string;
   language: string;
+  theme: string;
+  dark: string;
+  light: string;
   filename: string;
   preview: string;
   scopeTitle: string;
@@ -1990,6 +2025,9 @@ const PDF_EXPORT_TEXT: Record<Language, {
     optionTitle: 'Export Options',
     optionHint: 'Configure the file before generating the PDF.',
     language: 'Language',
+    theme: 'Print theme',
+    dark: 'Dark',
+    light: 'Light',
     filename: 'Filename',
     preview: 'Preview',
     scopeTitle: 'Generate Scope',
@@ -2018,6 +2056,9 @@ const PDF_EXPORT_TEXT: Record<Language, {
     optionTitle: '导出选项',
     optionHint: '生成前先配置文件。',
     language: '语言',
+    theme: '打印主题',
+    dark: '深色',
+    light: '浅色',
     filename: '文件名',
     preview: '预览',
     scopeTitle: '生成范围',
@@ -2046,6 +2087,9 @@ const PDF_EXPORT_TEXT: Record<Language, {
     optionTitle: '匯出選項',
     optionHint: '生成前先設定檔案。',
     language: '語言',
+    theme: '列印主題',
+    dark: '深色',
+    light: '淺色',
     filename: '檔案名稱',
     preview: '預覽',
     scopeTitle: '生成範圍',
@@ -2074,6 +2118,9 @@ const PDF_EXPORT_TEXT: Record<Language, {
     optionTitle: '書き出し設定',
     optionHint: 'PDF を生成する前に設定します。',
     language: '言語',
+    theme: '印刷テーマ',
+    dark: 'ダーク',
+    light: 'ライト',
     filename: 'ファイル名',
     preview: 'プレビュー',
     scopeTitle: '生成範囲',
@@ -2136,6 +2183,7 @@ function PdfExportDialog({
   currentLang: Language;
 }) {
   const [exportLang, setExportLang] = useState<Language>(currentLang);
+  const [exportTheme, setExportTheme] = useState<PdfTheme>('light');
   const [filename, setFilename] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -2144,6 +2192,7 @@ function PdfExportDialog({
   useEffect(() => {
     if (!open || !target) return;
     setExportLang(currentLang);
+    setExportTheme('light');
     setFilename(`${target.ticker}_Full_Report.pdf`);
     setLoading(false);
     setError('');
@@ -2175,7 +2224,7 @@ function PdfExportDialog({
     setError('');
     setSuccess('');
     try {
-      const download = await exportSingleCompanyPdf(target.report, exportLang, normalizedFilename);
+      const download = await exportSingleCompanyPdf(target.report, exportLang, exportTheme, normalizedFilename);
       setSuccess([
         pdfText.savedAs(download.filename),
         `Server SHA-256: ${download.serverSha256}`,
@@ -2297,6 +2346,35 @@ function PdfExportDialog({
                       >
                         <div className="text-xs font-semibold">{option.label}</div>
                         <div className="mt-0.5 text-[10px] text-muted-foreground">{option.note}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{pdfText.theme}</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['light', 'dark'] as PdfTheme[]).map((option) => {
+                    const active = option === exportTheme;
+                    return (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => {
+                          setExportTheme(option);
+                          setSuccess('');
+                          setError('');
+                        }}
+                        className={`rounded-lg border px-2.5 py-2 text-left transition-all duration-200 ${
+                          active
+                            ? 'border-border text-foreground'
+                            : 'border-border bg-background/60 text-muted-foreground hover:border-primary/30 hover:bg-muted/40'
+                        }`}
+                        style={active ? { backgroundColor: themeAccentSoft, borderColor: themeAccentBorder } : undefined}
+                      >
+                        <div className="text-xs font-semibold">{option === 'light' ? pdfText.light : pdfText.dark}</div>
+                        <div className="mt-0.5 text-[10px] text-muted-foreground">{option === 'light' ? 'Print-ready' : 'Screen-ready'}</div>
                       </button>
                     );
                   })}
@@ -3122,6 +3200,7 @@ export default function App() {
   // PDF export workspace state
   const [pdfExportOpen, setPdfExportOpen] = useState(false)
   const [pdfExportTarget, setPdfExportTarget] = useState<PdfExportTarget | null>(null)
+  const [pdfBatchLoading, setPdfBatchLoading] = useState(false)
 
   // Per-ticker Z-Score drivers dialog
   const [driversDialogTarget, setDriversDialogTarget] = useState<ZScoreDriversDialogTarget | null>(null)
@@ -3207,6 +3286,19 @@ export default function App() {
   const openPdfExport = (result: any) => {
     setPdfExportTarget(buildPdfExportTarget(result, lang));
     setPdfExportOpen(true);
+  };
+
+  const handleBatchPdfExport = async () => {
+    if (!data?.results?.length || pdfBatchLoading) return;
+    setPdfBatchLoading(true);
+    try {
+      await exportBatchPdf(data.results, lang, 'light');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'PDF batch export failed';
+      window.alert(message);
+    } finally {
+      setPdfBatchLoading(false);
+    }
   };
 
   const closePdfExport = () => {
@@ -3576,12 +3668,12 @@ export default function App() {
                 <Button
                   type="button"
                   variant="outline"
-                  disabled
-                  title={t('comingSoon')}
-                  className="border-dashed border-border bg-background/60 font-semibold text-muted-foreground shadow-none opacity-80"
+                  disabled={pdfBatchLoading}
+                  onClick={() => { void handleBatchPdfExport(); }}
+                  className="border-border bg-background/90 font-semibold text-foreground shadow-sm hover:bg-accent hover:text-accent-foreground"
                 >
-                  <FileText className="mr-2 h-4 w-4" />
-                  {t('exportAllPdf')} ({t('comingSoon')})
+                  {pdfBatchLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileText className="mr-2 h-4 w-4" />}
+                  {t('exportAllPdf')} ({data.results.length})
                 </Button>
               </div>
             )}

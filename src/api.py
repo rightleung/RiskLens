@@ -12,16 +12,15 @@ Swagger UI:
 
 from __future__ import annotations
 
-import math
 import hashlib
 import logging
 import io
+import zipfile
 import os
 import re
 import threading
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
@@ -31,7 +30,6 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from typing import Any
 from datetime import datetime
 import pandas as pd
-import json
 
 from src.config import settings
 
@@ -68,8 +66,7 @@ else:
 from src.data_fetcher import FinancialDataFetcher, DataFetchError, DataFetchErrorType, SimpleCache, run_yfinance_call
 from src.ratio_analyzer import RatioAnalyzer, CreditRatioAnalysis
 from src.covenant_monitor import FinancialCovenants, CovenantMonitor, CovenantReport
-from src.zscore import calculate_z_score
-from src.reportlab_pdf_exporter import generate_full_pdf, generate_full_pdf_async
+from src.reportlab_pdf_exporter import generate_full_pdf
 from src.services import AssessmentServiceError, RichAssessmentService
 from src.services._utils import convert_simplified_to_traditional
 
@@ -110,7 +107,7 @@ app.add_middleware(
     allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["Content-Disposition", "X-PDF-SHA256", "X-PDF-Bytes"],
+    expose_headers=["Content-Disposition", "X-PDF-SHA256", "X-PDF-Bytes", "X-ZIP-SHA256", "X-ZIP-Bytes"],
 )
 
 
@@ -169,7 +166,9 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
 async def global_exception_handler(request: Request, exc: Exception):
     """Catch unhandled exceptions and return proper error response."""
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    details: dict[str, Any] = {"path": str(request.url)}
+    # Keep query strings (which may contain credentials or user data) out of
+    # the public error payload; the full request is already available in logs.
+    details: dict[str, Any] = {"path": request.url.path}
     if debug_error_details_enabled:
         details["message"] = "Internal server error — check server logs for details"
     return JSONResponse(
@@ -367,7 +366,15 @@ class PdfExportRequest(BaseModel):
     """Request body for full PDF export."""
     report: dict[str, Any] = Field(..., description="Single-company assessment payload")
     lang: str = Field(default="en", description="Language code")
-    theme: str = Field(default="dark", description="PDF theme: 'dark' or 'light'")
+    theme: str = Field(default="light", description="PDF theme: 'dark' or 'light'")
+
+    @field_validator("theme")
+    @classmethod
+    def _validate_theme(cls, value: str) -> str:
+        normalized = str(value).strip().lower()
+        if normalized not in {"dark", "light"}:
+            raise ValueError("theme must be 'dark' or 'light'")
+        return normalized
 
     @field_validator("report")
     @classmethod
@@ -381,6 +388,29 @@ class PdfExportRequest(BaseModel):
         if len(serialized.encode("utf-8")) > max_bytes:
             raise ValueError(f"Report payload exceeds {max_bytes // 1024 // 1024} MB limit")
         return v
+
+
+class PdfBatchExportRequest(BaseModel):
+    """Request body for bounded multi-company PDF ZIP export."""
+    reports: list[dict[str, Any]] = Field(..., min_length=1, max_length=10)
+    lang: str = Field(default="en", description="Language code")
+    theme: str = Field(default="light", description="PDF theme: 'dark' or 'light'")
+
+    @field_validator("theme")
+    @classmethod
+    def _validate_theme(cls, value: str) -> str:
+        normalized = str(value).strip().lower()
+        if normalized not in {"dark", "light"}:
+            raise ValueError("theme must be 'dark' or 'light'")
+        return normalized
+
+    @field_validator("reports")
+    @classmethod
+    def _validate_reports(cls, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        for report in value:
+            # Reuse the single-report 2 MB guard for every member of a batch.
+            PdfExportRequest(report=report)
+        return value
 
 
 # ── Helper Functions ─────────────────────────────────────────────────────────
@@ -501,7 +531,6 @@ async def run_credit_assessment(request: AssessmentRequest):
     errors: list[str] = []
     suggestions: dict[str, list] = {}
 
-    from fastapi.concurrency import run_in_threadpool
     import asyncio
 
     max_concurrency = max(1, settings.assess_max_concurrency)
@@ -819,8 +848,6 @@ async def search_symbols(
 ):
     """Search candidate equity tickers for the company finder dialog."""
     import asyncio
-    from fastapi.concurrency import run_in_threadpool
-
     timeout_seconds = max(0.5, settings.symbol_search_timeout_seconds)
 
     try:
@@ -892,7 +919,6 @@ async def check_covenants(request: CovenantCheckRequest):
 
     fiscal_year = request.fiscal_year or datetime.now().year
 
-    from fastapi.concurrency import run_in_threadpool
     import asyncio
 
     per_ticker_timeout = max(1.0, settings.assess_ticker_timeout_seconds)
@@ -991,11 +1017,11 @@ async def export_full_pdf(request: PdfExportRequest | dict[str, Any]):
         except ValidationError as exc:
             raise HTTPException(
                 status_code=422,
-                detail={"error": "Invalid PDF export request", "details": exc.errors()},
+                detail={"error": "Invalid PDF export request", "details": exc.errors(include_context=False)},
             ) from exc
     report = request.report or {}
     lang = request.lang if request.lang in {"en", "zh-CN", "zh-TW", "ja"} else "en"
-    theme = request.theme if request.theme in {"dark", "light"} else "dark"
+    theme = request.theme
     ticker = str(report.get("ticker") or "RiskLens").upper()
 
     try:
@@ -1037,6 +1063,78 @@ async def export_full_pdf(request: PdfExportRequest | dict[str, Any]):
             "Content-Disposition": f'attachment; filename="{filename}"',
             "X-PDF-SHA256": pdf_sha256,
             "X-PDF-Bytes": str(len(pdf_bytes)),
+        },
+    )
+
+
+def _generate_pdf_batch_zip(reports: list[dict[str, Any]], lang: str, theme: str) -> bytes:
+    """Generate every PDF before returning a ZIP, so partial batches are impossible."""
+    buffer = io.BytesIO()
+    used_names: dict[str, int] = {}
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for report in reports:
+            ticker = str(report.get("ticker") or "RiskLens").upper()
+            safe_ticker = re.sub(r"[^A-Za-z0-9._-]", "_", ticker).strip("_") or "RiskLens"
+            count = used_names.get(safe_ticker, 0) + 1
+            used_names[safe_ticker] = count
+            suffix = "" if count == 1 else f"_{count}"
+            filename = f"{safe_ticker}{suffix}_Full_Report.pdf"
+            pdf_bytes = generate_full_pdf(report, lang, theme)
+            archive.writestr(filename, pdf_bytes)
+    return buffer.getvalue()
+
+
+@app.post("/api/v1/reports/pdf/batch", tags=["Reporting"])
+async def export_pdf_batch(request: PdfBatchExportRequest | dict[str, Any]):
+    """Export up to ten company reports as an integrity-verifiable ZIP."""
+    if isinstance(request, dict):
+        try:
+            request = PdfBatchExportRequest(**request)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={"error": "Invalid PDF batch export request", "details": exc.errors(include_context=False)},
+            ) from exc
+    lang = request.lang if request.lang in {"en", "zh-CN", "zh-TW", "ja"} else "en"
+    theme = request.theme
+    tickers = [str(report.get("ticker") or "RiskLens").upper() for report in request.reports]
+    try:
+        zip_bytes = await asyncio.wait_for(
+            _run_in_pdf_executor(_generate_pdf_batch_zip, request.reports, lang, theme),
+            timeout=max(1.0, settings.pdf_export_timeout_seconds * max(1, len(request.reports))),
+        )
+    except UpstreamCapacityError:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "Service busy — please retry", "error_type": "upstream_busy", "tickers": tickers},
+        )
+    except TimeoutError:
+        logger.warning("PDF batch export timed out for %s", ",".join(tickers))
+        raise HTTPException(
+            status_code=504,
+            detail={"error": "PDF batch export timed out", "error_type": "timeout", "tickers": tickers},
+        )
+    except ValueError as exc:
+        logger.warning("PDF batch export validation failed for %s: %s", ",".join(tickers), exc)
+        raise HTTPException(
+            status_code=422,
+            detail={"error": "Invalid PDF report structure", "error_type": "validation_error", "tickers": tickers},
+        ) from exc
+    except Exception as exc:
+        logger.error("PDF batch export failed for %s: %s", ",".join(tickers), exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "Failed to generate PDF batch", "tickers": tickers},
+        ) from exc
+
+    zip_sha256 = hashlib.sha256(zip_bytes).hexdigest()
+    return StreamingResponse(
+        io.BytesIO(zip_bytes),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="RiskLens_PDF_Reports.zip"',
+            "X-ZIP-SHA256": zip_sha256,
+            "X-ZIP-Bytes": str(len(zip_bytes)),
         },
     )
 

@@ -22,7 +22,7 @@ from __future__ import annotations
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 from datetime import datetime
 import json

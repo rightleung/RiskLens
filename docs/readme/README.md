@@ -32,7 +32,7 @@ Localized documentation lives here to keep the repository root clean.
 
 ## Root documents
 
-- [Main README](../README.md)
+- [Main README](../../README.md)
 - [Main Architecture](../architecture/ARCHITECTURE.md)
 - [Main Methodology](../methodology/METHODOLOGY.md)
 - [Main Workbook Spec](../report-workbook/REPORT_WORKBOOK_SPEC.md)

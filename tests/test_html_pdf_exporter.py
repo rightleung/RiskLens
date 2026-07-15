@@ -297,7 +297,7 @@ def test_build_pdf_context_uses_none_state_and_covenant_fallback():
     assert all(row["description"] for row in context["covenant_rows"])
 
 
-def test_build_pdf_context_marks_missing_covenant_actual_as_insufficient_data():
+def test_build_pdf_context_preserves_missing_covenant_as_conservative_breach():
     report = _sample_report()
     report["history"][0]["assessment"]["covenant_pre_check"] = [
         {
@@ -314,9 +314,47 @@ def test_build_pdf_context_marks_missing_covenant_actual_as_insufficient_data():
 
     row = context["covenant_rows"][0]
     assert row["actual"] == "N/A"
-    assert row["status_signal"] == "Insufficient Data"
-    assert row["status_signal_tone"] == "neutral"
-    assert row["notes"] == "Insufficient Data"
+    assert row["status"] == "Fail"
+    assert row["signal"] == "Red"
+    assert row["status_signal"] == "Fail"
+    assert row["status_signal_tone"] == "danger"
+    assert row["notes"] == "Weak coverage"
+
+
+def test_build_pdf_context_defaults_missing_covenant_to_breach_when_state_absent():
+    report = _sample_report()
+    report["history"][0]["assessment"]["covenant_pre_check"] = [
+        {"metric": "Interest Coverage", "actual": None, "threshold": 3.0}
+    ]
+
+    row = pdf_report_core.build_pdf_context(report, "en")["covenant_rows"][0]
+
+    assert row["status"] == "Breach"
+    assert row["signal"] == "Red"
+    assert row["status_signal_tone"] == "danger"
+    assert "defaulting to breach" in row["notes"]
+
+
+def test_build_pdf_context_prefers_top_level_data_quality_and_source():
+    report = _sample_report()
+    report["data_source"] = "yfinance"
+    report["data_quality"] = {
+        "status": "partial",
+        "failed_periods": ["FY23"],
+        "latest_period_valid": False,
+    }
+    report["history"][0]["assessment"]["data_quality"] = [
+        {"label": "Coverage", "value": 99, "notes": "stale"}
+    ]
+
+    context = pdf_report_core.build_pdf_context(report, "en")
+
+    assert context["data_source"] == "yfinance"
+    assert [(row["label"], row["value"]) for row in context["data_quality_rows"]] == [
+        ("Quality Status", "partial"),
+        ("Failed Periods", "FY23"),
+        ("Latest Period Valid", "No"),
+    ]
 
 
 def test_build_pdf_context_filters_empty_company_profile_fields():
@@ -378,3 +416,57 @@ def test_async_pdf_export_direct_call():
 
     assert pdf_bytes.startswith(b"%PDF")
     assert len(pdf_bytes) > 5000
+
+
+def test_select_pdf_history_keeps_matching_quarter_and_annuals_only():
+    history = [
+        {"fiscal_year": period}
+        for period in ("25Q3", "25Q2", "24Q4", "24Q3", "FY24", "FY23", "FY22")
+    ]
+
+    selected = pdf_report_core._select_pdf_history(history, 5)
+
+    assert [item["fiscal_year"] for item in selected] == ["25Q3", "24Q3", "FY24", "FY23", "FY22"]
+
+
+def test_select_pdf_history_annual_latest_is_limited_to_four_years():
+    history = [{"fiscal_year": f"FY{year}"} for year in range(20, 27)]
+
+    selected = pdf_report_core._select_pdf_history(history, 5)
+
+    assert [item["fiscal_year"] for item in selected] == ["FY26", "FY25", "FY24", "FY23"]
+
+
+def test_pdf_period_columns_are_consistent_across_kpi_and_statements():
+    report = _sample_report()
+    report["history"] = report["history"] + [
+        {"fiscal_year": "23Q4", "raw_metrics": {}, "statements": {}},
+        {"fiscal_year": "FY22", "raw_metrics": {}, "statements": {}},
+    ]
+
+    model = pdf_report_core.build_pdf_document_model(report, "en")
+    period_headers = [period["label"] for period in model["context"]["periods"]]
+    assert len(period_headers) <= 5
+    assert [header for header in model["kpi"]["headers"][1:1 + len(period_headers)]] == period_headers
+    assert all(
+        [header for header in section["headers"][1:1 + len(period_headers)]] == period_headers
+        for section in model["statements"]
+    )
+
+
+def test_non_english_localized_name_does_not_fallback_to_english_and_description_is_bounded():
+    report = _sample_report()
+    report["company_name"] = "Example Corp"
+    report["company_name_localized"] = {"en": "Example Corp"}
+    report["company_profile"] = {
+        "description": "English description " * 100,
+        "sector": "Technology",
+    }
+
+    context = pdf_report_core.build_pdf_context(report, "zh-CN")
+
+    assert context["company_name_localized"] == ""
+    description = next(row for row in context["company_profile_rows"] if row["label"].startswith("Description"))
+    assert description["label"].endswith("(English)")
+    assert len(description["value"]) <= 900
+    assert description["value"].endswith("...")

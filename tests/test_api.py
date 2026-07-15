@@ -7,6 +7,8 @@ Tests for FastAPI endpoints using TestClient.
 import hashlib
 import asyncio
 import threading
+import io
+import zipfile
 import pytest
 from fastapi.testclient import TestClient
 import sys
@@ -539,6 +541,13 @@ class TestErrorFormats:
 # ── PDF Export ───────────────────────────────────────────────────────────────
 
 class TestPdfExportEndpoint:
+    def test_pdf_export_rejects_unknown_theme(self, client):
+        response = client.post("/api/v1/reports/pdf", json={
+            "report": {"ticker": "TEST", "history": [{"fiscal_year": "FY24"}]},
+            "theme": "sepia",
+        })
+        assert response.status_code == 422
+
     def test_pdf_export_returns_attachment(self, client, monkeypatch):
         def _fake_generate_full_pdf(_report, _lang, _theme):
             return b"%PDF-1.4\n%Test\n%%EOF"
@@ -573,6 +582,34 @@ class TestPdfExportEndpoint:
 
     def test_pdf_export_validation_error(self, client):
         response = client.post("/api/v1/reports/pdf", json={"lang": "zh-CN"})
+        assert response.status_code == 422
+
+    def test_pdf_batch_export_returns_integrity_verifiable_zip(self, client, monkeypatch):
+        def _fake_generate_full_pdf(report, _lang, _theme):
+            return f"%PDF {report.get('ticker')}".encode()
+
+        async def _fake_executor(func, *args):
+            return func(*args)
+
+        monkeypatch.setattr(api, "generate_full_pdf", _fake_generate_full_pdf)
+        monkeypatch.setattr(api, "_run_in_pdf_executor", _fake_executor)
+        response = client.post("/api/v1/reports/pdf/batch", json={
+            "lang": "en",
+            "theme": "light",
+            "reports": [{"ticker": "AAPL"}, {"ticker": "AAPL"}],
+        })
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/zip"
+        assert response.headers["x-zip-bytes"] == str(len(response.content))
+        assert response.headers["x-zip-sha256"] == hashlib.sha256(response.content).hexdigest()
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert archive.namelist() == ["AAPL_Full_Report.pdf", "AAPL_2_Full_Report.pdf"]
+
+    def test_pdf_batch_export_rejects_more_than_ten_reports(self, client):
+        response = client.post("/api/v1/reports/pdf/batch", json={
+            "reports": [{"ticker": str(idx)} for idx in range(11)],
+        })
         assert response.status_code == 422
 
 
@@ -787,6 +824,25 @@ class TestFetchExecutorIsolation:
 # ── Error Response Content Verification ──────────────────────────────────────
 
 class TestErrorResponseContent:
+    def test_global_error_path_does_not_include_query_string(self):
+        """Unhandled-error responses must not echo query-string secrets."""
+        from starlette.requests import Request
+
+        request = Request({
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/health",
+            "query_string": b"token=do-not-echo",
+            "headers": [],
+            "client": ("testclient", 123),
+            "server": ("testserver", 80),
+            "scheme": "http",
+        })
+        response = asyncio.run(api.global_exception_handler(request, RuntimeError("internal")))
+        body = response.body.decode("utf-8")
+        assert '"path":"/api/v1/health"' in body
+        assert "do-not-echo" not in body
+
     def test_assess_internal_error_no_raw_strings(self, client, monkeypatch):
         """All-tickers internal_error must not leak exception details."""
         monkeypatch.setattr(api, "_search_tickers", lambda *_args, **_kwargs: [])
