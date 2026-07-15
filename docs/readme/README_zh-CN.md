@@ -207,14 +207,12 @@ RiskLens/
 │   ├── html_pdf_exporter.py
 │   ├── pdf_report_core.py
 │   ├── services/
-│   └── legacy/
 ├── web/
 │   ├── src/
 │   └── dist/
 ├── docs/
 │   ├── architecture/
 │   ├── methodology/
-│   ├── pdf-template/
 │   ├── readme/
 │   └── report-workbook/
 └── main.py
@@ -256,7 +254,7 @@ RiskLens/
 - [Architecture](../architecture/ARCHITECTURE.md)
 - [Methodology](../methodology/METHODOLOGY.md)
 - [Report workbook spec](../report-workbook/REPORT_WORKBOOK_SPEC.md)
-- [PDF template draft](../pdf-template/REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md)
+- [Release review checklist](../review/repository-release-checklist.md)
 - README 翻译：[zh-CN](./README_zh-CN.md)、[zh-TW](./README_zh-TW.md)、[ja](./README_ja.md)
 
 如果翻译内容与英文文档冲突，以英文文档为准。

@@ -234,14 +234,12 @@ RiskLens/
 │   ├── html_pdf_exporter.py
 │   ├── pdf_report_core.py
 │   ├── services/
-│   └── legacy/
 ├── web/
 │   ├── src/
 │   └── dist/
 ├── docs/
 │   ├── architecture/
 │   ├── methodology/
-│   ├── pdf-template/
 │   ├── readme/
 │   └── report-workbook/
 └── main.py
@@ -283,7 +281,7 @@ Common settings:
 - [Architecture](./docs/architecture/ARCHITECTURE.md)
 - [Methodology](./docs/methodology/METHODOLOGY.md)
 - [Report workbook spec](./docs/report-workbook/REPORT_WORKBOOK_SPEC.md)
-- [PDF template draft](./docs/pdf-template/REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md)
+- [Release review checklist](./docs/review/repository-release-checklist.md)
 - README translations: [zh-CN](./docs/readme/README_zh-CN.md), [zh-TW](./docs/readme/README_zh-TW.md), [ja](./docs/readme/README_ja.md)
 
 English documentation is the source of truth when translated wording conflicts.

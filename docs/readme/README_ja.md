@@ -201,14 +201,12 @@ RiskLens/
 │   ├── html_pdf_exporter.py
 │   ├── pdf_report_core.py
 │   ├── services/
-│   └── legacy/
 ├── web/
 │   ├── src/
 │   └── dist/
 ├── docs/
 │   ├── architecture/
 │   ├── methodology/
-│   ├── pdf-template/
 │   ├── readme/
 │   └── report-workbook/
 └── main.py
@@ -250,7 +248,7 @@ RiskLens/
 - [Architecture](../architecture/ARCHITECTURE.md)
 - [Methodology](../methodology/METHODOLOGY.md)
 - [Report workbook spec](../report-workbook/REPORT_WORKBOOK_SPEC.md)
-- [PDF template draft](../pdf-template/REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md)
+- [Release review checklist](../review/repository-release-checklist.md)
 - README translations: [zh-CN](./README_zh-CN.md), [zh-TW](./README_zh-TW.md), [ja](./README_ja.md)
 
 翻訳内容が英語ドキュメントと矛盾する場合は、英語版を正とします。

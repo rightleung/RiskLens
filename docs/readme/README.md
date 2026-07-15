@@ -26,10 +26,6 @@ Localized documentation lives here to keep the repository root clean.
 - [繁體中文](../report-workbook/REPORT_WORKBOOK_SPEC_zh-TW.md)
 - [日本語](../report-workbook/REPORT_WORKBOOK_SPEC_ja.md)
 
-## PDF Template
-
-- [PDF Template Draft (zh-CN)](../pdf-template/REPORT_PDF_TEMPLATE_DRAFT_zh-CN.md)
-
 ## Root documents
 
 - [Main README](../../README.md)
