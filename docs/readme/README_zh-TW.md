@@ -1,254 +1,121 @@
 # RiskLens
 
-語言: [English](../../README.md) | [简体中文](./README_zh-CN.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md)
+語言：[English](../../README.md) | [简体中文](./README_zh-CN.md) | [繁體中文](./README_zh-TW.md) | [日本語](./README_ja.md)
 
-RiskLens 是面向機構授信風險評估的平台。它會為上市公司取得財務資料，計算 40+ 信用與營運比率，將 Altman Z-Score 映射為類 S&P 信用評級，檢查貸後契約，並輸出 Dashboard、JSON、Excel 和 PDF 報告。
+RiskLens 將上市公司的公開財務資料整理成清楚的信用風險視圖。輸入一個或多個股票代碼，即可檢視財務健康度、比較公司、檢查貸款契約，並匯出方便分享的報告。
 
-## 功能範圍
+它適合用於初步篩選與分析，不取代正式信用評級或專業授信判斷。
 
-- 透過 FastAPI + React Dashboard 進行多 ticker 信用評估。
-- 透過 `yfinance` 取得財務資料，並可選接入 AKShare 中國市場資料。
-- 覆蓋流動性、償債能力、盈利能力、營運效率與現金流比率。
-- Altman Z-Score 風險區間與類 S&P 評級映射。
-- 契約閾值檢查；當設定了閾值但資料缺失時，按盡調安全原則預設視為 breach。
-- 前端術語支援英文、簡體中文、繁體中文和日文。
-- 支援 API JSON、前端工作簿匯出和完整 PDF 匯出。
+## 你可以用它做什麼
 
-## 執行路徑
+- 在 Dashboard 中評估一家公司或一組公司。
+- 檢視 40+ 流動性、槓桿、獲利、效率與現金流指標。
+- 查看 Altman Z-Score、風險區間與易讀的隱含評級。
+- 設定契約門檻，識別通過、違約或資料缺失。
+- 比較不同期間與不同公司，減少手動整理試算表。
+- 匯出 JSON、Excel 或適合簡報的 PDF。
+- 使用英文、簡體中文、繁體中文或日文介面。
 
-RiskLens 有兩條後端路徑：
+## 從股票代碼到風險視圖
 
-| 路徑 | 入口 | 用途 |
-|------|------|------|
-| Dashboard | `./run_app.sh` -> `src/api.py` | 主要 FastAPI API 與 React SPA，執行於 `http://127.0.0.1:8000` |
-| MVP 相容 | `main.py` | 保留舊版 `/api/assess` 相容與 smoke 檢查 |
+```text
+輸入股票代碼 → 取得並標準化財務資料 → 計算風險訊號 → 檢視或匯出結果
+```
 
-Dashboard 路徑會從 `web/dist/` 提供 React 建置產物。執行 `./run_app.sh` 前需先建置前端。
-
-## 環境需求
-
-- Python 3.12+
-- 用於前端的 Node.js 和 npm
-- 即時 `yfinance`/AKShare 資料需要網路存取
+RiskLens 預設透過 `yfinance` 取得 Yahoo Finance 的全球上市公司資料，也可以啟用 AKShare 補充中國市場資料。
 
 ## 快速開始
 
-重建完整本機環境：
+本機執行需要 Python 3.12+、Node.js、npm；即時市場資料還需要網路連線。
+
+建立本機環境：
 
 ```bash
 ./scripts/rebuild_workspace.sh
 ```
 
-該腳本會重建 `.venv`，安裝 Python dev 依賴，執行 `npm ci`，並建置 `web/dist/`。
-
-如需 AKShare 中國市場資料支援：
-
-```bash
-RISKLENS_WITH_CN_DATA=1 ./scripts/rebuild_workspace.sh
-```
-
-啟動 Dashboard：
+啟動 RiskLens：
 
 ```bash
 ./run_app.sh
 ```
 
-訪問：
+然後開啟 [http://127.0.0.1:8000](http://127.0.0.1:8000)。
 
-- `http://127.0.0.1:8000/`
-- `http://127.0.0.1:8000/health`
-- `http://127.0.0.1:8000/docs`
-
-## 手動安裝
-
-後端：
+如需 AKShare 中國市場資料：
 
 ```bash
-python3 -m venv .venv
-./.venv/bin/python -m pip install --upgrade pip
-./.venv/bin/python -m pip install -e ".[dev]"
+RISKLENS_WITH_CN_DATA=1 ./scripts/rebuild_workspace.sh
 ```
 
-前端：
+## 使用方式
 
-```bash
-cd web
-npm ci
-npm run build
-```
+### Dashboard
 
-前端開發伺服器：
+可以依公司名稱搜尋，也可以直接輸入股票代碼。結果頁會顯示最新風險判斷、歷史趨勢、財務報表、契約檢查與匯出入口。
 
-```bash
-cd web
-npm run dev
-```
+本機常用頁面：
 
-## CLI
+- Dashboard：`http://127.0.0.1:8000/`
+- 服務狀態：`http://127.0.0.1:8000/health`
+- 互動式 API 指南：`http://127.0.0.1:8000/docs`
 
-在倉庫根目錄使用啟動器：
+### 命令列
 
 ```bash
 ./run_cli.sh assess AAPL MSFT --data-source yfinance
 ./run_cli.sh search apple --limit 10
 ./run_cli.sh covenants AAPL --min-current-ratio 1.2 --max-debt-to-equity 2.0
-./run_cli.sh sources
-./run_cli.sh version
 ```
 
-CLI 在適用位置支援 `auto`、`yfinance`、`akshare` 和 `demo` 資料源。使用 `--output path/to/file.json` 可寫入 JSON 檔案，使用 `--compact` 可輸出緊湊 JSON。
+使用 `--output path/to/file.json` 儲存評估結果；執行 `./run_cli.sh --help` 查看所有選項。
 
-可選 shell 捷徑：
+### API
 
-```bash
-mkdir -p ~/.local/bin
-ln -sf "$(pwd)/risklens" ~/.local/bin/risklens
-```
+| 端點 | 用途 |
+|---|---|
+| `POST /api/v1/assess` | 評估一家或多家公司 |
+| `GET /api/v1/symbols/search` | 尋找上市公司股票代碼 |
+| `POST /api/v1/covenants/check` | 檢查選定的契約門檻 |
+| `POST /api/v1/reports/pdf` | 產生單一公司 PDF |
+| `POST /api/v1/reports/pdf/batch` | 將最多 10 份 PDF 打包下載 |
 
-之後可執行：
+請求與回應範例可在 `/docs` 的互動式 API 指南中查看。
 
-```bash
-risklens assess NVDA AMD --data-source yfinance
-```
+## 如何理解結果
 
-## API 範例
+- **Z-Score**：將五項資產負債與獲利訊號合併為一個分數。
+- **風險區間**：將結果歸入 Safe、Grey 或 Distress。
+- **隱含評級**：把分數轉成熟悉的信用語言，方便內部篩選。
+- **指標與趨勢**：說明結果由哪些財務變化推動。
+- **契約檢查**：將實際指標與你設定的門檻比較。
+- **資料品質提示**：指出輸入缺失與需要人工覆核的部分。
 
-### 信用評估
+若已設定契約門檻，但底層資料無法取得，RiskLens 會暫時標記為違約並要求人工覆核，避免把缺失資料默認為通過。
 
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/assess \
-  -H "Content-Type: application/json" \
-  -d '{"tickers":["NVDA","0700.HK"],"data_source":"yfinance","include_suggestions":true}'
-```
+## 使用邊界
 
-### 公司搜尋
+- 隱含評級是 RiskLens 的內部解讀，不是 S&P 或其他評級機構發布的評級。
+- 公開市場資料可能延遲、重編、缺失，且不同會計準則下的科目映射可能不同。
+- 缺少歷史市值時，歷史評分可能使用目前市值。
+- Altman 模型只是一項風險訊號，仍應結合產業、股東背景、流動性與定性判斷。
+- RiskLens 不提供投資、法律或授信建議。
 
-```bash
-curl "http://127.0.0.1:8000/api/v1/symbols/search?q=apple&limit=20"
-```
+## 參與開發
 
-### 契約檢查
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
-  -H "Content-Type: application/json" \
-  -d '{"ticker":"NVDA","data_source":"yfinance","covenants":{"min_current_ratio":1.2,"max_debt_to_equity":2.0}}'
-```
-
-### PDF 匯出
-
-`POST /api/v1/reports/pdf` 接收 `/api/v1/assess` 回傳的單公司評估 payload。節選結構：
-
-```json
-{
-  "report": { "ticker": "NVDA" },
-  "lang": "zh-TW",
-  "theme": "dark"
-}
-```
-
-支援語言：`en`、`zh-CN`、`zh-TW`、`ja`。支援主題：`dark`、`light`。
-
-## 測試
-
-執行後端測試：
+提交變更前執行：
 
 ```bash
 pytest
+cd web && npm run lint && npm run build && npm run e2e:preflight
 ```
 
-執行單一測試檔：
+主要應用程式由 `src/api.py` 與 `web/` 中的 React 應用組成。根目錄 `main.py` 僅保留作為相容性檢查。
 
-```bash
-pytest tests/test_zscore.py
-```
+## 使用指南
 
-執行前端檢查：
-
-```bash
-cd web
-npm run lint
-npm run build
-npm run e2e:preflight
-```
-
-針對 MVP 相容應用執行 legacy smoke 檢查：
-
-```bash
-./.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 18000
-./smoke_test.sh http://127.0.0.1:18000
-```
-
-## 專案結構
-
-```text
-RiskLens/
-├── run_app.sh
-├── run_cli.sh
-├── smoke_test.sh
-├── scripts/
-│   ├── rebuild_workspace.sh
-│   └── venv_bootstrap.sh
-├── src/
-│   ├── api.py
-│   ├── risklens_cli.py
-│   ├── data_fetcher.py
-│   ├── ratio_analyzer.py
-│   ├── zscore.py
-│   ├── covenant_monitor.py
-│   ├── reportlab_pdf_exporter.py
-│   ├── reportlab_pdf_renderer.py
-│   ├── html_pdf_exporter.py
-│   ├── pdf_report_core.py
-│   ├── services/
-├── web/
-│   ├── src/
-│   └── dist/
-├── docs/
-│   ├── architecture/
-│   ├── methodology/
-│   ├── readme/
-│   └── report-workbook/
-└── main.py
-```
-
-## 關鍵模組
-
-| 模組 | 職責 |
-|------|------|
-| `src/api.py` | Dashboard FastAPI 應用、API 路由、SPA 靜態託管、並發限制 |
-| `src/services/rich_assessment_service.py` | Dashboard 多期間評估流程 |
-| `src/services/assessment_service.py` | Legacy MVP/CLI 單期間評估流程 |
-| `src/data_fetcher.py` | 財務資料取得與快取 |
-| `src/ratio_analyzer.py` | 40+ 財務比率計算 |
-| `src/zscore.py` | Altman Z-Score 與評級映射 |
-| `src/covenant_monitor.py` | 契約閾值檢查 |
-| `src/reportlab_pdf_exporter.py` | 完整 PDF 報告生成入口 |
-| `web/src/App.tsx` | React Dashboard 主介面 |
-
-## 設定
-
-設定來自環境變數和可選 `.env` 檔案。建立本機設定時可從 `.env.example` 開始。
-
-常用設定：
-
-| 變數 | 預設值 | 用途 |
-|------|--------|------|
-| `APP_PORT` | `8000` | 本機 Dashboard 連接埠 |
-| `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | 前端開發來源 |
-| `ASSESS_MAX_CONCURRENCY` | `8` | 並發 ticker 評估數 |
-| `ASSESS_TICKER_TIMEOUT_SECONDS` | `20` | 單 ticker 評估逾時 |
-| `SYMBOL_SEARCH_TIMEOUT_SECONDS` | `8` | 公司搜尋逾時 |
-| `CACHE_TTL_SECONDS` | `600` | 財務資料快取 TTL |
-| `SENTRY_DSN` | 空 | 僅設定後啟用 Sentry |
-| `API_REPORT_DIR` | `/tmp/credit_api_reports` | Dashboard 比率/報告產物目錄 |
-
-## 文件
-
-- [Architecture](../architecture/ARCHITECTURE.md)
-- [Methodology](../methodology/METHODOLOGY.md)
-- [Report workbook spec](../report-workbook/REPORT_WORKBOOK_SPEC.md)
-- [Release review checklist](../review/repository-release-checklist.md)
-- README 翻譯：[zh-CN](./README_zh-CN.md)、[zh-TW](./README_zh-TW.md)、[ja](./README_ja.md)
-
-如果翻譯內容與英文文件衝突，以英文文件為準。
+- [RiskLens 如何運作](../architecture/ARCHITECTURE_zh-TW.md)
+- [RiskLens 如何理解信用風險](../methodology/METHODOLOGY_zh-TW.md)
+- [使用 Excel 匯出](../report-workbook/REPORT_WORKBOOK_SPEC_zh-TW.md)
+- [其他語言文件](./README.md)
+- [發布檢查清單](../review/repository-release-checklist.md)

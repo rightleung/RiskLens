@@ -1,65 +1,67 @@
-# RiskLens Credit Rating Methodology
+# How RiskLens reads credit risk
 
 Language: [EN](./METHODOLOGY.md) | [简中](./METHODOLOGY_zh-CN.md) | [繁中](./METHODOLOGY_zh-TW.md) | [日本語](./METHODOLOGY_ja.md)
 
-This document outlines the quantitative framework used by RiskLens to generate internal credit ratings and risk scores. The methodology bridges classic multivariate bankruptcy prediction (the **Altman Z-Score Model**) with modern, continuous post-lending covenant monitoring.
+RiskLens combines a familiar distress-screening model with financial ratios, trend analysis, covenant checks, and data-quality warnings. The goal is to make review faster while keeping the underlying signals visible.
 
----
+The result is an internal screening view. It is not an agency credit rating, a probability of default, or a lending recommendation.
 
-## 1. Primary Scoring Architecture: The Altman Z-Score
+## The headline signal: Altman Z-Score
 
-RiskLens relies heavily on the **Altman Z-Score** as its core algorithmic engine for public companies. The Z-Score is a multivariate formula that synthesizes five distinct dimensions of a firm's financial health into a single predictive score.
+RiskLens uses the public-company form of the Altman Z-Score:
 
-**1.0 Scope Note:** The live API pipeline uses Altman Z-Score as the sole scoring model. The former legacy scoring implementation is no longer shipped or invoked by the FastAPI service.
+`Z = 1.2 × X1 + 1.4 × X2 + 3.3 × X3 + 0.6 × X4 + 1.0 × X5`
 
-### The Z-Score Formula
-`Z = 1.2(X1) + 1.4(X2) + 3.3(X3) + 0.6(X4) + 1.0(X5)`
+| Term | Calculation | What it helps show |
+|---|---|---|
+| X1 | Working capital / Total assets | Short-term financial cushion |
+| X2 | Retained earnings / Total assets | Accumulated profitability |
+| X3 | EBIT / Total assets | Operating return on assets |
+| X4 | Market value of equity / Total liabilities | Market-value coverage of liabilities |
+| X5 | Sales / Total assets | Asset turnover |
 
-Where:
-- **X1 (Working Capital / Total Assets)**: Evaluates short-term liquidity and buffer.
-- **X2 (Retained Earnings / Total Assets)**: Measures cumulative profitability over time, penalizing newly established or chronically unprofitable firms.
-- **X3 (EBIT / Total Assets)**: A pure metric of operating efficiency and asset productivity, isolated from tax and leverage effects.
-- **X4 (Market Value of Equity / Total Liabilities)**: Introduces market capitalization to assess the market's perception of solvency relative to book debt.
-- **X5 (Sales / Total Assets)**: Measures the asset turnover and capital intensity of the business model.
+## Risk zones and implied ratings
 
-### Z-Score Zone Classification
-The raw Z-Score is translated into three distinct risk tranches:
-1. **Safe Zone (Z ≥ 2.99)**: Implies robust financial health; bankruptcy likelihood within 2 years is statistically negligible.
-2. **Grey Zone (1.81 ≤ Z < 2.99)**: Indicates moderate distress risk; warrants heightened monitoring and potential credit tightening.
-3. **Distress Zone (Z < 1.81)**: High probability of default or severe financial restructuring within 24 months.
+| Z-Score | RiskLens zone | Implied rating |
+|---:|---|---|
+| 4.50 or above | Safe | AAA |
+| 3.50–4.49 | Safe | AA |
+| 2.99–3.49 | Safe | A |
+| 2.50–2.98 | Grey | BBB |
+| 1.81–2.49 | Grey | BB |
+| 1.20–1.80 | Distress | B |
+| 0.50–1.19 | Distress | CCC |
+| Below 0.50 | Distress | D |
 
----
+The implied rating is a RiskLens display scale. It uses familiar rating labels to make relative risk easier to read; it is not issued or endorsed by S&P.
 
-## 2. Implied Rating Mapping Scale
+## What sits behind the headline
 
-To translate the raw Z-Score into an institutional language compatible with standard credit policy, RiskLens maps the zones to an S&P-equivalent implied rating.
+RiskLens also calculates 40+ indicators across:
 
-| Z-Score Range | Zone | Implied Rating | Risk Category | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| ≥ 4.50 | Safe | **AAA / AA** | Prime | Exceptionally strong capacity to meet obligations. |
-| 2.99 - 4.49 | Safe | **A** | Upper Medium | Strong capacity, but susceptible to adverse changes. |
-| 2.50 - 2.98 | Grey | **BBB** | Lower Medium | Adequate capacity; moderate protection parameters. |
-| 1.81 - 2.49 | Grey | **BB** | Speculative | Less vulnerable in the near term, but faces uncertainty. |
-| 1.20 - 1.80 | Distress | **B**| Highly Speculative| Vulnerable to adverse business/financial conditions. |
-| < 1.20 | Distress | **CCC / D**| Substantial Risk | Currently vulnerable; dependent on favorable conditions. |
+- liquidity and short-term coverage;
+- leverage and debt capacity;
+- profitability and operating performance;
+- cash generation and free cash flow;
+- asset and working-capital efficiency.
 
----
+Period trends and peer comparisons help show whether the headline score is improving, weakening, or being driven by a single input.
 
-## 3. Post-Lending Covenant Surveillance
+## Covenant checks
 
-While the Z-Score provides point-in-time default probability, covenants act as an ongoing "early warning system." RiskLens actively monitors these metrics to trigger alerts before a technical default materializes.
+Users can set limits for interest coverage, debt/EBITDA, debt/equity, current ratio, quick ratio, and free-cash-flow/debt.
 
-### Standard Monitored Covenants:
-1. **Leverage Test**: `Debt / EBITDA < [Threshold]` — Prevents the borrower from over-leveraging organically or via acquisition.
-2. **Coverage Test**: `EBITDA / Interest Expense > [Threshold]` — Ensures sufficient operating cash remains to satisfy debt servicing costs.
-3. **Liquidity Test**: `Current Assets / Current Liabilities > [Threshold]` — Ensures adequate short-term asset coverage for impending liabilities.
+Each configured covenant is shown as pass or breach. If the required value cannot be calculated, RiskLens treats it as a breach pending manual review. Unconfigured covenants are skipped.
 
-*Note: RiskLens treats `null` or missing values conservatively in post-lending surveillance, triggering an automatic assumption of BREACH to enforce manual underwriter review rather than silently passing the covenant.*
+## How missing data is handled
 
----
+- Missing total assets, total liabilities, EBIT, sales, or working capital produces an `N/A` Z-Score.
+- Missing retained earnings or market capitalization contributes zero in the current implementation.
+- Historical market capitalization is not always available, so historical periods may use the current market value.
+- `NaN` and infinite values are removed before results are returned.
 
-## 4. Financial Data Normalization
+These choices are surfaced as data-quality limitations and should be considered during review.
 
-RiskLens performs strict ontological data cleaning across borders to feed the scoring engines accurately:
-- **US / Global Models (yFinance)**: Harmonizes standard SEC XBRL tags into RiskLens primary variables.
-- **Chinese A-Shares (AKShare)**: Dynamically maps Mainland Chinese GAAP taxonomy (e.g., *长期借款* to Long Term Debt, *营业总收入* to Total Revenue) into identical mathematical structures, ensuring ratings remain completely comparable regardless of geographical origin.
+## When to use extra care
+
+Z-Score can be less representative for financial institutions, early-stage companies, unusual capital structures, and businesses whose accounting or industry economics differ from the original model assumptions. Always combine the output with source statements, industry context, liquidity, ownership, and qualitative analysis.
