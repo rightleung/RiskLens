@@ -89,6 +89,7 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
         'header': colors.HexColor('#0b1220'),
         'header_text': colors.white,
         'panel_border': colors.HexColor('#334155'),
+        'row_alt': colors.HexColor('#07101f'),
     }
     palette_light = {
         'page': colors.HexColor('#FFFFFF'),
@@ -108,6 +109,7 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
         'header': colors.HexColor('#F1F5F9'),
         'header_text': colors.HexColor('#334155'),
         'panel_border': colors.HexColor('#CBD5E1'),
+        'row_alt': colors.HexColor('#F8FAFC'),
     }
     palette = palette_light if theme_is_light else palette_dark
 
@@ -133,19 +135,19 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
             'section',
             fontName=heading_font,
             fontSize=14.0 if theme_is_light else 13.8,
-            leading=17.5,
+            leading=18,
             textColor=palette['ink'],
-            spaceBefore=6,
-            spaceAfter=8,
+            spaceBefore=8,
+            spaceAfter=9,
             keepWithNext=True,
         ),
         'note': ParagraphStyle(
             'note',
             fontName=body_font,
             fontSize=8.2,
-            leading=11,
+            leading=11.6,
             textColor=palette['muted'],
-            spaceAfter=6,
+            spaceAfter=7,
         ),
         'caption': ParagraphStyle(
             'caption',
@@ -226,8 +228,8 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
         'statement_body': ParagraphStyle(
             'statement_body',
             fontName=body_font,
-            fontSize=7.2,
-            leading=9.4,
+            fontSize=7.5,
+            leading=10,
             textColor=palette['ink'],
             splitLongWords=False,
             wordWrap='LTR',
@@ -235,8 +237,8 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
         'statement_body_bold': ParagraphStyle(
             'statement_body_bold',
             fontName=heading_font,
-            fontSize=7.2,
-            leading=9.4,
+            fontSize=7.5,
+            leading=10,
             textColor=palette['ink'],
             splitLongWords=False,
             wordWrap='LTR',
@@ -245,8 +247,8 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
             'statement_body_right',
             parent=None,
             fontName=body_font,
-            fontSize=7.2,
-            leading=9.4,
+            fontSize=7.5,
+            leading=10,
             textColor=palette['ink'],
             splitLongWords=False,
             wordWrap='LTR',
@@ -256,8 +258,8 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
             'statement_body_center',
             parent=None,
             fontName=body_font,
-            fontSize=7.2,
-            leading=9.4,
+            fontSize=7.5,
+            leading=10,
             textColor=palette['ink'],
             splitLongWords=False,
             wordWrap='LTR',
@@ -266,8 +268,8 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
         'statement_header': ParagraphStyle(
             'statement_header',
             fontName=heading_font,
-            fontSize=7.4,
-            leading=9.5,
+            fontSize=7.7,
+            leading=10.2,
             textColor=palette['header_text'],
             alignment=TA_LEFT,
             splitLongWords=False,
@@ -276,8 +278,8 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
         'statement_header_right': ParagraphStyle(
             'statement_header_right',
             fontName=heading_font,
-            fontSize=7.4,
-            leading=9.5,
+            fontSize=7.7,
+            leading=10.2,
             textColor=palette['header_text'],
             alignment=TA_RIGHT,
             splitLongWords=False,
@@ -363,7 +365,7 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
             'bullet',
             fontName=body_font,
             fontSize=8.6,
-            leading=11.8,
+            leading=12.4,
             textColor=palette['ink'],
             leftIndent=8,
             firstLineIndent=0,
@@ -637,15 +639,15 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
             ('TEXTCOLOR', (0, 0), (-1, 0), palette['header_text']),
             ('LEFTPADDING', (0, 0), (-1, -1), 8),
             ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-            ('TOPPADDING', (0, 0), (-1, -1), 5),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ]
         if statement_mode:
-            style_cmds[2] = ('LEFTPADDING', (0, 0), (-1, -1), 5.5)
-            style_cmds[3] = ('RIGHTPADDING', (0, 0), (-1, -1), 5.5)
-            style_cmds[4] = ('TOPPADDING', (0, 0), (-1, -1), 4.5)
-            style_cmds[5] = ('BOTTOMPADDING', (0, 0), (-1, -1), 4.5)
+            style_cmds[2] = ('LEFTPADDING', (0, 0), (-1, -1), 6.5)
+            style_cmds[3] = ('RIGHTPADDING', (0, 0), (-1, -1), 6.5)
+            style_cmds[4] = ('TOPPADDING', (0, 0), (-1, -1), 5.25)
+            style_cmds[5] = ('BOTTOMPADDING', (0, 0), (-1, -1), 5.25)
             style_cmds[6] = ('VALIGN', (0, 0), (-1, -1), 'TOP')
         if is_empty_state:
             style_cmds.extend([
@@ -664,12 +666,14 @@ def _render_reportlab_pdf(model: dict[str, object]) -> bytes:
                 row_label = str(_clean_display_text(rows[source_idx][0])) if source_idx < len(rows) and rows[source_idx] else ''
                 meta = row_meta[source_idx] if row_meta and source_idx < len(row_meta) else {}
                 depth = int(meta.get('depth') or 0)
+                if source_idx % 2 == 1:
+                    style_cmds.append(('BACKGROUND', (0, table_row_idx), (-1, table_row_idx), palette['row_alt']))
                 if statement_mode and depth > 0:
-                    style_cmds.append(('LEFTPADDING', (0, table_row_idx), (0, table_row_idx), 5.5 + depth * 7))
+                    style_cmds.append(('LEFTPADDING', (0, table_row_idx), (0, table_row_idx), 6.5 + depth * 7))
                 if total_pattern.match(row_label) or meta.get('is_total'):
                     style_cmds.append(('LINEBELOW', (0, table_row_idx), (-1, table_row_idx), 0.8, palette['ink']))
                 if statement_mode and level > 0:
-                    style_cmds.append(('LEFTPADDING', (0, table_row_idx), (0, table_row_idx), 5.5 + level * 7))
+                    style_cmds.append(('LEFTPADDING', (0, table_row_idx), (0, table_row_idx), 6.5 + level * 7))
                 if delta_cols and statement_mode:
                     tone_by_col = {
                         len(headers) - 2: meta.get('yoy_q_tone'),

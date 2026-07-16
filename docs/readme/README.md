@@ -1,34 +1,12 @@
-# Docs Readme
+# RiskLens guides
 
-Localized documentation lives here to keep the repository root clean.
+Choose a language and topic. The main README is the best place to start.
 
-## README translations
+| Guide | English | 简体中文 | 繁體中文 | 日本語 |
+|---|---|---|---|---|
+| Product overview and quick start | [Open](../../README.md) | [打开](./README_zh-CN.md) | [開啟](./README_zh-TW.md) | [開く](./README_ja.md) |
+| How RiskLens works | [Open](../architecture/ARCHITECTURE.md) | [打开](../architecture/ARCHITECTURE_zh-CN.md) | [開啟](../architecture/ARCHITECTURE_zh-TW.md) | [開く](../architecture/ARCHITECTURE_ja.md) |
+| Credit-risk methodology | [Open](../methodology/METHODOLOGY.md) | [打开](../methodology/METHODOLOGY_zh-CN.md) | [開啟](../methodology/METHODOLOGY_zh-TW.md) | [開く](../methodology/METHODOLOGY_ja.md) |
+| Excel export guide | [Open](../report-workbook/REPORT_WORKBOOK_SPEC.md) | [打开](../report-workbook/REPORT_WORKBOOK_SPEC_zh-CN.md) | [開啟](../report-workbook/REPORT_WORKBOOK_SPEC_zh-TW.md) | [開く](../report-workbook/REPORT_WORKBOOK_SPEC_ja.md) |
 
-- [简体中文](./README_zh-CN.md)
-- [繁體中文](./README_zh-TW.md)
-- [日本語](./README_ja.md)
-
-## Architecture translations
-
-- [简体中文](../architecture/ARCHITECTURE_zh-CN.md)
-- [繁體中文](../architecture/ARCHITECTURE_zh-TW.md)
-- [日本語](../architecture/ARCHITECTURE_ja.md)
-
-## Methodology translations
-
-- [简体中文](../methodology/METHODOLOGY_zh-CN.md)
-- [繁體中文](../methodology/METHODOLOGY_zh-TW.md)
-- [日本語](../methodology/METHODOLOGY_ja.md)
-
-## Workbook Spec translations
-
-- [简体中文](../report-workbook/REPORT_WORKBOOK_SPEC_zh-CN.md)
-- [繁體中文](../report-workbook/REPORT_WORKBOOK_SPEC_zh-TW.md)
-- [日本語](../report-workbook/REPORT_WORKBOOK_SPEC_ja.md)
-
-## Root documents
-
-- [Main README](../../README.md)
-- [Main Architecture](../architecture/ARCHITECTURE.md)
-- [Main Methodology](../methodology/METHODOLOGY.md)
-- [Main Workbook Spec](../report-workbook/REPORT_WORKBOOK_SPEC.md)
+For maintainers: [release checklist](../review/repository-release-checklist.md).

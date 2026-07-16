@@ -1,287 +1,143 @@
 # RiskLens
 
-Language: [English](./README.md) | [简体中文](./docs/readme/README_zh-CN.md) | [繁體中文](./docs/readme/README_zh-TW.md) | [日本語](./docs/readme/README_ja.md)
+[English](./README.md) · [简体中文](./docs/readme/README_zh-CN.md) · [繁體中文](./docs/readme/README_zh-TW.md) · [日本語](./docs/readme/README_ja.md)
 
-RiskLens is an institutional credit risk assessment platform. It fetches financial data for listed companies, computes 40+ credit and operating ratios, maps Altman Z-Score outputs to an S&P-style rating, checks post-lending covenants, and exports dashboard, JSON, Excel, and PDF reports.
+**An institutional-style credit risk workbench that turns public-company financials into explainable risk signals, covenant checks, and presentation-ready reports.**
 
-## What It Provides
+[![CI](https://github.com/rightleung/RiskLens/actions/workflows/ci.yml/badge.svg)](https://github.com/rightleung/RiskLens/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=101010)](https://react.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-- Multi-ticker credit assessment through the FastAPI + React dashboard.
-- Financial data retrieval through `yfinance`, with optional AKShare support for Chinese market data.
-- Liquidity, solvency, profitability, efficiency, and cash-flow ratio analysis.
-- Altman Z-Score zone and S&P-style rating mapping.
-- Covenant threshold checks with conservative breach-on-missing-data behavior.
-- Localized dashboard terms for English, Simplified Chinese, Traditional Chinese, and Japanese.
-- Report outputs for API JSON, frontend workbook export, and full PDF export.
+![RiskLens dashboard showing a DEMO company, Altman Z-Score, implied credit rating, key risk drivers, export controls, and multi-period financial analysis](./docs/assets/showcase/dashboard-overview.png)
 
-## Runtime Paths
+RiskLens accepts one or more stock tickers, retrieves and normalizes public financial data, calculates 40+ ratios and an Altman Z-Score, maps the result to an implied credit rating, and presents the analysis in a multilingual React dashboard. The same assessment can be exported as JSON, Excel, or PDF for review and discussion.
 
-RiskLens has two backend paths:
+## Highlights
 
-| Path | Entrypoint | Purpose |
-|------|------------|---------|
-| Dashboard | `./run_app.sh` -> `src/api.py` | Primary FastAPI API and React SPA on `http://127.0.0.1:8000` |
-| MVP compatibility | `main.py` | Legacy `/api/assess` compatibility and smoke checks |
+- **40+ financial ratios** across liquidity, solvency, profitability, efficiency, and cash flow.
+- **Multi-company, multi-period analysis** with annual and quarterly views.
+- **Altman Z-Score and implied rating** with interpretable risk zones and contributing factors.
+- **Covenant monitoring** with configurable thresholds and conservative missing-data handling.
+- **JSON, Excel, and PDF exports** for downstream analysis and presentation.
+- **Four interface languages:** English, Simplified Chinese, Traditional Chinese, and Japanese.
+- **308 automated tests at the v1.2.0 release**, plus frontend lint, build, browser preflight, and dependency audits in CI.
 
-The dashboard path serves the React build from `web/dist/`. Build the frontend before running `./run_app.sh`.
+## Product views
 
-## Requirements
+![RiskLens detailed risk analysis showing multi-period comparisons, strengths, and watch items in a dark monochrome interface](./docs/assets/showcase/risk-analysis-detail.png)
+
+![Three-page RiskLens PDF report preview showing the cover, credit risk summary and Z-Score analysis, and financial statement detail](./docs/assets/showcase/pdf-report-preview.png)
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["Stock ticker(s)"] --> B["FastAPI assessment API"]
+    B --> C["yfinance / optional AKShare"]
+    C --> D["Normalize financial statements"]
+    D --> E["Ratios · Z-Score · covenants"]
+    E --> F["React dashboard"]
+    E --> G["JSON · Excel · PDF"]
+```
+
+The primary dashboard uses the multi-period `RichAssessmentService`; a smaller compatibility service remains available for the legacy entry point.
+
+## Engineering decisions
+
+- **Missing covenant data fails conservatively.** If a configured covenant cannot be evaluated because its input is unavailable, RiskLens flags it as a breach pending manual review instead of silently passing it.
+- **Synchronous market-data work is isolated.** FastAPI offloads pandas and provider calls to worker threads, while per-ticker timeouts and a semaphore keep concurrent requests bounded.
+- **Quarterly results remain comparable.** Flow-based quarterly figures are annualized for ratio analysis, with an annual-period fallback when a quarterly Z-Score cannot produce a defensible rating.
+- **CJK reports use bundled fonts.** ReportLab renders English, Simplified Chinese, Traditional Chinese, and Japanese PDFs with packaged Noto Sans CJK fonts and explicit pagination controls.
+
+## Quick start
+
+### Requirements
 
 - Python 3.12+
-- Node.js and npm for the frontend
-- Network access for live `yfinance`/AKShare data
+- Node.js and npm
+- Network access for live market data
 
-## Quick Start
-
-For a clean local setup:
+Build the Python environment and React application:
 
 ```bash
 ./scripts/rebuild_workspace.sh
 ```
 
-This recreates `.venv`, installs Python dev dependencies, runs `npm ci`, and builds `web/dist/`.
-
-To include AKShare-backed Chinese market data:
-
-```bash
-RISKLENS_WITH_CN_DATA=1 ./scripts/rebuild_workspace.sh
-```
-
-Run the dashboard:
+Start the local dashboard:
 
 ```bash
 ./run_app.sh
 ```
 
-Open:
-
-- `http://127.0.0.1:8000/`
-- `http://127.0.0.1:8000/health`
-- `http://127.0.0.1:8000/docs`
-
-## Manual Setup
-
-Backend:
+Open `http://127.0.0.1:8000`. To install optional AKShare-backed China-market support, use:
 
 ```bash
-python3 -m venv .venv
-./.venv/bin/python -m pip install --upgrade pip
-./.venv/bin/python -m pip install -e ".[dev]"
+RISKLENS_WITH_CN_DATA=1 ./scripts/rebuild_workspace.sh
 ```
 
-Frontend:
+The deterministic `DEMO` ticker exercises the core dashboard without depending on a live company response.
 
-```bash
-cd web
-npm ci
-npm run build
-```
-
-Frontend development server:
-
-```bash
-cd web
-npm run dev
-```
-
-## CLI
-
-Use the launcher from the repository root:
+## Command line
 
 ```bash
 ./run_cli.sh assess AAPL MSFT --data-source yfinance
 ./run_cli.sh search apple --limit 10
 ./run_cli.sh covenants AAPL --min-current-ratio 1.2 --max-debt-to-equity 2.0
-./run_cli.sh sources
-./run_cli.sh version
 ```
 
-The CLI supports `auto`, `yfinance`, `akshare`, and `demo` as data-source choices where applicable. Use `--output path/to/file.json` to write JSON output to a file and `--compact` for compact JSON.
+Add `--output path/to/file.json` to save an assessment, or run `./run_cli.sh --help` for all commands.
 
-Optional shell shortcut:
+## API
+
+Interactive OpenAPI documentation is available locally at `http://127.0.0.1:8000/docs`.
+
+| Method and endpoint | Purpose |
+|---|---|
+| `GET /health` | Check service status and version |
+| `POST /api/v1/assess` | Assess one or more companies |
+| `GET /api/v1/symbols/search` | Find a listed-company ticker |
+| `POST /api/v1/covenants/check` | Evaluate configured covenant limits |
+| `POST /api/v1/reports/pdf` | Generate a single-company PDF |
+| `POST /api/v1/reports/pdf/batch` | Download up to ten reports as a ZIP |
+
+## Validation
+
+The release gate runs backend tests, packaging checks, frontend lint and production builds, Playwright browser preflight, and Python/npm dependency audits.
 
 ```bash
-mkdir -p ~/.local/bin
-ln -sf "$(pwd)/risklens" ~/.local/bin/risklens
-```
+python -m pip check
+python -m pytest -q
 
-Then run:
-
-```bash
-risklens assess NVDA AMD --data-source yfinance
-```
-
-## API Examples
-
-### Credit Assessment
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/assess \
-  -H "Content-Type: application/json" \
-  -d '{"tickers":["NVDA","0700.HK"],"data_source":"yfinance","include_suggestions":true}'
-```
-
-### Company Search
-
-```bash
-curl "http://127.0.0.1:8000/api/v1/symbols/search?q=apple&limit=20"
-```
-
-### Covenant Check
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/covenants/check \
-  -H "Content-Type: application/json" \
-  -d '{"ticker":"NVDA","data_source":"yfinance","covenants":{"min_current_ratio":1.2,"max_debt_to_equity":2.0}}'
-```
-
-### PDF Export
-
-`POST /api/v1/reports/pdf` accepts a single-company assessment payload returned by `/api/v1/assess`. Abbreviated shape:
-
-```json
-{
-  "report": { "ticker": "NVDA" },
-  "lang": "en",
-  "theme": "dark"
-}
-```
-
-Supported languages are `en`, `zh-CN`, `zh-TW`, and `ja`. Supported themes are `dark` and `light`.
-
-For batch downloads, use `POST /api/v1/reports/pdf/batch` with `reports` (1–10
-payloads). The response is `RiskLens_PDF_Reports.zip` and includes
-`X-ZIP-SHA256`/`X-ZIP-Bytes` integrity headers. CJK exports use the bundled
-Noto font assets under `src/assets/fonts/`; set `RISKLENS_FONT_ZH_CN`,
-`RISKLENS_FONT_ZH_TW`, `RISKLENS_FONT_JA_BODY`, or
-`RISKLENS_FONT_JA_HEADING` to override them in a deployment image.
-
-## Testing
-
-Run backend tests:
-
-```bash
-pytest
-```
-
-Run a focused test file:
-
-```bash
-pytest tests/test_zscore.py
-```
-
-Run frontend checks:
-
-```bash
 cd web
 npm run lint
 npm run build
 npm run e2e:preflight
 ```
 
-Run legacy smoke checks against the MVP compatibility app:
+CI also verifies that the bundled CJK font assets are present and that both the Python package and React production bundle can be built from a clean checkout.
 
-```bash
-./.venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 18000
-./smoke_test.sh http://127.0.0.1:18000
-```
+## Development process
 
-## Release Review Checklist
+Codex assisted with implementation, refactoring, and test development. Changes were treated as engineering inputs—not accepted solely because they were generated—and were validated through automated tests, dependency audits, CI, rendered-report inspection, and manual product QA.
 
-Run the following checks before opening a release PR. Use the official npm
-registry so the lockfile and audit results are reproducible:
+## Methodology and limitations
 
-```bash
-./.venv/bin/python -m pip check
-./.venv/bin/python -m pytest -q
-git diff --check
-uvx pip-audit -r requirements.txt
-
-cd web
-npm ci --registry=https://registry.npmjs.org
-npm run lint
-npm run build
-npm run e2e:preflight
-npm audit --audit-level=high --registry=https://registry.npmjs.org
-```
-
-The npm audit is expected to report zero High/Critical findings. The only
-accepted residual is the moderate `uuid` advisory pulled by ExcelJS 4.x;
-`npm audit fix --force` would downgrade ExcelJS to 3.4.x and is therefore not
-used. Live PDF acceptance should additionally cover the A/H/US market matrix,
-both themes, all four supported languages, ZIP integrity headers, and a
-Poppler-rendered visual check of representative CJK pages.
-
-## Project Structure
-
-```text
-RiskLens/
-├── run_app.sh
-├── run_cli.sh
-├── smoke_test.sh
-├── scripts/
-│   ├── rebuild_workspace.sh
-│   └── venv_bootstrap.sh
-├── src/
-│   ├── api.py
-│   ├── risklens_cli.py
-│   ├── data_fetcher.py
-│   ├── ratio_analyzer.py
-│   ├── zscore.py
-│   ├── covenant_monitor.py
-│   ├── reportlab_pdf_exporter.py
-│   ├── reportlab_pdf_renderer.py
-│   ├── html_pdf_exporter.py
-│   ├── pdf_report_core.py
-│   ├── services/
-├── web/
-│   ├── src/
-│   └── dist/
-├── docs/
-│   ├── architecture/
-│   ├── methodology/
-│   ├── readme/
-│   └── report-workbook/
-└── main.py
-```
-
-## Key Modules
-
-| Module | Responsibility |
-|--------|----------------|
-| `src/api.py` | Dashboard FastAPI app, API routes, static SPA serving, concurrency limits |
-| `src/services/rich_assessment_service.py` | Multi-period dashboard assessment pipeline |
-| `src/services/assessment_service.py` | Legacy single-period MVP/CLI assessment pipeline |
-| `src/data_fetcher.py` | Financial data retrieval and caching |
-| `src/ratio_analyzer.py` | 40+ financial ratio calculations |
-| `src/zscore.py` | Altman Z-Score and rating mapping |
-| `src/covenant_monitor.py` | Covenant threshold checking |
-| `src/reportlab_pdf_exporter.py` | Full PDF report generation entrypoint |
-| `web/src/App.tsx` | Main React dashboard surface |
-
-## Configuration
-
-Settings are loaded from environment variables and optional `.env`. Start from `.env.example` when creating a local file.
-
-Common settings:
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `APP_PORT` | `8000` | Dashboard app port used by local scripts |
-| `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Frontend dev origins |
-| `ASSESS_MAX_CONCURRENCY` | `8` | Concurrent ticker assessments |
-| `ASSESS_TICKER_TIMEOUT_SECONDS` | `20` | Per-ticker assessment timeout |
-| `SYMBOL_SEARCH_TIMEOUT_SECONDS` | `8` | Company search timeout |
-| `CACHE_TTL_SECONDS` | `600` | Financial data cache TTL |
-| `SENTRY_DSN` | empty | Enables Sentry only when set |
-| `API_REPORT_DIR` | `/tmp/credit_api_reports` | Dashboard ratio/report artifact directory |
+- The implied rating is a RiskLens interpretation for internal screening, not a rating issued by S&P or another credit-rating agency.
+- Public market data may be delayed, restated, incomplete, or mapped differently across accounting standards.
+- Historical Z-Scores may use current market capitalization when historical market values are unavailable.
+- Altman Z-Score is one signal; industry structure, ownership, liquidity, and qualitative factors still require professional judgment.
+- RiskLens does not provide investment, legal, accounting, credit-rating, or lending advice.
 
 ## Documentation
 
 - [Architecture](./docs/architecture/ARCHITECTURE.md)
-- [Methodology](./docs/methodology/METHODOLOGY.md)
-- [Report workbook spec](./docs/report-workbook/REPORT_WORKBOOK_SPEC.md)
-- [Release review checklist](./docs/review/repository-release-checklist.md)
-- README translations: [zh-CN](./docs/readme/README_zh-CN.md), [zh-TW](./docs/readme/README_zh-TW.md), [ja](./docs/readme/README_ja.md)
+- [Credit-risk methodology](./docs/methodology/METHODOLOGY.md)
+- [Excel report specification](./docs/report-workbook/REPORT_WORKBOOK_SPEC.md)
+- [Localized documentation index](./docs/readme/README.md)
+- [Release checklist](./docs/review/repository-release-checklist.md)
 
-English documentation is the source of truth when translated wording conflicts.
+## License
+
+RiskLens is released under the [MIT License](./LICENSE).

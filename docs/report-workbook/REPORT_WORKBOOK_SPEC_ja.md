@@ -1,112 +1,49 @@
-# RiskLens Excel ワークブック仕様（現行実装）
+# RiskLens の Excel 出力を使う
 
-Language: [EN](./REPORT_WORKBOOK_SPEC.md) | [简中](./REPORT_WORKBOOK_SPEC_zh-CN.md) | [繁中](./REPORT_WORKBOOK_SPEC_zh-TW.md) | [日本語](./REPORT_WORKBOOK_SPEC_ja.md)
+言語：[EN](./REPORT_WORKBOOK_SPEC.md) | [简中](./REPORT_WORKBOOK_SPEC_zh-CN.md) | [繁中](./REPORT_WORKBOOK_SPEC_zh-TW.md) | [日本語](./REPORT_WORKBOOK_SPEC_ja.md)
 
-本書は `web/src/App.tsx` の `exportToExcel` に実装されている実際の Excel 出力挙動を説明します。
+Excel 出力は Dashboard の結果を、確認・共有しやすいワークブックにまとめます。追加分析の出発点としても利用できます。
 
-## 1. 単一企業エクスポート
+## 1社用ワークブック
 
-- ファイル名：`<TICKER>_Financial_Data.xlsx`
-- 実行トリガー：Dashboard の企業カード内エクスポートボタン
+企業カードから Excel 出力を選択します。ファイル名は `<TICKER>_Financial_Data.xlsx` で、3つのビューが含まれます。
 
-### シート構成（ローカライズ名）
+### リスク概要
 
-1. リスクレポートシート（`riskText.sheetName`、紫タブ）
-2. KPI 推移シート（`excelKpiSheet`、青タブ）
-3. 財務諸表シート（`excelStatementsSheet`、緑タブ）
+最初のシートには、最新期間、通貨、Altman Z-Score、リスクゾーン、インプライド格付け、強み、注視項目、コベナンツ結果、データ品質の注記がまとまっています。
 
-### リスクレポートシート
+### KPI トレンド
 
-単一企業のシートには以下が含まれます。
-- 結合タイトル行：`Company Name (Ticker)`
-- サマリー行：
-  - Ticker
-  - Latest Period
-  - Currency
-  - Altman Z-Score
-  - Z-Score Zone
-  - Implied Rating
-  - Strengths（ローカライズ）
-  - Watch Items（ローカライズ）
-- コベナンツ事前チェック表：
-  - Metric / Actual / Threshold / Status / Signal / Notes
-- データ品質ブロック：
-  - Breach Count
-  - Missing Key Inputs
-  - Missing Items
+利用可能な年次・四半期期間について、EBIT、EBITDA、総有利子負債、レバレッジ、インタレストカバレッジ、フリーキャッシュフロー、FCF/Debt、流動比率を表示します。
 
-ルール：
-- コベナンツ実績値が欠損の場合は数値 `0` を出力
-- 欠損コベナンツは `BREACH (DATA MISSING)` として扱う
+適切な比較期間がある場合は、前年同期比も追加されます。四半期は前年同四半期、年次は前の利用可能な年度と比較します。
 
-### KPI 推移シート
+### 財務諸表
 
-- 列構成：期間列（`FYxx` / `yyQx`）+ 任意 YoY 列（最新期が四半期なら前年同四半期を優先、そうでなければ年次ペア）
-- 指標：
-  - EBIT
-  - EBITDA
-  - Total Debt
-  - Debt / EBITDA
-  - Interest Coverage
-  - Free Cash Flow
-  - FCF / Debt
-  - Current Ratio
+損益計算書、貸借対照表、キャッシュフロー計算書の項目を一貫した順序で並べます。市場に応じて US GAAP、IFRS、CAS の項目対応を使い、似た科目を追いやすくします。
 
-### 財務諸表シート
+## 複数社用ワークブック
 
-- 行は損益計算書/貸借対照表/キャッシュフロー計算書の科目を集約
-- 行順は会計基準優先マッピング：
-  - 米国 ticker -> USGAAP 順
-  - 香港 ticker -> IFRS 順
-  - 中国 A 株 ticker -> CAS 順
-- 同義科目はフロントエンドのモーダルで主科目に折りたたみ、Excel は順序付きキー集合に基づき行を保持
-- YoY 列ルール：最新期が四半期の場合は「最新四半期 vs 前年同四半期」、それ以外は年次ペアがある場合に生成
+複数社を評価した後、**Export All** を選択します。ファイル名は `RiskLens_MultiCompany_Comparison.xlsx` で、次の内容が含まれます：
 
-## 2. 複数企業エクスポート
+- 各社のセクションを持つポートフォリオリスク概要；
+- 企業横断の KPI 比較；
+- 企業横断の財務諸表比較；
+- 各社ごとの財務諸表シート。
 
-- ファイル名：`RiskLens_MultiCompany_Comparison.xlsx`
-- 実行トリガー：複数企業表示時の上部 `Export All` ボタン
+最初に選択した企業が比較基準になります。計算可能な場合、他社について基準との差額と差率を表示します。
 
-### シート構成
+## ワークブックの読み方
 
-1. リスクレポートシート（`riskText.sheetName`、紫タブ）
-2. ポートフォリオ KPI 比較（`excelPortfolioKpiSheet`、青タブ）
-3. ポートフォリオ財務諸表比較（`excelPortfolioStatementsSheet`、青タブ）
-4. 企業別財務シート：`<CompanyShortName> <excelCompanySheetSuffix>`（緑タブ）
+- 紫はリスク概要を示します。
+- 青はポートフォリオと KPI 比較を示します。
+- 緑は財務諸表を示します。
+- 数値は統一した小数・パーセント形式を使います。
+- 列幅は表示内容に合わせて調整されます。
+- コベナンツ入力が不足している場合は手動確認が必要で、合格ではなく違反として扱われます。
 
-### ポートフォリオリスクシート
+## 言語
 
-- 企業ごとに 1 セクション
-- 各セクションは結合・着色されたタイトル行で開始
-- 各セクションにサマリー、コベナンツ事前チェック表、データ品質ブロックを含む
+シート名、リスクラベル、コベナンツ状態、強み、注視項目は RiskLens で選択した言語（英語、簡体字中国語、繁体字中国語、日本語）に合わせて表示されます。
 
-### ポートフォリオ KPI / 財務比較シート
-
-- 最初に選択された企業を比較基準とする
-- 各期間ブロックで以下を出力：
-  - 基準企業値
-  - 比較先企業値
-  - 基準差分
-  - 基準比 `%`
-
-## 3. 書式ルール
-
-- 期間ブロックごとにヘッダー色帯を適用
-- タブ色：
-  - risk：紫
-  - portfolio comparison：青
-  - statements：緑
-- 列幅はセル文字長から自動調整
-- 数値書式：
-  - 値：`#,##0.00`
-  - 比率：`0.00%`
-
-## 4. ローカライズ
-
-ワークブックのラベルは以下に対応：
-- `en`
-- `zh-CN`
-- `zh-TW`
-- `ja`
-
-ローカライズ対象はシート名、リスクラベル、コベナンツ状態テキスト、strengths/watch items 翻訳です。
+ワークブックは出力時点で取得できたデータを反映します。企業比較やコベナンツ結果を利用する前に、データ品質の注記を確認してください。

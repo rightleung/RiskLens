@@ -1,112 +1,49 @@
-# RiskLens Excel Workbook Spec (Current)
+# Working with RiskLens Excel exports
 
 Language: [EN](./REPORT_WORKBOOK_SPEC.md) | [简中](./REPORT_WORKBOOK_SPEC_zh-CN.md) | [繁中](./REPORT_WORKBOOK_SPEC_zh-TW.md) | [日本語](./REPORT_WORKBOOK_SPEC_ja.md)
 
-This document describes the actual Excel export behavior implemented in `web/src/App.tsx` (`exportToExcel`).
+Excel exports turn the dashboard result into a workbook that can be reviewed, shared, or used as a starting point for further analysis.
 
-## 1. Single-Company Export
+## Single-company workbook
 
-- Filename: `<TICKER>_Financial_Data.xlsx`
-- Trigger: card-level export button in dashboard
+From a company card, choose the Excel export action. The file is named `<TICKER>_Financial_Data.xlsx` and contains three views.
 
-### Sheet Layout (localized names)
+### Risk overview
 
-1. Risk report sheet (`riskText.sheetName`, purple tab)
-2. KPI trends sheet (`excelKpiSheet`, blue tab)
-3. Financial statements sheet (`excelStatementsSheet`, green tab)
+The first sheet brings together the latest period, currency, Altman Z-Score, risk zone, implied rating, strengths, watch items, covenant results, and data-quality notes.
 
-### Risk Report Sheet
+### KPI trends
 
-For a single company, the sheet contains:
-- merged title row with `Company Name (Ticker)`
-- summary rows:
-  - Ticker
-  - Latest Period
-  - Currency
-  - Altman Z-Score
-  - Z-Score Zone
-  - Implied Rating
-  - Strengths (localized)
-  - Watch Items (localized)
-- covenant pre-check table:
-  - Metric / Actual / Threshold / Status / Signal / Notes
-- data quality rows:
-  - Breach Count
-  - Missing Key Inputs
-  - Missing Items
+The trend sheet shows key measures across available annual and quarterly periods, including EBIT, EBITDA, total debt, leverage, interest coverage, free cash flow, FCF/debt, and current ratio.
 
-Rules:
-- missing covenant actual value is exported as numeric `0`
-- missing covenant is treated as `BREACH (DATA MISSING)`
+When a suitable comparison period exists, the workbook adds year-over-year changes. Quarterly results are compared with the same quarter of the previous year; annual results are compared with the previous available year.
 
-### KPI Trends Sheet
+### Financial statements
 
-- columns: periods (`FYxx` / `yyQx`) + optional YoY columns (latest-quarter YoY if available, otherwise annual pairs)
-- metrics include:
-  - EBIT
-  - EBITDA
-  - Total Debt
-  - Debt / EBITDA
-  - Interest Coverage
-  - Free Cash Flow
-  - FCF / Debt
-  - Current Ratio
+Income statement, balance-sheet, and cash-flow items are arranged in a consistent order. RiskLens uses US GAAP, IFRS, or CAS label mappings where applicable so that similar line items are easier to follow across markets.
 
-### Financial Statements Sheet
+## Multi-company workbook
 
-- rows aggregate line items from income/balance/cash statements
-- row order uses standards-first mapping:
-  - US tickers -> USGAAP order
-  - HK tickers -> IFRS order
-  - CN A-share tickers -> CAS order
-- synonymous keys are folded under a primary key (frontend modal behavior), while Excel keeps line-item rows based on ordered key collection
-- optional YoY columns use latest quarter vs same quarter last year when latest is quarterly; otherwise annual pairs where both values exist
+When several companies are assessed, choose **Export All**. The file is named `RiskLens_MultiCompany_Comparison.xlsx` and includes:
 
-## 2. Multi-Company Export
+- a portfolio risk overview with one section per company;
+- a cross-company KPI comparison;
+- a cross-company financial-statement comparison;
+- a separate statement sheet for each company.
 
-- Filename: `RiskLens_MultiCompany_Comparison.xlsx`
-- Trigger: top-level "Export All" button when multiple companies are present
+The first selected company is used as the comparison baseline. Other companies show both the absolute difference and percentage difference from that baseline where calculation is possible.
 
-### Sheet Layout
+## Reading the workbook
 
-1. Risk report sheet (`riskText.sheetName`, purple tab)
-2. Portfolio KPI comparison (`excelPortfolioKpiSheet`, blue tab)
-3. Portfolio statement comparison (`excelPortfolioStatementsSheet`, blue tab)
-4. Per-company statement sheet(s): `<CompanyShortName> <excelCompanySheetSuffix>` (green tab)
+- Purple identifies risk-overview content.
+- Blue identifies portfolio and KPI comparisons.
+- Green identifies financial statements.
+- Numbers use consistent decimal and percentage formats.
+- Column widths adapt to the displayed content.
+- Missing covenant inputs require review and are treated as breaches rather than passes.
 
-### Portfolio Risk Sheet
+## Languages
 
-- one section per company
-- each section starts with merged, colored title row
-- each section includes summary, covenant pre-check table, and data-quality block
+Sheet names, risk labels, covenant status, strengths, and watch items follow the language selected in RiskLens: English, Simplified Chinese, Traditional Chinese, or Japanese.
 
-### Portfolio KPI / Statement Comparison Sheets
-
-- first selected company is comparison baseline
-- for each period block:
-  - baseline company value
-  - peer company value(s)
-  - delta vs baseline
-  - `%` vs baseline
-
-## 3. Formatting Conventions
-
-- period header color bands are applied per fiscal period block
-- tab colors:
-  - risk: purple
-  - portfolio comparison: blue
-  - statements: green
-- columns are auto-fitted from actual cell text length
-- number formats:
-  - values: `#,##0.00`
-  - percentages: `0.00%`
-
-## 4. Localization
-
-Workbook labels support:
-- `en`
-- `zh-CN`
-- `zh-TW`
-- `ja`
-
-Localization covers sheet names, risk labels, covenant status text, and translated strengths/watch items.
+The workbook reflects the data available at export time. Always review data-quality notes before relying on a comparison or covenant result.

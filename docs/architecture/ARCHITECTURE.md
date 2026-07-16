@@ -1,72 +1,55 @@
-# RiskLens Architecture Overview
+# How RiskLens works
 
 Language: [EN](./ARCHITECTURE.md) | [简中](./ARCHITECTURE_zh-CN.md) | [繁中](./ARCHITECTURE_zh-TW.md) | [日本語](./ARCHITECTURE_ja.md)
 
-## 1. Runtime Topology
+RiskLens follows a simple path: find a company, prepare its financial data, calculate risk signals, and present the result in a form that is easy to review or share.
 
-RiskLens currently supports two backend entry paths:
-
-1. Dashboard path (default)
-- Launcher: `./run_app.sh`
-- Backend: `src/api.py` (`uvicorn src.api:app`)
-- Frontend: `web/` React app served by FastAPI static routes
-- Primary APIs: `/api/v1/assess`, `/api/v1/symbols/search`, `/api/v1/covenants/check`
-
-2. MVP compatibility path
-- Backend: `main.py`
-- APIs: `/api/assess`, `/api/v1/assess`
-- Used mainly for legacy smoke checks and backward compatibility
-
-## 2. Backend Components (`src/`)
-
-- `api.py`: request orchestration, error mapping, API routes, static hosting
-- `risklens_cli.py`: CLI interface for batch assessment, search, and covenant checks
-- `data_fetcher.py`: market data retrieval (yfinance/AKShare fallback strategy)
-- `ratio_analyzer.py`: ratio computation layer
-- `zscore.py`: Altman Z-Score computation
-- `covenant_monitor.py`: covenant rule checking with conservative fail policy
-- `akshare_data.py`: A-share / HK market data source (optional, degrades to yfinance)
-- `reportlab_pdf_exporter.py`: PDF generation entry point (ReportLab)
-- `reportlab_pdf_renderer.py`: ReportLab rendering layer
-- `html_pdf_exporter.py`: HTML-to-PDF data extraction and model building
-- `pdf_report_core.py`: sanitization and proxy layer
-- `services/`: assessment service layer (RichAssessmentService)
-
-## 3. Frontend Components (`web/`)
-
-- React + Vite SPA
-- Main page search supports:
-  - direct ticker input (single or comma-separated)
-  - company finder dialog (calls `/api/v1/symbols/search`, supports multi-select write-back)
-- Statement modal supports synonym folding + standard-order rendering (USGAAP/IFRS/CAS mapping)
-- Excel export logic is implemented in `web/src/App.tsx` (`exportToExcel`)
-
-## 4. API Surface (Dashboard Path)
-
-- `GET /`: dashboard UI
-- `GET /health`: health check
-- `GET /docs`: OpenAPI docs
-- `POST /api/v1/assess`: risk assessment (single/multi ticker)
-- `GET /api/v1/symbols/search`: equity symbol suggestions for company finder
-- `POST /api/v1/covenants/check`: covenant check
-- `POST /api/v1/reports/pdf`: full PDF report export
-
-## 5. Data Flow
+## The assessment journey
 
 ```mermaid
-graph TD
-  A[User Input / Company Finder] --> B[POST /api/v1/assess or GET /api/v1/symbols/search]
-  B --> C[src/api.py]
-  C --> D[data_fetcher.py]
-  D --> E[ratio_analyzer.py]
-  E --> F[zscore.py]
-  E --> G[covenant_monitor.py]
-  F --> H[Assessment Payload]
-  G --> H
-  H --> I[React Dashboard + Excel Export]
+flowchart LR
+  A["Choose company"] --> B["Collect financial data"]
+  B --> C["Normalize periods and line items"]
+  C --> D["Calculate ratios and Z-Score"]
+  D --> E["Check covenants"]
+  E --> F["Dashboard, Excel, JSON, or PDF"]
 ```
 
-## 6. Why This Document Exists
+### 1. Choose a company
 
-This document defines *system boundaries and runtime truth*.
-Use it when validating entrypoints, API ownership, and frontend/backend responsibilities.
+Users can search by company name or enter one or more tickers. The same assessment flow is available from the dashboard, command line, and API.
+
+### 2. Prepare the data
+
+Yahoo Finance is the default source for global listed companies. AKShare can add China-market coverage. RiskLens aligns financial periods, standardizes common statement labels, and records missing inputs rather than hiding them.
+
+### 3. Build the risk view
+
+The analysis combines 40+ financial ratios with the Altman Z-Score. If covenant limits are provided, actual values are checked against them. Missing data for a configured covenant is flagged for review and treated as a breach until verified.
+
+### 4. Present the result
+
+The React dashboard shows the latest assessment, trends, company comparisons, statements, and data-quality notes. The same result can be exported to JSON, Excel, or PDF in four supported languages.
+
+## Product areas
+
+| Area | What it does |
+|---|---|
+| Experience | Search, assessment, comparison, and exports |
+| Data | Fetch, cache, normalize, and validate financial inputs |
+| Analysis | Calculate ratios, Z-Score, implied rating, and covenant status |
+| Reporting | Prepare localized Excel and PDF outputs |
+
+## Reliability choices
+
+- Slow network and calculation work runs outside the main request loop.
+- Per-company timeouts and concurrency limits prevent one request from consuming all capacity.
+- Non-finite numbers are removed before JSON output.
+- Missing covenant data is never silently marked as a pass.
+- Sentry monitoring is optional and stays disabled unless configured.
+
+## Maintainer map
+
+The primary product runs from `src/api.py` and serves the React build in `web/dist/`. Analysis lives in `src/services/`, `src/data_fetcher.py`, `src/ratio_analyzer.py`, `src/zscore.py`, and `src/covenant_monitor.py`. Report generation lives in the PDF modules under `src/` and the Excel export in `web/src/App.tsx`.
+
+The root `main.py` is a compatibility path, not the primary product entry point.

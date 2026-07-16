@@ -1,112 +1,49 @@
-# RiskLens Excel 工作簿規格（目前實作）
+# 使用 RiskLens Excel 匯出
 
-語言: [EN](./REPORT_WORKBOOK_SPEC.md) | [简中](./REPORT_WORKBOOK_SPEC_zh-CN.md) | [繁中](./REPORT_WORKBOOK_SPEC_zh-TW.md) | [日本語](./REPORT_WORKBOOK_SPEC_ja.md)
+語言：[EN](./REPORT_WORKBOOK_SPEC.md) | [简中](./REPORT_WORKBOOK_SPEC_zh-CN.md) | [繁中](./REPORT_WORKBOOK_SPEC_zh-TW.md) | [日本語](./REPORT_WORKBOOK_SPEC_ja.md)
 
-本文描述 `web/src/App.tsx` 中 `exportToExcel` 的實際匯出行為。
+Excel 匯出會把 Dashboard 結果整理成方便審閱與分享的活頁簿，也可以作為進一步分析的起點。
 
-## 1. 單一公司匯出
+## 單一公司活頁簿
 
-- 檔名：`<TICKER>_Financial_Data.xlsx`
-- 觸發方式：Dashboard 公司卡片匯出按鈕
+在公司卡片中選擇 Excel 匯出。檔名為 `<TICKER>_Financial_Data.xlsx`，包含三種視圖。
 
-### Sheet 版面（多語名稱）
+### 風險概覽
 
-1. 風險報告頁（`riskText.sheetName`，紫色標籤）
-2. KPI 趨勢頁（`excelKpiSheet`，藍色標籤）
-3. 財務報表頁（`excelStatementsSheet`，綠色標籤）
+第一個工作表集中顯示最新期間、幣別、Altman Z-Score、風險區間、隱含評級、優勢、關注項目、契約結果與資料品質提示。
 
-### 風險報告頁
+### KPI 趨勢
 
-單一公司風險頁包含：
-- 合併標題列：`公司名稱 (Ticker)`
-- 摘要列：
-  - Ticker
-  - Latest Period
-  - Currency
-  - Altman Z-Score
-  - Z-Score Zone
-  - Implied Rating
-  - Strengths（多語）
-  - Watch Items（多語）
-- 契約預檢表：
-  - Metric / Actual / Threshold / Status / Signal / Notes
-- 資料品質區：
-  - Breach Count
-  - Missing Key Inputs
-  - Missing Items
+趨勢工作表呈現可用年度與季度期間的關鍵指標，包括 EBIT、EBITDA、總債務、槓桿、利息覆蓋率、自由現金流、自由現金流/債務與流動比率。
 
-規則：
-- 契約實際值缺失時，匯出為數值 `0`
-- 缺失契約一律視為 `BREACH (DATA MISSING)`
+若存在合適的比較期間，活頁簿會加入年增率變化。季度資料與上年同季度比較，年度資料與上一個可用年度比較。
 
-### KPI 趨勢頁
+### 財務報表
 
-- 欄位：期間欄（`FYxx` / `yyQx`）+ 可選 YoY 欄（若最新期為季度則優先同比去年同季，否則採年度成對對比）
-- 指標包含：
-  - EBIT
-  - EBITDA
-  - Total Debt
-  - Debt / EBITDA
-  - Interest Coverage
-  - Free Cash Flow
-  - FCF / Debt
-  - Current Ratio
+綜合損益表、資產負債表與現金流量表科目會依一致順序排列。RiskLens 會依市場使用 US GAAP、IFRS 或 CAS 科目映射，方便跨市場檢視相近項目。
 
-### 財務報表頁
+## 多公司活頁簿
 
-- 行資料來自損益表/資產負債表/現金流量表彙整
-- 排序採準則優先映射：
-  - 美股 ticker -> USGAAP 順序
-  - 港股 ticker -> IFRS 順序
-  - A 股 ticker -> CAS 順序
-- 同義科目在前端彈窗折疊為主科目；Excel 仍依有序鍵集合輸出行
-- YoY 欄規則：最新期為季度時使用「最新季度 vs 去年同季度」；否則在年度資料成對存在時按年度輸出
+評估多家公司後，選擇 **Export All**。檔名為 `RiskLens_MultiCompany_Comparison.xlsx`，包括：
 
-## 2. 多公司匯出
+- 每家公司一個區塊的組合風險概覽；
+- 跨公司 KPI 比較；
+- 跨公司財務報表比較；
+- 每家公司獨立的財務報表工作表。
 
-- 檔名：`RiskLens_MultiCompany_Comparison.xlsx`
-- 觸發方式：多公司結果時頂部 `Export All` 按鈕
+第一家選取的公司會作為比較基準。其他公司在可以計算時，會同時顯示相對基準的絕對差異與百分比差異。
 
-### Sheet 版面
+## 如何閱讀活頁簿
 
-1. 風險報告頁（`riskText.sheetName`，紫色標籤）
-2. 組合 KPI 對比頁（`excelPortfolioKpiSheet`，藍色標籤）
-3. 組合報表對比頁（`excelPortfolioStatementsSheet`，藍色標籤）
-4. 公司分表：`<CompanyShortName> <excelCompanySheetSuffix>`（綠色標籤）
+- 紫色用於風險概覽。
+- 藍色用於組合與 KPI 比較。
+- 綠色用於財務報表。
+- 數字使用一致的小數與百分比格式。
+- 欄寬會依顯示內容自動調整。
+- 契約輸入缺失時需要人工覆核，並按違約而不是通過處理。
 
-### 組合風險頁
+## 多語言
 
-- 每家公司一個區塊
-- 每個區塊由合併且著色標題列開始
-- 每個區塊含摘要區、契約預檢表、資料品質區
+工作表名稱、風險標籤、契約狀態、優勢與關注項目會跟隨 RiskLens 目前語言：英文、簡體中文、繁體中文或日文。
 
-### 組合 KPI / 報表對比頁
-
-- 第一家選中公司作為比較基準
-- 每個期間區塊包含：
-  - 基準公司值
-  - 同行公司值
-  - 相對基準差值
-  - 相對基準 `%`
-
-## 3. 格式慣例
-
-- 每個期間區塊使用獨立表頭色帶
-- 標籤色：
-  - risk：紫色
-  - portfolio comparison：藍色
-  - statements：綠色
-- 欄寬依實際儲存格文字自動調整
-- 數字格式：
-  - 數值：`#,##0.00`
-  - 百分比：`0.00%`
-
-## 4. 多語系
-
-工作簿標籤支援：
-- `en`
-- `zh-CN`
-- `zh-TW`
-- `ja`
-
-在地化覆蓋 sheet 名稱、風險標籤、契約狀態文字與 strengths/watch items 翻譯。
+活頁簿反映匯出當時可取得的資料。使用公司比較或契約結果前，請先檢視資料品質提示。

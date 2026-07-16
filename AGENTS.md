@@ -22,7 +22,7 @@ pip install -e ".[dev]"
 ./run_cli.sh search apple --limit 10
 ./run_cli.sh covenants AAPL --min-current-ratio 1.2 --max-debt-to-equity 2.0
 
-# Run all tests (expect 101 passed)
+# Run all tests (v1.2.0 release baseline: 308 passed)
 pytest
 
 # Run a single test file

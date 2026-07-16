@@ -1,76 +1,55 @@
-# RiskLens 架構總覽
+# RiskLens 如何運作
 
-語言: [EN](./ARCHITECTURE.md) | [简中](./ARCHITECTURE_zh-CN.md) | [繁中](./ARCHITECTURE_zh-TW.md) | [日本語](./ARCHITECTURE_ja.md)
+語言：[EN](./ARCHITECTURE.md) | [简中](./ARCHITECTURE_zh-CN.md) | [繁中](./ARCHITECTURE_zh-TW.md) | [日本語](./ARCHITECTURE_ja.md)
 
-## 1. 執行拓樸
+RiskLens 的流程很直接：找到公司、整理財務資料、計算風險訊號，再把結果以方便檢視與分享的方式呈現。
 
-RiskLens 目前支援兩條後端入口路徑：
-
-1. Dashboard 路徑（預設）
-- 啟動方式：`./run_app.sh`
-- 後端：`src/api.py`（`uvicorn src.api:app`）
-- 前端：`web/` React 應用由 FastAPI 靜態路由託管
-- 主要 API：`/api/v1/assess`、`/api/v1/symbols/search`、`/api/v1/covenants/check`
-
-2. MVP 相容路徑
-- 後端：`main.py`
-- API：`/api/assess`、`/api/v1/assess`
-- 主要用於歷史 smoke 檢查與向後相容
-
-## 2. 後端元件（`src/`）
-
-- `api.py`：請求編排、錯誤映射、API 路由、靜態託管
-- `risklens_cli.py`：CLI 介面，支援批次評估、搜尋和契約檢查
-- `data_fetcher.py`：市場資料抓取（yfinance/AKShare 回退策略）
-- `ratio_analyzer.py`：財務比率計算層
-- `zscore.py`：Altman Z-Score 計算
-- `covenant_monitor.py`：契約規則檢查（保守失敗策略）
-- `akshare_data.py`：A 股/港股資料來源（可選，缺失時降級為 yfinance）
-- `reportlab_pdf_exporter.py`：PDF 產生入口（ReportLab）
-- `reportlab_pdf_renderer.py`：ReportLab 渲染層
-- `html_pdf_exporter.py`：HTML-to-PDF 資料提取與模型構建
-- `pdf_report_core.py`：資料清洗與代理層
-- `services/`：評估服務層（RichAssessmentService）
-
-## 3. 前端元件（`web/`）
-
-- React + Vite SPA
-- 首頁搜尋支援：
-  - 直接輸入 ticker（單一或逗號分隔）
-  - 公司搜尋視窗（呼叫 `/api/v1/symbols/search`，支援多選回填）
-- 財報視窗支援同義項折疊 + 標準順序呈現（USGAAP/IFRS/CAS 映射）
-- Excel 匯出邏輯位於 `web/src/App.tsx`（`exportToExcel`）
-
-## 4. API 面（Dashboard 路徑）
-
-- `GET /`：Dashboard UI
-- `GET /health`：健康檢查
-- `GET /docs`：OpenAPI 文件
-- `POST /api/v1/assess`：風險評估（單/多 ticker）
-- `GET /api/v1/symbols/search`：公司搜尋候選
-- `POST /api/v1/covenants/check`：契約檢查
-- `POST /api/v1/reports/pdf`：完整 PDF 報告匯出
-
-## 5. 資料流
+## 一次評估如何完成
 
 ```mermaid
-graph TD
-  A[使用者輸入 / 公司搜尋] --> B[POST /api/v1/assess 或 GET /api/v1/symbols/search]
-  B --> C[src/api.py]
-  C --> D[data_fetcher.py]
-  D --> E[ratio_analyzer.py]
-  E --> F[zscore.py]
-  E --> G[covenant_monitor.py]
-  F --> H[評估結果載荷]
-  G --> H
-  H --> I[React Dashboard + Excel 匯出]
+flowchart LR
+  A["選擇公司"] --> B["取得財務資料"]
+  B --> C["統一期間與財務科目"]
+  C --> D["計算財務指標與 Z-Score"]
+  D --> E["檢查契約"]
+  E --> F["Dashboard、Excel、JSON 或 PDF"]
 ```
 
-## 6. 文件目的
+### 1. 選擇公司
 
-本文定義系統邊界與執行事實，用於驗證入口路徑、API 歸屬與前後端職責。
+使用者可以依公司名稱搜尋，也可以輸入一個或多個股票代碼。Dashboard、命令列與 API 使用同一套評估流程。
 
-## 7. 文件組織
+### 2. 整理資料
 
-- 英文主文件保留在根目錄。
-- 其他語言版本統一放在本目錄（`docs/architecture/`），方便維護並保持根目錄整潔。
+全球上市公司預設使用 Yahoo Finance，也可以透過 AKShare 補充中國市場資料。RiskLens 會對齊財務期間、統一常見財報科目，並明確記錄缺失輸入。
+
+### 3. 形成風險視圖
+
+分析結合 40+ 財務指標與 Altman Z-Score。若設定契約門檻，系統會比較實際值與門檻。已設定契約但資料缺失時，會標記為需要覆核，並在確認前暫按違約處理。
+
+### 4. 呈現結果
+
+React Dashboard 顯示最新評估、歷史趨勢、公司比較、財務報表與資料品質提示。同一結果可以用四種語言匯出為 JSON、Excel 或 PDF。
+
+## 產品的四個部分
+
+| 部分 | 作用 |
+|---|---|
+| 使用體驗 | 搜尋、評估、比較與匯出 |
+| 資料 | 取得、快取、標準化與驗證財務輸入 |
+| 分析 | 計算財務指標、Z-Score、隱含評級與契約狀態 |
+| 報告 | 產生多語言 Excel 與 PDF |
+
+## 可靠性原則
+
+- 網路請求與較重計算不會阻塞主要請求迴圈。
+- 單一公司逾時與並行限制可避免一個請求占滿服務容量。
+- 輸出 JSON 前會清理 NaN 與無窮值。
+- 契約所需資料缺失時，絕不會默認為通過。
+- Sentry 監控為選用功能，未設定時保持關閉。
+
+## 維護者速查
+
+主要產品從 `src/api.py` 啟動，並提供 `web/dist/` 中的 React 建置結果。分析邏輯集中在 `src/services/`、`src/data_fetcher.py`、`src/ratio_analyzer.py`、`src/zscore.py` 與 `src/covenant_monitor.py`。PDF 位於 `src/` 的報告模組，Excel 匯出位於 `web/src/App.tsx`。
+
+根目錄 `main.py` 是相容路徑，不是主要產品入口。

@@ -182,7 +182,8 @@ def test_pdf_exporter_generates_pdf_bytes(tmp_path):
     assert context["hero_summary"]["note"].startswith("方法论注解:")
     assert context["zone_text"] == "Safe"
     assert context["covenant_rows"][0]["status_signal"] == "Pass"
-    assert context["covenant_rows"][0]["description"] == "衡量杠杆与偿债能力"
+    assert context["covenant_rows"][0]["description"].startswith("总债务 ÷ EBITDA")
+    assert "行业水平" in context["covenant_rows"][0]["description"]
     assert context["covenant_notes"][0]["metric"] == "Debt/EBITDA"
     assert context["covenant_note_title"] == "指标说明"
     assert context["periods"][2]["group_start"] is True
@@ -198,6 +199,9 @@ def test_pdf_exporter_generates_pdf_bytes(tmp_path):
     assert all(section["yoy_note"] == context["yoy_note"] for section in context["statement_sections"])
     assert context["data_quality_rows"][0]["value"] == "92%"
     assert len(context["methodology_notes"]) == 3
+    assert "1.2×营运资本/总资产" in context["methodology_notes"][0]
+    assert "不是跨行业通用的授信限额" in context["methodology_notes"][1]
+    assert "AAA 至 D" in context["methodology_notes"][2]
     assert context["benchmark_note"] == ""
     assert context["kpi_rows"][3]["values"][0] == "1.90"
     cash_flow_section = next(section for section in context["statement_sections"] if section["title"] == "cash_flow_statement")

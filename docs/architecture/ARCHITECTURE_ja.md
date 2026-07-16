@@ -1,76 +1,55 @@
-# RiskLens アーキテクチャ概要
+# RiskLens の仕組み
 
-Language: [EN](./ARCHITECTURE.md) | [简中](./ARCHITECTURE_zh-CN.md) | [繁中](./ARCHITECTURE_zh-TW.md) | [日本語](./ARCHITECTURE_ja.md)
+言語：[EN](./ARCHITECTURE.md) | [简中](./ARCHITECTURE_zh-CN.md) | [繁中](./ARCHITECTURE_zh-TW.md) | [日本語](./ARCHITECTURE_ja.md)
 
-## 1. ランタイム構成
+RiskLens の流れはシンプルです。企業を選び、財務データを整え、リスク指標を計算し、確認・共有しやすい形で結果を表示します。
 
-RiskLens は現在、2 つのバックエンド入口パスをサポートしています。
-
-1. Dashboard パス（デフォルト）
-- 起動：`./run_app.sh`
-- バックエンド：`src/api.py`（`uvicorn src.api:app`）
-- フロントエンド：`web/` React アプリを FastAPI の静的ルートで配信
-- 主 API：`/api/v1/assess`、`/api/v1/symbols/search`、`/api/v1/covenants/check`
-
-2. MVP 互換パス
-- バックエンド：`main.py`
-- API：`/api/assess`、`/api/v1/assess`
-- 主にレガシー smoke チェックと後方互換向け
-
-## 2. バックエンドコンポーネント（`src/`）
-
-- `api.py`：リクエスト制御、エラーマッピング、API ルーティング、静的配信
-- `risklens_cli.py`：CLI インターフェース（バッチ評価、検索、コベナンツチェック）
-- `data_fetcher.py`：市場データ取得（yfinance/AKShare フォールバック）
-- `ratio_analyzer.py`：財務比率計算レイヤー
-- `zscore.py`：Altman Z-Score 計算
-- `covenant_monitor.py`：コベナンツ判定（保守的 fail ポリシー）
-- `akshare_data.py`：A 株/HK 市場データソース（オプション、未導入時は yfinance にフォールバック）
-- `reportlab_pdf_exporter.py`：PDF 生成エントリポイント（ReportLab）
-- `reportlab_pdf_renderer.py`：ReportLab レンダリング層
-- `html_pdf_exporter.py`：HTML-to-PDF データ抽出とモデル構築
-- `pdf_report_core.py`：データサニタイズとプロキシ層
-- `services/`：評価サービス層（RichAssessmentService）
-
-## 3. フロントエンドコンポーネント（`web/`）
-
-- React + Vite SPA
-- トップページ検索機能：
-  - ticker 直接入力（単一またはカンマ区切り）
-  - 企業検索ダイアログ（`/api/v1/symbols/search` を呼び出し、複数選択で入力欄へ反映）
-- 財務諸表モーダルは同義項目の折りたたみと標準順序表示（USGAAP/IFRS/CAS マッピング）をサポート
-- Excel 出力ロジックは `web/src/App.tsx`（`exportToExcel`）に実装
-
-## 4. API サーフェス（Dashboard パス）
-
-- `GET /`：Dashboard UI
-- `GET /health`：ヘルスチェック
-- `GET /docs`：OpenAPI ドキュメント
-- `POST /api/v1/assess`：リスク評価（単一/複数 ticker）
-- `GET /api/v1/symbols/search`：企業検索候補
-- `POST /api/v1/covenants/check`：コベナンツチェック
-- `POST /api/v1/reports/pdf`：完全 PDF レポート出力
-
-## 5. データフロー
+## 評価の流れ
 
 ```mermaid
-graph TD
-  A[ユーザー入力 / 企業検索] --> B[POST /api/v1/assess または GET /api/v1/symbols/search]
-  B --> C[src/api.py]
-  C --> D[data_fetcher.py]
-  D --> E[ratio_analyzer.py]
-  E --> F[zscore.py]
-  E --> G[covenant_monitor.py]
-  F --> H[評価ペイロード]
-  G --> H
-  H --> I[React Dashboard + Excel エクスポート]
+flowchart LR
+  A["企業を選択"] --> B["財務データを取得"]
+  B --> C["期間と科目を標準化"]
+  C --> D["財務指標と Z-Score を計算"]
+  D --> E["コベナンツを確認"]
+  E --> F["Dashboard、Excel、JSON、PDF"]
 ```
 
-## 6. この文書の目的
+### 1. 企業を選ぶ
 
-本書はシステム境界とランタイムの事実を定義し、入口パス、API 所有、フロント/バックの責務を検証するために使用します。
+会社名で検索するか、1つまたは複数の銘柄コードを入力します。Dashboard、コマンドライン、API は同じ評価フローを利用します。
 
-## 7. ドキュメント配置
+### 2. データを整える
 
-- 英語版の主文書はルートに残します。
-- 他言語版はすべてこのディレクトリ（`docs/architecture/`）にまとめ、保守性とルートの見通しを優先します。
+グローバル上場企業には Yahoo Finance を標準で利用し、中国市場の追加データには AKShare を利用できます。RiskLens は財務期間と一般的な財務科目をそろえ、不足している入力を明示します。
+
+### 3. リスクビューを作る
+
+40以上の財務指標と Altman Z-Score を組み合わせます。コベナンツ基準が設定されている場合は、実績値と比較します。必要なデータがない場合は確認対象として示し、確認が終わるまで違反として扱います。
+
+### 4. 結果を表示する
+
+React Dashboard には最新評価、過去の推移、企業比較、財務諸表、データ品質の注記が表示されます。同じ結果を4言語の JSON、Excel、PDF に出力できます。
+
+## 製品を構成する4つの領域
+
+| 領域 | 役割 |
+|---|---|
+| 画面 | 検索、評価、比較、出力 |
+| データ | 財務入力の取得、キャッシュ、標準化、検証 |
+| 分析 | 財務指標、Z-Score、インプライド格付け、コベナンツ状態の計算 |
+| レポート | 多言語の Excel と PDF の作成 |
+
+## 信頼性のための設計
+
+- ネットワーク処理と重い計算は、主要なリクエスト処理を止めないように実行します。
+- 企業ごとのタイムアウトと同時実行数の制限で、1件のリクエストによる占有を防ぎます。
+- JSON 出力前に NaN と無限値を除去します。
+- コベナンツに必要なデータがない場合、合格として黙って処理しません。
+- Sentry 監視は任意で、設定されていない場合は無効です。
+
+## メンテナー向け早見表
+
+メイン製品は `src/api.py` から起動し、`web/dist/` の React ビルドを配信します。分析は `src/services/`、`src/data_fetcher.py`、`src/ratio_analyzer.py`、`src/zscore.py`、`src/covenant_monitor.py` にあります。PDF は `src/` のレポートモジュール、Excel 出力は `web/src/App.tsx` にあります。
+
+ルートの `main.py` は互換性用であり、メインの製品エントリーポイントではありません。
