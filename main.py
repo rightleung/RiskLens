@@ -40,7 +40,7 @@ def _error_response(error: str, error_type: str, details: dict[str, Any] | None 
 app = FastAPI(
     title=settings.app_name,
     description="Minimal runnable FastAPI MVP for credit assessment.",
-    version="1.1.0",
+    version=settings.version,
 )
 
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")

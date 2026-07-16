@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     app_name: str = "RiskLens"
     app_port: int = 8000
-    version: str = "1.1.0"
+    version: str = "1.2.0"
 
     sentry_dsn: str = ""
     environment: str = "development"

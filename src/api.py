@@ -83,7 +83,7 @@ app = FastAPI(
         "financial ratio analysis, and post-lending covenant monitoring.\n\n"
         "**CONFIDENTIAL — FOR INTERNAL RISK MANAGEMENT USE ONLY**"
     ),
-    version="1.1.0",
+    version=settings.version,
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -509,7 +509,7 @@ def health_check():
     return {
         "status": "healthy",
         "service": "Institutional Credit Risk API",
-        "version": "1.1.0",
+        "version": settings.version,
         "timestamp": datetime.now().isoformat(),
     }
 
