@@ -1,66 +1,85 @@
 # RiskLens
 
-Language: [English](./README.md) | [简体中文](./docs/readme/README_zh-CN.md) | [繁體中文](./docs/readme/README_zh-TW.md) | [日本語](./docs/readme/README_ja.md)
+[English](./README.md) · [简体中文](./docs/readme/README_zh-CN.md) · [繁體中文](./docs/readme/README_zh-TW.md) · [日本語](./docs/readme/README_ja.md)
 
-RiskLens turns public-company financial data into a clear credit-risk view. Enter one or more stock tickers to review financial health, compare companies, check lending covenants, and export a report you can share.
+**An institutional-style credit risk workbench that turns public-company financials into explainable risk signals, covenant checks, and presentation-ready reports.**
 
-It is designed for screening and analysis—not as a replacement for a formal credit rating or professional lending judgment.
+[![CI](https://github.com/rightleung/RiskLens/actions/workflows/ci.yml/badge.svg)](https://github.com/rightleung/RiskLens/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=101010)](https://react.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-## What you can do
+![RiskLens dashboard showing a DEMO company, Altman Z-Score, implied credit rating, key risk drivers, export controls, and multi-period financial analysis](./docs/assets/showcase/dashboard-overview.png)
 
-- Assess one company or a group of companies in the dashboard.
-- Review 40+ liquidity, leverage, profitability, efficiency, and cash-flow ratios.
-- See the Altman Z-Score, risk zone, and an easy-to-read implied rating.
-- Set covenant limits and highlight passes, breaches, or missing data.
-- Compare periods and companies without rebuilding spreadsheets by hand.
-- Export results to JSON, Excel, or a presentation-ready PDF.
-- Use the product in English, Simplified Chinese, Traditional Chinese, or Japanese.
+RiskLens accepts one or more stock tickers, retrieves and normalizes public financial data, calculates 40+ ratios and an Altman Z-Score, maps the result to an implied credit rating, and presents the analysis in a multilingual React dashboard. The same assessment can be exported as JSON, Excel, or PDF for review and discussion.
 
-## From ticker to risk view
+## Highlights
 
-```text
-Enter ticker(s) → Collect and normalize financials → Calculate risk signals → Review or export
+- **40+ financial ratios** across liquidity, solvency, profitability, efficiency, and cash flow.
+- **Multi-company, multi-period analysis** with annual and quarterly views.
+- **Altman Z-Score and implied rating** with interpretable risk zones and contributing factors.
+- **Covenant monitoring** with configurable thresholds and conservative missing-data handling.
+- **JSON, Excel, and PDF exports** for downstream analysis and presentation.
+- **Four interface languages:** English, Simplified Chinese, Traditional Chinese, and Japanese.
+- **308 automated tests at the v1.2.0 release**, plus frontend lint, build, browser preflight, and dependency audits in CI.
+
+## Product views
+
+![RiskLens detailed risk analysis showing multi-period comparisons, strengths, and watch items in a dark monochrome interface](./docs/assets/showcase/risk-analysis-detail.png)
+
+![Three-page RiskLens PDF report preview showing the cover, credit risk summary and Z-Score analysis, and financial statement detail](./docs/assets/showcase/pdf-report-preview.png)
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["Stock ticker(s)"] --> B["FastAPI assessment API"]
+    B --> C["yfinance / optional AKShare"]
+    C --> D["Normalize financial statements"]
+    D --> E["Ratios · Z-Score · covenants"]
+    E --> F["React dashboard"]
+    E --> G["JSON · Excel · PDF"]
 ```
 
-RiskLens uses Yahoo Finance through `yfinance` for global listed companies. AKShare support can be enabled for additional China-market coverage.
+The primary dashboard uses the multi-period `RichAssessmentService`; a smaller compatibility service remains available for the legacy entry point.
+
+## Engineering decisions
+
+- **Missing covenant data fails conservatively.** If a configured covenant cannot be evaluated because its input is unavailable, RiskLens flags it as a breach pending manual review instead of silently passing it.
+- **Synchronous market-data work is isolated.** FastAPI offloads pandas and provider calls to worker threads, while per-ticker timeouts and a semaphore keep concurrent requests bounded.
+- **Quarterly results remain comparable.** Flow-based quarterly figures are annualized for ratio analysis, with an annual-period fallback when a quarterly Z-Score cannot produce a defensible rating.
+- **CJK reports use bundled fonts.** ReportLab renders English, Simplified Chinese, Traditional Chinese, and Japanese PDFs with packaged Noto Sans CJK fonts and explicit pagination controls.
 
 ## Quick start
 
-You need Python 3.12+, Node.js, npm, and network access for live market data.
+### Requirements
 
-Build the local workspace:
+- Python 3.12+
+- Node.js and npm
+- Network access for live market data
+
+Build the Python environment and React application:
 
 ```bash
 ./scripts/rebuild_workspace.sh
 ```
 
-Start RiskLens:
+Start the local dashboard:
 
 ```bash
 ./run_app.sh
 ```
 
-Then open [http://127.0.0.1:8000](http://127.0.0.1:8000).
-
-To include AKShare-backed China-market data during setup:
+Open `http://127.0.0.1:8000`. To install optional AKShare-backed China-market support, use:
 
 ```bash
 RISKLENS_WITH_CN_DATA=1 ./scripts/rebuild_workspace.sh
 ```
 
-## Using RiskLens
+The deterministic `DEMO` ticker exercises the core dashboard without depending on a live company response.
 
-### Dashboard
-
-Search by company name or enter tickers directly. A result includes the latest risk view, historical trends, financial statements, covenant checks, and export actions.
-
-Useful local pages:
-
-- Dashboard: `http://127.0.0.1:8000/`
-- Service health: `http://127.0.0.1:8000/health`
-- Interactive API guide: `http://127.0.0.1:8000/docs`
-
-### Command line
+## Command line
 
 ```bash
 ./run_cli.sh assess AAPL MSFT --data-source yfinance
@@ -68,56 +87,57 @@ Useful local pages:
 ./run_cli.sh covenants AAPL --min-current-ratio 1.2 --max-debt-to-equity 2.0
 ```
 
-Use `--output path/to/file.json` to save an assessment. Run `./run_cli.sh --help` to see all options.
+Add `--output path/to/file.json` to save an assessment, or run `./run_cli.sh --help` for all commands.
 
-### API
+## API
 
-The primary endpoints are:
+Interactive OpenAPI documentation is available locally at `http://127.0.0.1:8000/docs`.
 
-| Endpoint | Purpose |
+| Method and endpoint | Purpose |
 |---|---|
+| `GET /health` | Check service status and version |
 | `POST /api/v1/assess` | Assess one or more companies |
 | `GET /api/v1/symbols/search` | Find a listed-company ticker |
-| `POST /api/v1/covenants/check` | Check selected covenant limits |
-| `POST /api/v1/reports/pdf` | Create a single-company PDF |
-| `POST /api/v1/reports/pdf/batch` | Download up to 10 PDFs as a ZIP |
+| `POST /api/v1/covenants/check` | Evaluate configured covenant limits |
+| `POST /api/v1/reports/pdf` | Generate a single-company PDF |
+| `POST /api/v1/reports/pdf/batch` | Download up to ten reports as a ZIP |
 
-Request and response examples are available in the interactive API guide at `/docs`.
+## Validation
 
-## How to read the result
-
-- **Z-Score** summarizes five balance-sheet and earnings signals into one score.
-- **Risk zone** groups the score into Safe, Grey, or Distress.
-- **Implied rating** translates the score into familiar credit language for internal screening.
-- **Ratios and trends** show what is driving the result over time.
-- **Covenant checks** compare actual ratios with limits you choose.
-- **Data-quality notes** show where inputs are incomplete or require review.
-
-When a covenant is configured but its underlying data is unavailable, RiskLens marks it as a breach pending manual review. This avoids silently treating missing information as a pass.
-
-## Important limitations
-
-- The implied rating is a RiskLens interpretation, not a rating issued by S&P or another rating agency.
-- Public market data may be delayed, restated, incomplete, or mapped differently across accounting standards.
-- Historical scores may use current market capitalization when a historical value is unavailable.
-- The Altman model is one signal and should be considered alongside industry, ownership, liquidity, and qualitative analysis.
-- RiskLens does not provide investment, legal, or lending advice.
-
-## For contributors
-
-Run the main checks before submitting a change:
+The release gate runs backend tests, packaging checks, frontend lint and production builds, Playwright browser preflight, and Python/npm dependency audits.
 
 ```bash
-pytest
-cd web && npm run lint && npm run build && npm run e2e:preflight
+python -m pip check
+python -m pytest -q
+
+cd web
+npm run lint
+npm run build
+npm run e2e:preflight
 ```
 
-The primary application is `src/api.py` plus the React app in `web/`. The root `main.py` remains only for compatibility checks.
+CI also verifies that the bundled CJK font assets are present and that both the Python package and React production bundle can be built from a clean checkout.
 
-## Guides
+## Development process
 
-- [How RiskLens works](./docs/architecture/ARCHITECTURE.md)
-- [How RiskLens reads credit risk](./docs/methodology/METHODOLOGY.md)
-- [Working with Excel exports](./docs/report-workbook/REPORT_WORKBOOK_SPEC.md)
-- [Documentation in other languages](./docs/readme/README.md)
+Codex assisted with implementation, refactoring, and test development. Changes were treated as engineering inputs—not accepted solely because they were generated—and were validated through automated tests, dependency audits, CI, rendered-report inspection, and manual product QA.
+
+## Methodology and limitations
+
+- The implied rating is a RiskLens interpretation for internal screening, not a rating issued by S&P or another credit-rating agency.
+- Public market data may be delayed, restated, incomplete, or mapped differently across accounting standards.
+- Historical Z-Scores may use current market capitalization when historical market values are unavailable.
+- Altman Z-Score is one signal; industry structure, ownership, liquidity, and qualitative factors still require professional judgment.
+- RiskLens does not provide investment, legal, accounting, credit-rating, or lending advice.
+
+## Documentation
+
+- [Architecture](./docs/architecture/ARCHITECTURE.md)
+- [Credit-risk methodology](./docs/methodology/METHODOLOGY.md)
+- [Excel report specification](./docs/report-workbook/REPORT_WORKBOOK_SPEC.md)
+- [Localized documentation index](./docs/readme/README.md)
 - [Release checklist](./docs/review/repository-release-checklist.md)
+
+## License
+
+RiskLens is released under the [MIT License](./LICENSE).
