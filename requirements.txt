@@ -6,7 +6,7 @@ reportlab>=4.0,<5
 
 fastapi==0.133.1
 uvicorn==0.41.0
-pydantic==2.12.5
+pydantic==2.13.4
 pydantic-settings>=2.7
 
 # Optional: install with `pip install -e ".[cn]"` if you need OpenCC-based zh-CN/zh-TW conversion.
